@@ -107,7 +107,6 @@ end
 
 function ReACTDiscretize(A, B, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Nothing, δ⁻, δ⁺, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing) where {N}
     XDim, _ = size(genmat(X0))
-    phiDict = Dict{Float64,Matrix{Float64}}()
     discritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
 
     if isnothing(phiDict)

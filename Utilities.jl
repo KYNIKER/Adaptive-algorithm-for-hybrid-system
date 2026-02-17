@@ -9,6 +9,28 @@ using LazySets
     Jump::Matrix{Tuple{Matrix{Float64},Vector{Float64}}}
 end=#
 
+struct Location
+    id :: Int
+    invarient :: Union{HPolyhedron, Nothing}
+    A :: Matrix{Float64}
+end
+
+
+struct Edge
+    sourceLoc :: Int
+    targetLoc :: Int
+    guard :: HPolyhedron
+    jump :: Matrix{Float64}
+end
+
+struct HybridSystemV2
+    locations :: Vector{Location}
+    edges :: Vector{Edge}
+    initialLoc :: Int
+    initialState # Fill this in later
+end
+
+
 struct HybridSystem
     V
     E

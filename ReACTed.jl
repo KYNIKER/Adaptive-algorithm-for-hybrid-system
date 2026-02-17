@@ -1,22 +1,45 @@
 using LazySets, LinearAlgebra
 include("Discretize.jl")
+include("Utilities.jl")
 
-function ReACT(A, B, initialTimeStep, interval, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, constraint, Digits::Integer, STRATEGY::Integer, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}
 
-    m = initialTimeStep / 2^(ceil(Integer, log2(initialTimeStep)) + ceil(Integer, -log2(10.0^(-Digits))) - 1)   #Calculate the smallest number larger than 10^-Digits obtained by repeatedly dividing initialTimeStep by 2.
+function ReACTed(hybridSystem::HybridSystem, interval, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, constraint, δ⁻, δ⁺, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}
+    flowPhiDict = Dict{eltype(hybridSystem.locations),Matrix{N}}(map(x -> x => PhiDict(hybridSystem.Flow[x], δ⁻, δ⁺, alg), hybridSystem.locations))
+    loc = hybridSystem.Init
+
+    time::Float64 = minimum(interval)
+    endtime::Float64 = maximum(interval)
+    reachset = []
+    for j in eachindex(hybridSystem.G[loc, :])
+        guards = hybridSystem.G[loc, j]
+        if !ismissing(guards)
+            for guard in guards
+                let tempReachset, tempInput, reachtime = ReACT(hybridSystem.Flow[loc], δ⁻, δ⁺, [0.0, endtime], X0, U, guard, 2, maxOrder, reduceOrder, flowPhiDict[loc])
+                    if reachtime < endtime
+                        #=
+                        timeIntersected = ReACTTouches(hybridSystem.Flow[loc], δ⁻, δ⁺, [reachtime, endtime], X0, U, guard, 2, maxOrder, reduceOrder, flowPhiDict[loc])
+                        timeIntersectedSet = ReACTDiscretize(hybridSystem.Flow[loc], tempReachset, U, δ⁻, timeIntersected, alg, maxOrder, reduceOrder, flowPhiDict[loc])
+                        intersectionSet = intersection(timeIntersectedSet, guard)
+                        newLoc = j
+                        =#
+                    end
+                end
+            end
+        end
+    end
+end
+
+function ReACT(A, δ⁻, δ⁺, interval, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, constraint, STRATEGY::Integer, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, PhiDict=nothing) where {N}
+    initialTimeStep = δ⁺
     changedTimeStep = true
-    elems = (ceil(Integer, log2(initialTimeStep)) + ceil(Integer, -log2(10.0^(-Digits))) - 1)
-    phiDict = Dict{Float64,Matrix{Float64}}()
-    sizehint!(phiDict, elems)
+    phiDict = PhiDict
     discritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
-    sizehint!(discritezationDict, elems)
     inputDiscritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
-    sizehint!(inputDiscritezationDict, elems)
 
     constraintProjVectors = map(x -> x.a, constraint)
     constraintProjBounds = ρ.(constraintProjVectors, constraint)
 
-    discritezationDict, inputDiscritezationDict, phiDict = ReACTDiscretize(A, B, X0, U, m, initialTimeStep, alg, maxOrder, reduceOrder)
+    discritezationDict, inputDiscritezationDict, phiDict = ReACTDiscretize(A, X0, U, δ⁻, δ⁺, alg, maxOrder, reduceOrder, phiDict)
 
     time::Float64 = minimum(interval)
     endtime::Float64 = maximum(interval)
@@ -44,7 +67,7 @@ function ReACT(A, B, initialTimeStep, interval, X0::Zonotope{N,Vector{N},Matrix{
 
         while !approveFlag
             if currentTimeStep < m
-                return false
+                return (newR, sρ, time)
             end
 
             if changedTimeStep
@@ -103,7 +126,7 @@ function ReACT(A, B, initialTimeStep, interval, X0::Zonotope{N,Vector{N},Matrix{
         end
     end
 
-    return true
+    return (newR, sρ, time)
 end
 
 function ReACT(A, B, initialTimeStep, interval, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Nothing, constraint, Digits::Integer, STRATEGY::Integer, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}

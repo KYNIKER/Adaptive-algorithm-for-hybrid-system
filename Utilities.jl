@@ -1,5 +1,7 @@
 using LazySets
 
+export HybridSystem
+
 #=struct HybridSystem
     V::Vector{Any}
     E::Matrix{Int}
@@ -67,4 +69,14 @@ function system(locations, edges, guards, invariants, flows, jumps, init)
         end
     end
     return HybridSystem(locations, E, G, invariants, flows, J, init)
+end
+
+function intersection(Z, H)
+    agenSum = reduce(+, abs.(genmat(Z) * H.a))
+    acenSum = Z.center * H.a
+    if (acenSum - agenSum <= H.b) & (H.b <= acenSum + agenSum)
+        return Z
+    else
+        return nothing
+    end
 end

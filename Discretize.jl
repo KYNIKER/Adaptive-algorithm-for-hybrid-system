@@ -101,7 +101,7 @@ function ReACTDiscretize(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, δ
         inputDiscritezationDict[d] = P
     end
 
-    return discritezationDict, inputDiscritezationDict, phiDict
+    return discritezationDict, inputDiscritezationDict
 end
 
 
@@ -148,7 +148,7 @@ function ReACTDiscretize(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Nothing, δ�
     end
     discritezationDict[d] = copy(disc)
 
-    return discritezationDict, Nothing, phiDict
+    return discritezationDict, Nothing
 end
 
 function PhiDict(A, δ⁻, δ⁺, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp)

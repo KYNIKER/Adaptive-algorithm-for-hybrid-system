@@ -1,6 +1,6 @@
 using LazySets
 
-export HybridSystem, HybridSystemV2, Location, Edge, overapproximateIntervalReachset
+export HybridSystem, HybridSystemV2, Location, Edge, overapproximateIntervalReachset, intersects
 
 #=struct HybridSystem
     V::Vector{Any}
@@ -79,6 +79,12 @@ function intersection(Z, H)
     else
         return nothing
     end
+end
+
+function intersects(Z, H)
+    agenSum = reduce(+, abs.(genmat(Z) * H.a))
+    acenSum = Z.center * H.a
+    return (acenSum - agenSum <= H.b) & (H.b <= acenSum + agenSum)
 end
 
 function overapproximateIntervalReachset(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, δ⁻, δ⁺, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing) where {N}

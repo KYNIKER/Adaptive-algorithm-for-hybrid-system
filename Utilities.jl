@@ -15,19 +15,19 @@ struct Location
     id :: Int
     invarient :: Union{HPolyhedron, Nothing}
     A :: Matrix{Float64}
+    edges :: Vector{Edge}
 end
 
 
 struct Edge
-    sourceLoc :: Int
     targetLoc :: Int
     guard :: HPolyhedron
-    jump :: Matrix{Float64}
+    jumpMatrix :: Matrix{Float64}
+    jumpVector :: Vector{Float64}
 end
 
 struct HybridSystemV2
     locations :: Vector{Location}
-    edges :: Vector{Edge}
     initialLoc :: Int
     initialState # Fill this in later
 end

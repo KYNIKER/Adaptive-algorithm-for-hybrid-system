@@ -42,40 +42,7 @@ function loadGearBox()
     #     (1, 1),
     #     (1, 2)
     # ]
-
-    locations = []
-
-    # mode 1 ("free")
-    A = zeros(n-1, n-1)
-    b = zeros(n-1)
-    A[px, vx] = 1.
-    A[py, vy] = 1.
-    b[vx] = Fs / ms
-    b[vy] = - (Rs * Tf) / Jg₂
-    invariant = HPolyhedron([
-        HalfSpace(sparsevec([px], [1.], n), Δp),  # px <= Δp
-        HalfSpace(sparsevec([px, py], [tan(θ), 1.], n), 0.),    # py <= -px * tan(θ)
-        HalfSpace(sparsevec([px, py], [tan(θ), -1.], n), 0.)])  # py >= px * tan(θ)
-    Aext = add_dimension(A)
-    Aext[1:n-1, n] = b
-
-    
-    push!(locations, Location(1,                        # ID
-        HPolyhedron([   # Invaariant
-        HalfSpace(sparsevec([px], [1.], n), Δp),  # px <= Δp
-        HalfSpace(sparsevec([px, py], [tan(θ), 1.], n), 0.),    # py <= -px * tan(θ)
-        HalfSpace(sparsevec([px, py], [tan(θ), -1.], n), 0.)]),  # py >= px * tan(θ)
-        Aext)           # Flow matrix
-    )
-
-    #m_1 = @system(x' = Aext * x, x ∈ invariant)
-
-    # mode 2 ("meshed")
-    A0 = zeros(n, n)
-    push!(locations, Location(2, nothing, A0))
-    #m_2 = @system(x' = A0 * x, x ∈ Universe(n))
-
-    edges = []
+    edgeListLoc1 :: Vector{Edge} = []
 
     # common assignment matrix (requires individual modifications)
     A_template = zeros(n, n)
@@ -99,7 +66,7 @@ function loadGearBox()
     A = copy(A_template)
     #t1 = ConstrainedLinearMap(A, guard)
 
-    push!(edges, Edge(1, 1, guard, A))
+    push!(edgeListLoc1, Edge(1, guard, A, zeros(n)))
 
     # transition l1 -> l1
     # TODO same remark as with the other guard
@@ -113,7 +80,7 @@ function loadGearBox()
     A[I, vy] *= -1.
     #t2 = ConstrainedLinearMap(A, guard)
 
-    push!(edges, Edge(1, 1, guard, A))
+    push!(edgeListLoc1, Edge(1, guard, A, zeros(n)))
 
     # transition l1 -> l2
     guard = HalfSpace(SingleEntryVector(px, n, -1.), -Δp)  # px >= Δp
@@ -125,9 +92,47 @@ function loadGearBox()
     A[I, vx] = A[I, vy] = ms
     #t3 = ConstrainedLinearMap(A, guard)
 
-    push!(edges, Edge(1, 2, guard, A))
+    push!(edgeListLoc1, Edge(2, guard, A, zeros(n)))
 
-    H = HybridSystemV2(locations, edges, 1, X0)
+    
+    locations = []
+
+    # mode 1 ("free")
+    A = zeros(n-1, n-1)
+    b = zeros(n-1)
+    A[px, vx] = 1.
+    A[py, vy] = 1.
+    b[vx] = Fs / ms
+    b[vy] = - (Rs * Tf) / Jg₂
+    invariant = HPolyhedron([
+        HalfSpace(sparsevec([px], [1.], n), Δp),  # px <= Δp
+        HalfSpace(sparsevec([px, py], [tan(θ), 1.], n), 0.),    # py <= -px * tan(θ)
+        HalfSpace(sparsevec([px, py], [tan(θ), -1.], n), 0.)])  # py >= px * tan(θ)
+    Aext = add_dimension(A)
+    Aext[1:n-1, n] = b
+
+    
+    push!(locations, Location(1,                        # ID
+        HPolyhedron([   # Invaariant
+        HalfSpace(sparsevec([px], [1.], n), Δp),  # px <= Δp
+        HalfSpace(sparsevec([px, py], [tan(θ), 1.], n), 0.),    # py <= -px * tan(θ)
+        HalfSpace(sparsevec([px, py], [tan(θ), -1.], n), 0.)]),  # py >= px * tan(θ)
+        Aext,           # Flow matrix
+        edgeListLoc1)
+    )
+
+    #m_1 = @system(x' = Aext * x, x ∈ invariant)
+
+    # mode 2 ("meshed")
+    A0 = zeros(n, n)
+    push!(locations, Location(2, nothing, A0, []))
+    #m_2 = @system(x' = A0 * x, x ∈ Universe(n))
+
+
+    H = HybridSystemV2(locations, 1, X0)
 
     return H
 end
+
+
+# loadGearBox()

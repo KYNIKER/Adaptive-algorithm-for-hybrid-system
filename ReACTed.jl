@@ -3,33 +3,102 @@ include("Discretize.jl")
 include("Utilities.jl")
 
 
-function ReACTed(hybridSystem::HybridSystem, interval, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, constraint, δ⁻, δ⁺, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}
-    flowPhiDict = Dict{eltype(hybridSystem.locations),Matrix{N}}(map(x -> x => PhiDict(hybridSystem.Flow[x], δ⁻, δ⁺, alg), hybridSystem.locations))
-    loc = hybridSystem.Init
+function ReACTed(hybridSystem::HybridSystemV2, interval, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, constraint, δ⁻, δ⁺, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}
+    flowPhiDict = Dict{eltype(hybridSystem.locations),Matrix{N}}(map(x -> x => PhiDict(x.A, δ⁻, δ⁺, alg), hybridSystem.locations))
+    loc = hybridSystem.initialLoc
 
     time::Float64 = minimum(interval)
     endtime::Float64 = maximum(interval)
     reachset = []
-    for j in eachindex(hybridSystem.G[loc, :])
+
+    res = auxReACTed(loc, interval, X0, U, constraint, δ⁻, δ⁺, flowPhiDict[loc.id], alg, maxOrder, reduceOrder)
+
+    #=for j in eachindex(hybridSystem.G[loc, :])
         guards = hybridSystem.G[loc, j]
         if !ismissing(guards)
             for guard in guards
-                let tempReachset, tempInput, reachtime = ReACT(hybridSystem.Flow[loc], δ⁻, δ⁺, [0.0, endtime], X0, U, guard, 2, maxOrder, reduceOrder, flowPhiDict[loc])
+                let tempReachset, tempInput, reachtime = ReACT(hybridSystem.Flow[loc], δ⁻, δ⁺, [0.0, endtime], X0, U, guard, 2, alg, maxOrder, reduceOrder, flowPhiDict[loc])
                     if reachtime < endtime
                         #=
                         timeIntersected = ReACTTouches(hybridSystem.Flow[loc], δ⁻, δ⁺, [reachtime, endtime], X0, U, guard, 2, maxOrder, reduceOrder, flowPhiDict[loc])
-                        timeIntersectedSet = ReACTDiscretize(hybridSystem.Flow[loc], tempReachset, U, δ⁻, timeIntersected, alg, maxOrder, reduceOrder, flowPhiDict[loc])
-                        intersectionSet = intersection(timeIntersectedSet, guard)
+                        timeIntersectedSet = concretize(ReACTDiscretize(hybridSystem.Flow[loc], tempReachset, U, δ⁻, timeIntersected, alg, maxOrder, reduceOrder, flowPhiDict[loc])[timeIntersected])
+                        if ρ(timeIntersectedSet.center, guard.a) >= guard.b
+                            jumpSet = edge.jumpMatrix * timeIntersectedSet + edge.jumpVector * timeIntersectedSet
+                            ReACT(hybridSystem.Flow[edge.targetLoc], δ⁻, δ⁺, [0.0, endtime], X0, U, guard, 2, alg, maxOrder, reduceOrder, flowPhiDict[loc])
+                        nonintersectedSet, intersectedSet = intersection(timeIntersectedSet, guard)
                         newLoc = j
+                        # New run of React 
                         =#
                     end
                 end
             end
         end
-    end
+    end=#
 end
 
-function ReACT(A, δ⁻, δ⁺, interval, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, constraint, STRATEGY::Integer, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, PhiDict=nothing) where {N}
+function auxReACTed(loc::Location, interval, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, constraint, δ⁻, δ⁺, PhiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}
+    time::Float64 = minimum(interval)
+    endtime::Float64 = maximum(interval)
+    reachset = []
+    for edge in loc.edges
+        guards = edge.guard
+        if !ismissing(guards)
+            mins = []
+            maxs = []
+            tempReachsets = []
+            tempInputs = []
+            for guard in constraints_list(guards)
+                let tempReachset, tempInput, reachtime = ReACT(loc, δ⁻, δ⁺, [time, endtime], X0, U, guard, 2, alg, maxOrder, reduceOrder, PhiDict)
+                    if reachtime < endtime
+                        push!(mins, reachtime)
+                        timeIntersected = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, endtime], X0, U, guard, 2, maxOrder, reduceOrder, flowPhiDict[loc])
+                        #=
+                        if isnothing(timeIntersected) # Handle the case where the unsafe set is reached while intersecting the guard
+                            return missing
+                        end
+                        =#
+                        push!(maxs, reachtime + timeIntersected)
+                    end
+                    push!(mins, endtime)
+                    push!(maxs, endtime)
+                    push!(tempReachsets, tempReachset)
+                    push!(tempInputs, tempInput)
+                end
+            end
+            supMins, supMinsIdx = findmax(mins)
+            infMaxs, infMaxsIdx = findmin(maxs)
+            timeIntersected = infMaxs - supMins
+
+            #
+            #   Here we should check whether we have reached endtime. If true we should only push the jumpSet
+            #   Still need to check whether we have reached the invariant. If true we should NOT push the else branch result, only the tempReachsets[infMaxsIdx]
+            #
+
+            if timeIntersected >= 0
+                timeIntersectedSet = concretize(overapproximateIntervalReachset(loc.A, tempReachsets[supMinsIdx], U, δ⁻, timeIntersected, alg, maxOrder, reduceOrder, flowPhiDict[loc.id]))
+                nonintersectedSet, intersectedSet = intersection(timeIntersectedSet, guard)
+                jumpSet = edge.jumpMatrix * intersectedSet + edge.jumpVector * intersectedSet
+
+                branchedRun = auxReACTed(edge.targetLoc, [supMins, endtime], jumpset, tempInputs[supMinsIdx], constraint, δ⁻, δ⁺, flowPhiDict[loc.id], alg, maxOrder, reduceOrder)
+                push!(reachset, branchedRun)
+            else
+                branchedRun = auxReACTed(loc, [infMaxs, endtime], tempReachsets[infMaxsIdx], tempInputs[infMaxsIdx], constraint, δ⁻, δ⁺, flowPhiDict[loc.id], alg, maxOrder, reduceOrder)
+                push!(reachset, branchedRun)
+                #=
+                if ρ(timeIntersectedSet.center, guard.a) >= guard.b
+
+                =#
+            end
+        end
+    end
+    return reachset
+end
+
+function ReACTTouches(loc, δ⁻, δ⁺, [reachtime, endtime], X0, U, guard, 2, maxOrder, reduceOrder, flowPhiDict[loc])
+    return missing
+end
+
+function ReACT(loc, δ⁻, δ⁺, interval, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, constraint, STRATEGY::Integer, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, PhiDict=nothing) where {N}
     initialTimeStep = δ⁺
     changedTimeStep = true
     phiDict = PhiDict

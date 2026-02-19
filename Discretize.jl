@@ -18,7 +18,7 @@ function ReACTDiscretize(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, δ
 
     d = δ⁻
     dia::Matrix{Float64} = diagm(ones(XDim))
-    isInvA = isinvertible(A)
+    isInvA = false #isinvertible(A)
     Φ = copy(phiDict[d])
     A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(A)
     Φcache = sum(A) == abs(sum(A)) ? Φ : nothing
@@ -86,7 +86,7 @@ function ReACTDiscretize(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, δ
                 end
             end
 
-            disc = overapproximate(CH(disc, linear_map(ϕ, disc)), Zonotope)
+            disc = overapproximate(CH(disc, linear_map(phiDict[d], disc)), Zonotope)
             d = d * 2
         end
         if maxOrder > 0
@@ -156,7 +156,7 @@ function PhiDict(A, δ⁻, δ⁺, alg::ReachabilityAnalysis.Exponentiation.Abstr
         phiDict = Dict{Float64,Matrix{Float64}}()
         tempM = similar(ϕ)
         d = δ⁻
-        while d < δ⁺
+        while d <= δ⁺
 
             phiDict[d] = copy(ϕ)
 
@@ -164,7 +164,7 @@ function PhiDict(A, δ⁻, δ⁺, alg::ReachabilityAnalysis.Exponentiation.Abstr
             copy!(ϕ, tempM)
             d = d * 2
         end
-        phiDict[d] = copy(ϕ)
+        #phiDict[d] = copy(ϕ)
         return phiDict
     end
 end

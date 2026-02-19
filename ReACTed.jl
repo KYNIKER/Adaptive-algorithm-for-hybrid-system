@@ -14,7 +14,7 @@ function ReACTed(hybridSystem::HybridSystemV2, interval, X0::Zonotope{N,Vector{N
     endtime::Float64 = maximum(interval)
     reachset = []
 
-    res = auxReACTed(hybridSystem.locations[loc], interval, X0, U, constraint, δ⁻, δ⁺, flowPhiDict[loc], alg, maxOrder, reduceOrder)
+    res = auxReACTed(hybridSystem.locations[loc], interval, X0, U, constraint, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder)
 
     #reachset = hcat(reachset, res)
 
@@ -22,7 +22,7 @@ function ReACTed(hybridSystem::HybridSystemV2, interval, X0::Zonotope{N,Vector{N
 end
 
 function auxReACTed(loc::Location, interval, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, constraint, δ⁻, δ⁺, PhiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}
-    discretizationDict, inputDiscritezationDict = ReACTDiscretize(loc.A, X0, U, δ⁻, δ⁺, alg, maxOrder, reduceOrder, PhiDict)
+    discretizationDict, inputDiscritezationDict = ReACTDiscretize(loc.A, X0, U, δ⁻, δ⁺, alg, maxOrder, reduceOrder, PhiDict[loc.id])
     time::Float64 = minimum(interval)
     endtime::Float64 = maximum(interval)
     reachset = []
@@ -31,9 +31,9 @@ function auxReACTed(loc::Location, interval, X0::Zonotope{N,Vector{N},Matrix{N}}
         if !ismissing(guards)
             guards = constraints_list(guards)
 
-            tempReachset, tempInput, reachtime = ReACTGuards(loc, δ⁻, δ⁺, [time, endtime], guards, constraint, 2, PhiDict, discretizationDict, inputDiscritezationDict)
+            tempReachset, tempInput, reachtime = ReACTGuards(loc, δ⁻, δ⁺, [time, endtime], guards, constraint, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict)
             if reachtime < endtime
-                intersectingSet, intersectedInput, timeIntersected = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, endtime], guards, constraint, 2, PhiDict, discretizationDict, inputDiscritezationDict)
+                intersectingSet, intersectedInput, timeIntersected = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, endtime], guards, constraint, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict)
                 timeIntersected = timeIntersected - reachtime
 
                 #
@@ -53,12 +53,13 @@ function auxReACTed(loc::Location, interval, X0::Zonotope{N,Vector{N},Matrix{N}}
                     #
 
                     timePointInput = missing
-                    branchedRun = auxReACTed(edge.targetLoc, [reachtime, endtime], jumpset, timePointInput, constraint, δ⁻, δ⁺, flowPhiDict[loc.id], alg, maxOrder, reduceOrder)
+                    branchedRun = auxReACTed(edge.targetLoc, [reachtime, endtime], jumpset, timePointInput, constraint, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder)
                     push!(reachset, branchedRun)
-                    branchedRun = auxReACTed(loc, [timeIntersected, endtime], nonintersectedSet, intersectedInput, constraint, δ⁻, δ⁺, flowPhiDict[loc.id], alg, maxOrder, reduceOrder)
+                    branchedRun = auxReACTed(loc, [timeIntersected, endtime], nonintersectedSet, intersectedInput, constraint, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder)
+                    push!(reachset, branchedRun)
 
                 else
-                    branchedRun = auxReACTed(loc, [infMaxs, endtime], tempReachsets[infMaxsIdx], tempInputs[infMaxsIdx], constraint, δ⁻, δ⁺, flowPhiDict[loc.id], alg, maxOrder, reduceOrder)
+                    branchedRun = auxReACTed(loc, [infMaxs, endtime], tempReachsets[infMaxsIdx], tempInputs[infMaxsIdx], constraint, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder)
                     push!(reachset, branchedRun)
                     #=
                     if ρ(timeIntersectedSet.center, guard.a) >= guard.b
@@ -74,8 +75,8 @@ function auxReACTed(loc::Location, interval, X0::Zonotope{N,Vector{N},Matrix{N}}
 end
 
 function ReACTTouches(loc, δ⁻, δ⁺, interval, guard, constraint, STRATEGY::Integer, PhiDict, discritezationDict, inputDiscritezationDict)
-    initialTimeStep = δ⁺
-    m = δ⁻
+    initialTimeStep = copy(δ⁺)
+    m = copy(δ⁻)
     changedTimeStep = true
     phiDict = PhiDict
 
@@ -179,8 +180,8 @@ function ReACTTouches(loc, δ⁻, δ⁺, interval, guard, constraint, STRATEGY::
 end
 
 function ReACTGuards(loc, δ⁻, δ⁺, interval, guards, constraint, STRATEGY::Integer, PhiDict, discritezationDict, inputDiscritezationDict)
-    initialTimeStep = δ⁺
-    m = δ⁻
+    initialTimeStep = copy(δ⁺)
+    m = copy(δ⁻)
     changedTimeStep = true
     phiDict = PhiDict
 

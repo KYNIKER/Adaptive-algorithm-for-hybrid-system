@@ -62,8 +62,8 @@ function ReACTDiscretize(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, δ
                 disc = reduce_order(disc, reduceOrder)
             end
         end
-        discritezationDict[d] = copy(disc)
-        inputDiscritezationDict[d] = P
+        discritezationDict[δ⁺] = copy(disc)
+        inputDiscritezationDict[δ⁺] = P
     else
         dU = overapproximate(d * U, Zonotope)
         E_ψ = convert(Zonotope, symmetric_interval_hull(P2A_abs * symmetric_interval_hull(A * U)))
@@ -97,8 +97,8 @@ function ReACTDiscretize(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, δ
                 disc = reduce_order(disc, reduceOrder)
             end
         end
-        discritezationDict[d] = copy(disc)
-        inputDiscritezationDict[d] = P
+        discritezationDict[δ⁺] = copy(disc)
+        inputDiscritezationDict[δ⁺] = P
     end
 
     return discritezationDict, inputDiscritezationDict
@@ -146,7 +146,7 @@ function ReACTDiscretize(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Nothing, δ�
             disc = reduce_order(disc, reduceOrder)
         end
     end
-    discritezationDict[d] = copy(disc)
+    discritezationDict[δ⁺] = copy(disc)
 
     return discritezationDict, Nothing
 end
@@ -156,7 +156,7 @@ function PhiDict(A, δ⁻, δ⁺, alg::ReachabilityAnalysis.Exponentiation.Abstr
         phiDict = Dict{Float64,Matrix{Float64}}()
         tempM = similar(ϕ)
         d = δ⁻
-        while d <= δ⁺
+        while d < δ⁺
 
             phiDict[d] = copy(ϕ)
 
@@ -164,7 +164,7 @@ function PhiDict(A, δ⁻, δ⁺, alg::ReachabilityAnalysis.Exponentiation.Abstr
             copy!(ϕ, tempM)
             d = d * 2
         end
-        #phiDict[d] = copy(ϕ)
+        phiDict[δ⁺] = copy(ϕ)
         return phiDict
     end
 end

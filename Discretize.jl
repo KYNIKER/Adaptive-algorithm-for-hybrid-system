@@ -4,7 +4,7 @@ using LinearAlgebra, LazySets, ReachabilityAnalysis
 
 isinvertible(x) = applicable(inv, x) && isone(inv(Matrix(x)) * x)
 
-function ReACTDiscretize(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, δ⁻, δ⁺, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing) where {N}
+function ReACTDiscretize(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing) where {N}
     XDim, _ = size(genmat(X0))
     discritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
     inputDiscritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
@@ -105,7 +105,7 @@ function ReACTDiscretize(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, δ
 end
 
 
-function ReACTDiscretize(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Nothing, δ⁻, δ⁺, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing) where {N}
+function ReACTDiscretize(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Nothing, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing) where {N}
     XDim, _ = size(genmat(X0))
     discritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
 
@@ -151,7 +151,7 @@ function ReACTDiscretize(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Nothing, δ�
     return discritezationDict, Nothing
 end
 
-function PhiDict(A, δ⁻, δ⁺, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp)
+function PhiDict(A, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp)
     let ϕ::Matrix{Float64} = ReachabilityAnalysis.Exponentiation._exp(A, δ⁻, alg)
         phiDict = Dict{Float64,Matrix{Float64}}()
         tempM = similar(ϕ)

@@ -80,13 +80,13 @@ function system(locations, edges, guards, invariants, flows, jumps, init)
 end
 
 function intersection(Z, H)
-    agenSum = reduce(+, abs.(genmat(Z) * H.a))
-    acenSum = Z.center * H.a
+    return Z, Z
+    #=agenSum = reduce(+, abs.(genmat(Z) .* H.a))
+    acenSum = dot(Vector(H.a), Z.center)
     if (acenSum - agenSum <= H.b) & (H.b <= acenSum + agenSum)
-        return Z
     else
         return nothing
-    end
+    end=#
 end
 
 function intersects(Z, H)

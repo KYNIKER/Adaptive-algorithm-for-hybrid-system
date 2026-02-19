@@ -5,7 +5,7 @@ include("Utilities.jl")
 
 function ReACTed(hybridSystem::HybridSystemV2, interval, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, constraint, δ⁻, δ⁺, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}
     loc = hybridSystem.initialLoc
-    flowPhiDict = Dict{eltype(hybridSystem.locations),Matrix{N}}(map(x -> x => PhiDict(x.A, δ⁻, δ⁺, alg), hybridSystem.locations))
+    flowPhiDict = Dict(map(x -> x.id => PhiDict(x.A, δ⁻, δ⁺, alg), hybridSystem.locations))
 
 
 
@@ -14,44 +14,26 @@ function ReACTed(hybridSystem::HybridSystemV2, interval, X0::Zonotope{N,Vector{N
     endtime::Float64 = maximum(interval)
     reachset = []
 
-    res = auxReACTed(loc, interval, X0, U, constraint, δ⁻, δ⁺, flowPhiDict[loc.id], alg, maxOrder, reduceOrder)
+    res = auxReACTed(hybridSystem.locations[loc], interval, X0, U, constraint, δ⁻, δ⁺, flowPhiDict[loc], alg, maxOrder, reduceOrder)
 
-    #=for j in eachindex(hybridSystem.G[loc, :])
-        guards = hybridSystem.G[loc, j]
-        if !ismissing(guards)
-            for guard in guards
-                let tempReachset, tempInput, reachtime = ReACT(hybridSystem.Flow[loc], δ⁻, δ⁺, [0.0, endtime], X0, U, guard, 2, alg, maxOrder, reduceOrder, flowPhiDict[loc])
-                    if reachtime < endtime
-                        #=
-                        timeIntersected = ReACTTouches(hybridSystem.Flow[loc], δ⁻, δ⁺, [reachtime, endtime], X0, U, guard, 2, maxOrder, reduceOrder, flowPhiDict[loc])
-                        timeIntersectedSet = concretize(ReACTDiscretize(hybridSystem.Flow[loc], tempReachset, U, δ⁻, timeIntersected, alg, maxOrder, reduceOrder, flowPhiDict[loc])[timeIntersected])
-                        if ρ(timeIntersectedSet.center, guard.a) >= guard.b
-                            jumpSet = edge.jumpMatrix * timeIntersectedSet + edge.jumpVector * timeIntersectedSet
-                            ReACT(hybridSystem.Flow[edge.targetLoc], δ⁻, δ⁺, [0.0, endtime], X0, U, guard, 2, alg, maxOrder, reduceOrder, flowPhiDict[loc])
-                        nonintersectedSet, intersectedSet = intersection(timeIntersectedSet, guard)
-                        newLoc = j
-                        # New run of React 
-                        =#
-                    end
-                end
-            end
-        end
-    end=#
+    #reachset = hcat(reachset, res)
+
+    return res
 end
 
 function auxReACTed(loc::Location, interval, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, constraint, δ⁻, δ⁺, PhiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}
-    discretizationDict, inputDiscritezationDict = ReACTDiscretize(loc.A, X0, U, δ⁻, δ⁺, alg, maxOrder, reduceOrder, flowPhiDict[loc.id])
+    discretizationDict, inputDiscritezationDict = ReACTDiscretize(loc.A, X0, U, δ⁻, δ⁺, alg, maxOrder, reduceOrder, PhiDict)
     time::Float64 = minimum(interval)
     endtime::Float64 = maximum(interval)
     reachset = []
     for edge in loc.edges
         guards = edge.guard
         if !ismissing(guards)
+            guards = constraints_list(guards)
 
-
-            tempReachset, tempInput, reachtime = ReACTGuards(loc, δ⁻, δ⁺, [time, endtime], guard, constraint, 2, PhiDict, discretizationDict, inputDiscritezationDict)
+            tempReachset, tempInput, reachtime = ReACTGuards(loc, δ⁻, δ⁺, [time, endtime], guards, constraint, 2, PhiDict, discretizationDict, inputDiscritezationDict)
             if reachtime < endtime
-                intersectingSet, intersectedInput, timeIntersected = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, endtime], guard, constraint, 2, PhiDict, discretizationDict, inputDiscritezationDict)
+                intersectingSet, intersectedInput, timeIntersected = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, endtime], guards, constraint, 2, PhiDict, discretizationDict, inputDiscritezationDict)
                 timeIntersected = timeIntersected - reachtime
 
                 #
@@ -88,7 +70,7 @@ function auxReACTed(loc::Location, interval, X0::Zonotope{N,Vector{N},Matrix{N}}
             end
         end
     end
-    return reachset
+    return [reachset]
 end
 
 function ReACTTouches(loc, δ⁻, δ⁺, interval, guard, constraint, STRATEGY::Integer, PhiDict, discritezationDict, inputDiscritezationDict)
@@ -193,7 +175,7 @@ function ReACTTouches(loc, δ⁻, δ⁺, interval, guard, constraint, STRATEGY::
         end
     end
     intersectingSet = overapproximate(ConvexHullArray(overapproximateIntersectingSetArray), Zonotope)
-    return (intersectingSet, sρ, time)
+    return (intersectingSet, Sρ, time)
 end
 
 function ReACTGuards(loc, δ⁻, δ⁺, interval, guards, constraint, STRATEGY::Integer, PhiDict, discritezationDict, inputDiscritezationDict)
@@ -214,13 +196,13 @@ function ReACTGuards(loc, δ⁻, δ⁺, interval, guards, constraint, STRATEGY::
     lastNewR = missing
     attemptsRecorder = []
 
-    V::Zonotope{N,Vector{N},Matrix{N}} = copy(inputDiscritezationDict[initialTimeStep])
+    V = copy(inputDiscritezationDict[initialTimeStep])
     Sρ = zeros(Float64, length(constraint))
-    newR::Zonotope{N,Vector{N},Matrix{N}} = discritezationDict[initialTimeStep]
+    newR = discritezationDict[initialTimeStep]
     i = 1
 
 
-    Φ::Matrix{Float64} = diagm(ones(Float64, size(A, 2)))
+    Φ::Matrix{Float64} = diagm(ones(Float64, size(loc.A, 2)))
     tempM = similar(Φ)
     ϕt = similar(Φ)
     newRR = copy(newR)
@@ -299,8 +281,8 @@ function ReACTGuards(loc, δ⁻, δ⁺, interval, guards, constraint, STRATEGY::
             end
         end
     end
-    intersectingSet = overapproximate(ConvexHullArray(overapproximateIntersectingSetArray), Zonotope)
-    return (intersectingSet, sρ, time)
+    #intersectingSet = overapproximate(ConvexHullArray(overapproximateIntersectingSetArray), Zonotope)
+    return (lastNewR, Sρ, time)
 end
 
 function ReACT(loc, δ⁻, δ⁺, interval, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, constraint, STRATEGY::Integer, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, PhiDict=nothing) where {N}

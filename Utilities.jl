@@ -1,4 +1,4 @@
-using LazySets
+using LazySets, ReachabilityAnalysis
 
 export HybridSystem, HybridSystemV2, Location, Edge, overapproximateIntervalReachset, intersects
 
@@ -11,12 +11,6 @@ export HybridSystem, HybridSystemV2, Location, Edge, overapproximateIntervalReac
     Jump::Matrix{Tuple{Matrix{Float64},Vector{Float64}}}
 end=#
 
-struct Location
-    id::Int
-    invarient::Union{HPolyhedron,Nothing}
-    A::Matrix{Float64}
-    edges::Vector{Edge}
-end
 
 
 struct Edge
@@ -26,12 +20,26 @@ struct Edge
     jumpVector::Vector{Float64}
 end
 
-struct HybridSystemV2
+Base.show(io::Core.IO, e::Edge) = print(io, "Edge going to: ", e.targetLoc)
+
+
+struct Location
+    id::Int
+    invarient::Union{HPolyhedron,Nothing}
+    A::Matrix{Float64}
+    edges::Vector{Edge}
+end
+
+Base.show(io::Core.IO, l::Location) = print(io, "Location: ", l.id, "\n invariant? ", !isnothing(l.invarient), "\n edges: ", length(l.edges))
+
+
+mutable struct HybridSystemV2
     locations::Vector{Location}
     initialLoc::Int
     initialState # Fill this in later
 end
 
+Base.show(io::Core.IO, s::HybridSystemV2) = print(io, "System with ", length(s.locations), " locations.")
 
 struct HybridSystem
     V
@@ -82,8 +90,8 @@ function intersection(Z, H)
 end
 
 function intersects(Z, H)
-    agenSum = reduce(+, abs.(genmat(Z) * H.a))
-    acenSum = Z.center * H.a
+    agenSum = reduce(+, abs.(genmat(Z) .* H.a))
+    acenSum = dot(Vector(H.a), Z.center)
     return (acenSum - agenSum <= H.b) & (H.b <= acenSum + agenSum)
 end
 

@@ -5,12 +5,6 @@ using LazySets
 
 include("../Utilities.jl")
 
-#using LazySets : sparsevec
-using SparseArrays
-using ReachabilityAnalysis.ReachabilityBase.Arrays: SingleEntryVector
-using ReachabilityAnalysis: add_dimension
-using LazySets, LinearAlgebra
-
 
 function loadGearBox()
     X0 = Hyperrectangle(low=[0, 0, -0.0168, 0.0029, 0, 1],
@@ -74,8 +68,8 @@ function loadGearBox()
     # transition l1 -> l1
     # TODO what happened to the term '2nb' and the whole second constraint in the paper?
     guard = HPolyhedron([
-        HalfSpace(sparsevec([px, py], [-tan(θ), -1.], n), 0.),     # py >= -px * tan(θ)
-        HalfSpace(sparsevec([vx, vy], [-sin(θ), -cos(θ)], n), 0.)  # vx * sin(θ) + vy * cos(θ) >= 0
+        LazySets.HalfSpace(sparsevec([px, py], [-tan(θ), -1.], n), 0.),     # py >= -px * tan(θ)
+        LazySets.HalfSpace(sparsevec([vx, vy], [-sin(θ), -cos(θ)], n), 0.)  # vx * sin(θ) + vy * cos(θ) >= 0
     ])
     A = copy(A_template)
     #t1 = ConstrainedLinearMap(A, guard)
@@ -85,8 +79,8 @@ function loadGearBox()
     # transition l1 -> l1
     # TODO same remark as with the other guard
     guard = HPolyhedron([
-        HalfSpace(sparsevec([px, py], [-tan(θ), 1.], n), 0.),     # py <= px * tan(θ)
-        HalfSpace(sparsevec([vx, vy], [-sin(θ), cos(θ)], n), 0.)  # vx * sin(θ) - vy * cos(θ) >= 0
+        LazySets.HalfSpace(sparsevec([px, py], [-tan(θ), 1.], n), 0.),     # py <= px * tan(θ)
+        LazySets.HalfSpace(sparsevec([vx, vy], [-sin(θ), cos(θ)], n), 0.)  # vx * sin(θ) - vy * cos(θ) >= 0
     ])
     A = copy(A_template)
     A[vx, vy] *= -1.
@@ -97,7 +91,7 @@ function loadGearBox()
     push!(edgeListLoc1, Edge(1, guard, A, zeros(n)))
 
     # transition l1 -> l2
-    guard = HalfSpace(SingleEntryVector(px, n, -1.), -Δp)  # px >= Δp
+    guard = LazySets.HalfSpace(SingleEntryVector(px, n, -1.), -Δp)  # px >= Δp
     A = copy(A_template)
     A[vx, vx] = 0.
     A[vx, vy] = 0.
@@ -119,18 +113,18 @@ function loadGearBox()
     b[vx] = Fs / ms
     b[vy] = -(Rs * Tf) / Jg₂
     invariant = HPolyhedron([
-        HalfSpace(sparsevec([px], [1.], n), Δp),  # px <= Δp
-        HalfSpace(sparsevec([px, py], [tan(θ), 1.], n), 0.),    # py <= -px * tan(θ)
-        HalfSpace(sparsevec([px, py], [tan(θ), -1.], n), 0.)])  # py >= px * tan(θ)
+        LazySets.HalfSpace(sparsevec([px], [1.], n), Δp),  # px <= Δp
+        LazySets.HalfSpace(sparsevec([px, py], [tan(θ), 1.], n), 0.),    # py <= -px * tan(θ)
+        LazySets.HalfSpace(sparsevec([px, py], [tan(θ), -1.], n), 0.)])  # py >= px * tan(θ)
     Aext = add_dimension(A)
     Aext[1:n-1, n] = b
 
 
     push!(locations, Location(1,                        # ID
         HPolyhedron([   # Invaariant
-            HalfSpace(sparsevec([px], [1.], n), Δp),  # px <= Δp
-            HalfSpace(sparsevec([px, py], [tan(θ), 1.], n), 0.),    # py <= -px * tan(θ)
-            HalfSpace(sparsevec([px, py], [tan(θ), -1.], n), 0.)]),  # py >= px * tan(θ)
+            LazySets.HalfSpace(sparsevec([px], [1.], n), Δp),  # px <= Δp
+            LazySets.HalfSpace(sparsevec([px, py], [tan(θ), 1.], n), 0.),    # py <= -px * tan(θ)
+            LazySets.HalfSpace(sparsevec([px, py], [tan(θ), -1.], n), 0.)]),  # py >= px * tan(θ)
         Aext,           # Flow matrix
         edgeListLoc1)
     )

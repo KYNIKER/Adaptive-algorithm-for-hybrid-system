@@ -9,7 +9,7 @@ include("models/gearbox.jl")
 
 sys = loadGearBox()
 n = length(sys.initialState.center)
-res = ReACTed(sys, [0., 0.05], convert(Zonotope, sys.initialState), Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), [HalfSpace(sparsevec([5], [1.0], 6), 20.0)], δ⁻, δ⁺)
+res = ReACTed(sys, [0., 0.5], convert(Zonotope, sys.initialState), Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), [LazySets.HalfSpace(sparsevec([5], [1.0], 6), 20.0)], δ⁻, δ⁺)
 
 println(LazySets.order(res[1])) #
 println(map(x -> ρ(Vector(sparsevec([5], [1.0], 6)), x), res))

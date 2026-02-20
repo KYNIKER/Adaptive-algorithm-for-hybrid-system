@@ -1,6 +1,6 @@
-using LazySets, ReachabilityAnalysis, LinearAlgebra
+using LazySets, ReachabilityAnalysis, LinearAlgebra, Polyhedra, Optim
 
-export HybridSystem, HybridSystemV2, Location, Edge, overapproximateIntervalReachset, intersects
+export HybridSystem, HybridSystemV2, Location, Edge, overapproximateIntervalReachset, intersects, splitZonotope, getBoxIntersection
 
 #=struct HybridSystem
     V::Vector{Any}
@@ -90,10 +90,20 @@ function intersection(Z, H)
     end=#
 end
 
-function intersects(Z, H)
+function intersects(Z::Zonotope, H::LazySets.HalfSpace)
     agenSum = reduce(+, abs.(genmat(Z) .* H.a))
     acenSum = dot(Vector(H.a), Z.center)
     return (acenSum - agenSum <= H.b) & (H.b <= acenSum + agenSum)
+end
+
+function intersects(Z::Zonotope, H::Vector{N}) where N
+    sen = true
+    for h in H
+        agenSum = reduce(+, abs.(genmat(Z) .* h.a))
+        acenSum = dot(Vector(h.a), Z.center)
+        sen = sen & (acenSum - agenSum <= h.b) & (h.b <= acenSum + agenSum)
+    end
+    return sen
 end
 
 function overapproximateIntervalReachset(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, δ⁻, δ⁺, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing) where {N}
@@ -213,12 +223,12 @@ function produceDirections(n)
     return directions
 end
 
-function project2d(Z :: Zonotope, n::Vector, direction::Vector)
+function project2d(Z::Zonotope, n::Vector, direction::Vector)
     c = Z.center
     G = genmat(Z)
 
     newC = [dot(c, n), dot(c, direction)]
-    newG =[[dot(g, n), dot(g, direction)] for g in eachcol(G)]
+    newG = [[dot(g, n), dot(g, direction)] for g in eachcol(G)]
 
     return Zonotope(newC, newG)
 end
@@ -227,7 +237,7 @@ function segmentLineIntersection(segment1, segment2, line)
     x1, y1 = segment1
     x2, y2 = segment2
 
-    if (x1 - line)*(x2 - line) > 0 || (x1 == x2)
+    if (x1 - line) * (x2 - line) > 0 || (x1 == x2)
         return nothing
     end
     # Use interpolation
@@ -235,7 +245,7 @@ function segmentLineIntersection(segment1, segment2, line)
     return y1 + t * (y2 - y1)
 end
 
-function GirardGuernicAlgorithm(Z :: Zonotope, line :: Float64)
+function GirardGuernicAlgorithm(Z::Zonotope, line::Float64)
     # We assume it is 2 dimensional
     c = Z.center
     G = [copy(g) for g in eachcol(genmat(Z))]
@@ -288,12 +298,12 @@ end
 
 # Zonotope intersection with hyperplane
 # Gets the area where we meet the intersection.
-function lineIntersection(Z :: Zonotope, H :: HalfSpace)
+function lineIntersection(Z::Zonotope, H::LazySets.HalfSpace)
     directions = produceDirections(length(Z.center))
-    val = H.b 
+    val = H.b
     n = H.a
 
-    constraints = HalfSpace[]
+    constraints = LazySets.HalfSpace[]
 
     for direction in directions
         Z2 = project2d(Z, n, direction)
@@ -301,14 +311,14 @@ function lineIntersection(Z :: Zonotope, H :: HalfSpace)
 
         #Produce the constraints
         if isfinite(m)
-            push!(constraints, HalfSpace(direction, M))
-            push!(constraints, HalfSpace(-direction, -m))
+            push!(constraints, LazySets.HalfSpace(direction, M))
+            push!(constraints, LazySets.HalfSpace(-direction, -m))
         end
     end
 
     # enforce hyperplane equality n⋅x = γ
-    push!(constraints, HalfSpace(n, val))
-    push!(constraints, HalfSpace(-n, -val))
+    push!(constraints, LazySets.HalfSpace(n, val))
+    push!(constraints, LazySets.HalfSpace(-n, -val))
 
 
     HpolyRep = HPolyhedron(constraints)
@@ -318,18 +328,65 @@ function lineIntersection(Z :: Zonotope, H :: HalfSpace)
 end
 
 
-function getBoxIntersection(Z :: Zonotope, H_intersection :: HalfSpace)
+function getBoxIntersection(Z::Zonotope, H_intersection::LazySets.HalfSpace)
+    println("Ever used? ")
     S = Z ∩ H_intersection
-    box = overapproximate(S, Hyperrectangle)
-    return convert(Zonotope, box)
+    if !isempty(S)
+        box = overapproximate(S, Zonotope)
+        return convert(Zonotope, box)
+    else
+        return S
+    end
 end
 
+function getBoxIntersection(Z::Zonotope, H_intersections::Vector{N}) where N
+    S1 = foldr((x, y) -> overapproximate(∩(x, y), Zonotope), H_intersections; init=Z)
+    S = S1 #overapproximate(S1, Zonotope) #foldr(∩, H_intersections; init=Z)
+    if !isempty(S)
+        box = box_approximation(S)
+        return convert(Zonotope, box)
+    else
+        return S
+    end
+end
 
-function splitZonotope(Z :: Zonotope, H_intersection :: HalfSpace)
-    H_rest = HalfSpace(-H_intersection.a, -H_intersection.b)
+function getBoxIntersection(Z::Zonotope, H_intersections::LazySets.HPolyhedronModule.HPolyhedron)
+    #S1 = foldr((x, y) -> ∩(x, y), H_intersections; init=Z)
+    S = ∩(H_intersections, Z)
+    if !isempty(S)
+        println(isbounded(S))
+        box = box_approximation(S)#overapproximate(S, Hyperrectangle)
+        return convert(Zonotope, box)
+    else
+        return S
+    end
+end
+
+function splitZonotope(Z::Zonotope, H_intersection::LazySets.HalfSpace)
+    H_rest = LazySets.HalfSpace(-H_intersection.a, -H_intersection.b)
 
     # Get intersections
     Z_intersection = getBoxIntersection(Z, H_intersection)
+    Z_rest = getBoxIntersection(Z, H_rest)
+
+    return Z_intersection, Z_rest
+end
+
+function splitZonotope(Z::Zonotope, H_intersections::Vector{N}) where N
+    H_rest = map(x -> LazySets.HalfSpace(-x.a, -x.b), H_intersections)
+
+    # Get intersections
+    Z_intersection = getBoxIntersection(Z, H_intersections)
+    Z_rest = getBoxIntersection(Z, H_rest)
+
+    return Z_intersection, Z_rest
+end
+
+function splitZonotope(Z::Zonotope, H_intersections::LazySets.HPolyhedronModule.HPolyhedron)
+    #H_rest = map(x -> LazySets.HalfSpace(-x.a, -x.b), H_intersections)
+    #H_rest = HPolyhedron(map(x -> LazySets.HalfSpace(-x.a, -x.b), constraints_list(H_intersections)))
+    # Get intersections
+    Z_intersection = getBoxIntersection(Z, H_intersections)
     Z_rest = getBoxIntersection(Z, H_rest)
 
     return Z_intersection, Z_rest

@@ -1,8 +1,17 @@
 include("../Utilities.jl")
 
+#using LazySets : sparsevec
+using SparseArrays
+using ReachabilityAnalysis.ReachabilityBase.Arrays: SingleEntryVector
+using ReachabilityAnalysis: add_dimension
+using LazySets, LinearAlgebra
+
+
 function loadGearBox()
     X0 = Hyperrectangle(low=[0, 0, -0.0168, 0.0029, 0, 1],
                             high=[0, 0, -0.0166, 0.0031, 0, 1])
+    X0 = convert(Zonotope, X0)
+    X0 = Zonotope(X0.center, X0.generators)
 
     # variables
     vx = 1  # x velocity

@@ -1,4 +1,4 @@
-using LazySets
+using LazySets, LinearAlgebra
 
 export HybridSystem
 
@@ -11,12 +11,6 @@ export HybridSystem
     Jump::Matrix{Tuple{Matrix{Float64},Vector{Float64}}}
 end=#
 
-struct Location
-    id :: Int
-    invarient :: Union{HPolyhedron, Nothing}
-    A :: Matrix{Float64}
-    edges :: Vector{Edge}
-end
 
 
 struct Edge
@@ -24,6 +18,13 @@ struct Edge
     guard :: HPolyhedron
     jumpMatrix :: Matrix{Float64}
     jumpVector :: Vector{Float64}
+end
+
+struct Location
+    id :: Int
+    invarient :: Union{HPolyhedron, Nothing}
+    A :: Matrix{Float64}
+    edges :: Vector{Edge}
 end
 
 struct HybridSystemV2
@@ -79,4 +80,143 @@ function intersection(Z, H)
     else
         return nothing
     end
+end
+
+
+
+
+
+
+function produceDirections(n)
+    # Produce one hot encodings. 
+    #TODO: Could be smarter directions?
+    directions = Vector{Vector{Float64}}()
+    for i in 1:n
+        oneHotEncoding = zeros(n)
+        oneHotEncoding[i] = 1.
+        push!(directions, oneHotEncoding)
+    end
+    return directions
+end
+
+function project2d(Z :: Zonotope, n::Vector, direction::Vector)
+    c = Z.center
+    G = genmat(Z)
+
+    newC = [dot(c, n), dot(c, direction)]
+    newG =[[dot(g, n), dot(g, direction)] for g in eachcol(G)]
+
+    return Zonotope(newC, newG)
+end
+
+function segmentLineIntersection(segment1, segment2, line)
+    x1, y1 = segment1
+    x2, y2 = segment2
+
+    if (x1 - line)*(x2 - line) > 0 || (x1 == x2)
+        return nothing
+    end
+    # Use interpolation
+    t = (line - x1) / (x2 - x1)
+    return y1 + t * (y2 - y1)
+end
+
+function GirardGuernicAlgorithm(Z :: Zonotope, line :: Float64)
+    # We assume it is 2 dimensional
+    c = Z.center
+    G = [copy(g) for g in eachcol(genmat(Z))]
+
+    # Ensure all generators are positive
+    for g in G
+        if g[2] < 0 || (g[2] == 0 && g[1] < 0)
+            g .*= -1
+        end
+    end
+
+    # Get the lowest vertex
+    P = copy(c)
+    for g in G
+        P .-= g
+    end
+
+    # Sort generators in trigometric order
+    sort!(G, by=g -> atan(g[2], g[1]))
+
+    m = Inf
+    M = -Inf
+    # Next we traverse the verticies of the zonotope, 
+    # looking for intersections with the line
+    # Forward scan
+    for g in G
+        Q = P .+ 2g
+        y = segmentLineIntersection(P, Q, line)
+        if y !== nothing
+            m = min(m, y)
+            M = max(M, y)
+        end
+        P = Q
+    end
+
+    # Backward scan
+    for g in G
+        Q = P .- 2g
+        y = segmentLineIntersection(P, Q, line)
+        if y !== nothing
+            m = min(m, y)
+            M = max(M, y)
+        end
+        P = Q
+    end
+
+    return m, M
+end
+
+
+# Zonotope intersection with hyperplane
+# Gets the area where we meet the intersection.
+function lineIntersection(Z :: Zonotope, H :: HalfSpace)
+    directions = produceDirections(length(Z.center))
+    val = H.b 
+    n = H.a
+
+    constraints = HalfSpace[]
+
+    for direction in directions
+        Z2 = project2d(Z, n, direction)
+        m, M = GirardGuernicAlgorithm(Z2, val)
+
+        #Produce the constraints
+        if isfinite(m)
+            push!(constraints, HalfSpace(direction, M))
+            push!(constraints, HalfSpace(-direction, -m))
+        end
+    end
+
+    # enforce hyperplane equality n⋅x = γ
+    push!(constraints, HalfSpace(n, val))
+    push!(constraints, HalfSpace(-n, -val))
+
+
+    HpolyRep = HPolyhedron(constraints)
+    box = overapproximate(HpolyRep, Hyperrectangle)
+    Zrep = convert(Zonotope, box)
+    return Zrep
+end
+
+
+function getBoxIntersection(Z :: Zonotope, H_intersection :: HalfSpace)
+    S = Z ∩ H_intersection
+    box = overapproximate(S, Hyperrectangle)
+    return convert(Zonotope, box)
+end
+
+
+function splitZonotope(Z :: Zonotope, H_intersection :: HalfSpace)
+    H_rest = HalfSpace(-H_intersection.a, -H_intersection.b)
+
+    # Get intersections
+    Z_intersection = getBoxIntersection(Z, H_intersection)
+    Z_rest = getBoxIntersection(Z, H_rest)
+
+    return Z_intersection, Z_rest
 end

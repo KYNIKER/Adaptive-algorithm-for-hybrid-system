@@ -4,7 +4,7 @@ using LinearAlgebra, LazySets, ReachabilityAnalysis
 
 isinvertible(x) = applicable(inv, x) && isone(inv(Matrix(x)) * x)
 
-function ReACTDiscretize(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, δ⁻, δ⁺, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing) where {N}
+function ReACTDiscretize(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing) where {N}
     XDim, _ = size(genmat(X0))
     discritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
     inputDiscritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
@@ -18,7 +18,7 @@ function ReACTDiscretize(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, δ
 
     d = δ⁻
     dia::Matrix{Float64} = diagm(ones(XDim))
-    isInvA = isinvertible(A)
+    isInvA = false #isinvertible(A)
     Φ = copy(phiDict[d])
     A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(A)
     Φcache = sum(A) == abs(sum(A)) ? Φ : nothing
@@ -62,8 +62,8 @@ function ReACTDiscretize(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, δ
                 disc = reduce_order(disc, reduceOrder)
             end
         end
-        discritezationDict[d] = copy(disc)
-        inputDiscritezationDict[d] = P
+        discritezationDict[δ⁺] = copy(disc)
+        inputDiscritezationDict[δ⁺] = P
     else
         dU = overapproximate(d * U, Zonotope)
         E_ψ = convert(Zonotope, symmetric_interval_hull(P2A_abs * symmetric_interval_hull(A * U)))
@@ -86,7 +86,7 @@ function ReACTDiscretize(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, δ
                 end
             end
 
-            disc = overapproximate(CH(disc, linear_map(ϕ, disc)), Zonotope)
+            disc = overapproximate(CH(disc, linear_map(phiDict[d], disc)), Zonotope)
             d = d * 2
         end
         if maxOrder > 0
@@ -97,15 +97,15 @@ function ReACTDiscretize(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, δ
                 disc = reduce_order(disc, reduceOrder)
             end
         end
-        discritezationDict[d] = copy(disc)
-        inputDiscritezationDict[d] = P
+        discritezationDict[δ⁺] = copy(disc)
+        inputDiscritezationDict[δ⁺] = P
     end
 
-    return discritezationDict, inputDiscritezationDict, phiDict
+    return discritezationDict, inputDiscritezationDict
 end
 
 
-function ReACTDiscretize(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Nothing, δ⁻, δ⁺, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing) where {N}
+function ReACTDiscretize(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Nothing, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing) where {N}
     XDim, _ = size(genmat(X0))
     discritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
 
@@ -146,12 +146,12 @@ function ReACTDiscretize(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Nothing, δ�
             disc = reduce_order(disc, reduceOrder)
         end
     end
-    discritezationDict[d] = copy(disc)
+    discritezationDict[δ⁺] = copy(disc)
 
-    return discritezationDict, Nothing, phiDict
+    return discritezationDict, Nothing
 end
 
-function PhiDict(A, δ⁻, δ⁺, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp)
+function PhiDict(A, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp)
     let ϕ::Matrix{Float64} = ReachabilityAnalysis.Exponentiation._exp(A, δ⁻, alg)
         phiDict = Dict{Float64,Matrix{Float64}}()
         tempM = similar(ϕ)
@@ -164,7 +164,7 @@ function PhiDict(A, δ⁻, δ⁺, alg::ReachabilityAnalysis.Exponentiation.Abstr
             copy!(ϕ, tempM)
             d = d * 2
         end
-        phiDict[d] = copy(ϕ)
+        phiDict[δ⁺] = copy(ϕ)
         return phiDict
     end
 end

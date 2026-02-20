@@ -1,3 +1,8 @@
+using SparseArrays: sparsevec
+using ReachabilityAnalysis.ReachabilityBase.Arrays: SingleEntryVector
+using ReachabilityAnalysis: add_dimension
+using LazySets
+
 include("../Utilities.jl")
 
 #using LazySets : sparsevec
@@ -9,7 +14,7 @@ using LazySets, LinearAlgebra
 
 function loadGearBox()
     X0 = Hyperrectangle(low=[0, 0, -0.0168, 0.0029, 0, 1],
-                            high=[0, 0, -0.0166, 0.0031, 0, 1])
+        high=[0, 0, -0.0166, 0.0031, 0, 1])
     X0 = convert(Zonotope, X0)
     X0 = Zonotope(X0.center, X0.generators)
 
@@ -51,7 +56,7 @@ function loadGearBox()
     #     (1, 1),
     #     (1, 2)
     # ]
-    edgeListLoc1 :: Vector{Edge} = []
+    edgeListLoc1::Vector{Edge} = []
 
     # common assignment matrix (requires individual modifications)
     A_template = zeros(n, n)
@@ -71,7 +76,7 @@ function loadGearBox()
     guard = HPolyhedron([
         HalfSpace(sparsevec([px, py], [-tan(θ), -1.], n), 0.),     # py >= -px * tan(θ)
         HalfSpace(sparsevec([vx, vy], [-sin(θ), -cos(θ)], n), 0.)  # vx * sin(θ) + vy * cos(θ) >= 0
-        ])
+    ])
     A = copy(A_template)
     #t1 = ConstrainedLinearMap(A, guard)
 
@@ -82,7 +87,7 @@ function loadGearBox()
     guard = HPolyhedron([
         HalfSpace(sparsevec([px, py], [-tan(θ), 1.], n), 0.),     # py <= px * tan(θ)
         HalfSpace(sparsevec([vx, vy], [-sin(θ), cos(θ)], n), 0.)  # vx * sin(θ) - vy * cos(θ) >= 0
-        ])
+    ])
     A = copy(A_template)
     A[vx, vy] *= -1.
     A[vy, vx] *= -1.
@@ -103,16 +108,16 @@ function loadGearBox()
 
     push!(edgeListLoc1, Edge(2, guard, A, zeros(n)))
 
-    
+
     locations = []
 
     # mode 1 ("free")
-    A = zeros(n-1, n-1)
-    b = zeros(n-1)
+    A = zeros(n - 1, n - 1)
+    b = zeros(n - 1)
     A[px, vx] = 1.
     A[py, vy] = 1.
     b[vx] = Fs / ms
-    b[vy] = - (Rs * Tf) / Jg₂
+    b[vy] = -(Rs * Tf) / Jg₂
     invariant = HPolyhedron([
         HalfSpace(sparsevec([px], [1.], n), Δp),  # px <= Δp
         HalfSpace(sparsevec([px, py], [tan(θ), 1.], n), 0.),    # py <= -px * tan(θ)
@@ -120,12 +125,12 @@ function loadGearBox()
     Aext = add_dimension(A)
     Aext[1:n-1, n] = b
 
-    
+
     push!(locations, Location(1,                        # ID
         HPolyhedron([   # Invaariant
-        HalfSpace(sparsevec([px], [1.], n), Δp),  # px <= Δp
-        HalfSpace(sparsevec([px, py], [tan(θ), 1.], n), 0.),    # py <= -px * tan(θ)
-        HalfSpace(sparsevec([px, py], [tan(θ), -1.], n), 0.)]),  # py >= px * tan(θ)
+            HalfSpace(sparsevec([px], [1.], n), Δp),  # px <= Δp
+            HalfSpace(sparsevec([px, py], [tan(θ), 1.], n), 0.),    # py <= -px * tan(θ)
+            HalfSpace(sparsevec([px, py], [tan(θ), -1.], n), 0.)]),  # py >= px * tan(θ)
         Aext,           # Flow matrix
         edgeListLoc1)
     )

@@ -16,7 +16,7 @@ function ReACTed(hybridSystem::HybridSystemV2, interval, X0::Zonotope{N,Vector{N
 
     res = auxReACTed(hybridSystem, hybridSystem.locations[loc], interval, X0, U, constraint, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder)
 
-    #reachset = hcat(reachset, res)
+    reachset = vcat(reachset, res)
 
     return res
 end
@@ -54,22 +54,31 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
 
                     timePointInput = U
                     branchedRun = auxReACTed(hybridSystem, hybridSystem.locations[edge.targetLoc], [reachtime, endtime], jumpSet, timePointInput, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder)
-                    push!(reachset, branchedRun)
+                    reachset = vcat(reachset, branchedRun)
+
+
                     #branchedRun = auxReACTed(loc, [timeIntersected, endtime], nonintersectedSet, intersectedInput, constraint, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder)
                     #push!(reachset, branchedRun)
 
                 else
-                    println("Ever true?")
+
                     branchedRun = auxReACTed(hybridSystem, loc, [infMaxs, endtime], tempReachsets[infMaxsIdx], tempInputs[infMaxsIdx], constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder)
-                    push!(reachset, branchedRun)
+                    reachset = vcat(reachset, branchedRun)
                     #=
                     if ρ(timeIntersectedSet.center, guard.a) >= guard.b
 
-                        =#
+                    =#
                 end
             else
-                push!(reachset, tempReachset)
+
+                reachset = vcat(reachset, concretize(tempReachset))
             end
+        else
+            println("No guards? call ReACT")
+
+            tempReachset, _, _ = ReACT(loc, δ⁻, δ⁺, interval, X0, U, constraint, 2, alg, maxOrder, reduceOrder, PhiDict[loc.id])
+            reachset = vcat(reachset, concretize(tempReachset))
+
         end
     end
     return reachset
@@ -176,7 +185,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, cons
             end
         end
     end
-    intersectingSet = overapproximate(ConvexHullArray(overapproximateIntersectingSetArray), Zonotope)
+    intersectingSet = overapproximate(foldl(CH, overapproximateIntersectingSetArray; init=newRR), Zonotope)
     return (intersectingSet, Sρ, time)
 end
 

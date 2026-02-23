@@ -117,17 +117,27 @@ function loadPlatoon(; deterministic_switching::Bool=true,
     #resetmaps = [t1, t2]
 
     A, B, u, c, invariant = platoon_connected(deterministic_switching=deterministic_switching, c1=c1)
-    push!(locations, Location(1, invariant, A, B, u, c, edgeListLoc1))
+    push!(locations, Location(1, invariant, A, B, u, c, edgeListLoc1, []))
     A, B, u, c, invariant = platoon_disconnected(deterministic_switching=deterministic_switching, c2=c2)
-    push!(locations, Location(2, invariant, A, B, u, c, edgeListLoc2))
+    push!(locations, Location(2, invariant, A, B, u, c, edgeListLoc2, []))
 
 
     X0 = Singleton(zeros(n))
     X0 = convert(Zonotope, X0)
 
-    H = HybridSystemV2(locations, 1, X0)
+    # Global constraints
+    properties = []
 
-    return H
+    dmin = -30.  # Alternatively this is -42 or -50
+    push!(properties, LazySets.HalfSpace(sparsevec([1], [-1.], n), -dmin))
+    push!(properties, LazySets.HalfSpace(sparsevec([4], [-1.], n), -dmin))
+    push!(properties, LazySets.HalfSpace(sparsevec([7], [-1.], n), -dmin))
+
+    H = HybridSystemV2(locations, properties)
+
+    T = 20
+
+    return H, 1, X0, T
     # H = HybridSystem(automaton, modes, resetmaps, [AutonomousSwitching()])
 
     # # initial condition is at the orgin in mode 1
@@ -136,3 +146,5 @@ function loadPlatoon(; deterministic_switching::Bool=true,
 
     # return IVP(H, initial_condition)
 end
+
+#loadPlatoon()

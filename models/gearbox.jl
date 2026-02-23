@@ -129,20 +129,29 @@ function loadGearBox()
         nothing, # B input
         nothing, # u
         nothing, # constant input
-        edgeListLoc1)
+        edgeListLoc1,
+        []
+        )
     )
 
     #m_1 = @system(x' = Aext * x, x ∈ invariant)
 
     # mode 2 ("meshed")
     A0 = zeros(n, n)
-    push!(locations, Location(2, nothing, A0, nothing, nothing, nothing, []))
+    push!(locations, Location(2, nothing, A0, nothing, nothing, nothing, [], []))
     #m_2 = @system(x' = A0 * x, x ∈ Universe(n))
 
+    # Global constraint
+    property = LazySets.HalfSpace(sparsevec([5], [1.], n), 20.) 
 
-    H = HybridSystemV2(locations, 1, X0)
+    H = HybridSystemV2(locations, [property])
 
-    return H
+
+    # Constraint
+    
+    T = 0.21
+
+    return H, 1, X0, T
 end
 
 

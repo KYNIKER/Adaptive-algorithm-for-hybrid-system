@@ -31,6 +31,7 @@ struct Location
     u # Unsure 
     c::Union{Nothing,Vector{Float64}}
     edges::Vector{Edge}
+    constraints::Vector{LazySets.HalfSpace}
 end
 
 
@@ -39,8 +40,9 @@ Base.show(io::Core.IO, l::Location) = print(io, "Location: ", l.id, "\n invarian
 
 mutable struct HybridSystemV2
     locations::Vector{Location}
-    initialLoc::Int
-    initialState # Fill this in later
+    globalConstraints::Vector{LazySets.HalfSpace}
+    #initialLoc::Int
+    #initialState # Fill this in later
 end
 
 Base.show(io::Core.IO, s::HybridSystemV2) = print(io, "System with ", length(s.locations), " locations.")

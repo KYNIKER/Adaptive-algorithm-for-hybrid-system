@@ -27,11 +27,11 @@ struct Location
     id::Int
     invarient::Union{HPolyhedron,Nothing}
     A::Matrix{Float64}
-    B::Union{Nothing,Matrix{Float64}}
+    B::Union{Nothing, Matrix{Float64}}
     u # Unsure 
-    c::Union{Nothing,Vector{Float64}}
+    c::Union{Nothing, Vector{Float64}}
     edges::Vector{Edge}
-    constraints::Vector{LazySets.HalfSpace}
+    constraints::Vector{Union{HPolyhedron, LazySets.HalfSpace}}
 end
 
 
@@ -40,7 +40,7 @@ Base.show(io::Core.IO, l::Location) = print(io, "Location: ", l.id, "\n invarian
 
 mutable struct HybridSystemV2
     locations::Vector{Location}
-    globalConstraints::Vector{LazySets.HalfSpace}
+    globalConstraints::Vector{Union{HPolyhedron, LazySets.HalfSpace}}
     #initialLoc::Int
     #initialState # Fill this in later
 end

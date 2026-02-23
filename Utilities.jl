@@ -27,6 +27,9 @@ struct Location
     id::Int
     invarient::Union{HPolyhedron,Nothing}
     A::Matrix{Float64}
+    B::Union{Nothing,Matrix{Float64}}
+    u # Unsure 
+    c::Union{Nothing,Vector{Float64}}
     edges::Vector{Edge}
 end
 
@@ -340,13 +343,31 @@ function getBoxIntersection(Z::Zonotope, H_intersection::LazySets.HalfSpace)
 end
 
 function getBoxIntersection(Z::Zonotope, H_intersections::Vector{N}) where N
-    S1 = foldr((x, y) -> overapproximate(∩(x, y), Zonotope), H_intersections; init=Z)
+    #S1 = foldr((x, y) -> overapproximate(∩(x, y), Zonotope), H_intersections; init=Z)
+    S1 = foldr((x, y) -> 
+        begin 
+            println(x); 
+            println(y); 
+            println(LazySets.order(y))
+            println(∩(x, y))
+            Z = ∩(x, y)
+            #Z = overapproximate(∩(x, y), Hyperrectangle) 
+
+            # box = box_approximation(∩(x, y))
+            # Z = convert(Zonotope, box)
+            return Z
+
+        end, H_intersections; init=Z)
     S = S1 #overapproximate(S1, Zonotope) #foldr(∩, H_intersections; init=Z)
+
     if !isempty(S)
-        box = box_approximation(S)
-        return convert(Zonotope, box)
-    else
-        return S
+        S = overapproximate(S, HPolytope, dirs = BoxDirections())
+        if isbounded(S)
+            box = box_approximation(S)
+            return convert(Zonotope, box)
+        end
+        println("Warning not bounded")
+        throw(ErrorException("Warning not bounded"))
     end
 end
 

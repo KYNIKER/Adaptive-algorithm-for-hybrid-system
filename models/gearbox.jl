@@ -126,6 +126,9 @@ function loadGearBox()
             LazySets.HalfSpace(sparsevec([px, py], [tan(θ), 1.], n), 0.),    # py <= -px * tan(θ)
             LazySets.HalfSpace(sparsevec([px, py], [tan(θ), -1.], n), 0.)]),  # py >= px * tan(θ)
         Aext,           # Flow matrix
+        nothing, # B input
+        nothing, # u
+        nothing, # constant input
         edgeListLoc1)
     )
 
@@ -133,7 +136,7 @@ function loadGearBox()
 
     # mode 2 ("meshed")
     A0 = zeros(n, n)
-    push!(locations, Location(2, nothing, A0, []))
+    push!(locations, Location(2, nothing, A0, nothing, nothing, nothing, []))
     #m_2 = @system(x' = A0 * x, x ∈ Universe(n))
 
 

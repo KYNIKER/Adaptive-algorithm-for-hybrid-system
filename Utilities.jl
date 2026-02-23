@@ -111,6 +111,10 @@ function intersects(Z::Zonotope, H::Vector{N}) where N
     return sen
 end
 
+function intersects(Z::Zonotope, H::Any)
+    return !isempty(∩(Z, H))
+end
+
 function overapproximateIntervalReachset(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, δ⁻, δ⁺, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing) where {N}
     XDim, _ = size(genmat(X0))
     discritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
@@ -334,10 +338,10 @@ end
 
 
 function getBoxIntersection(Z::Zonotope, H_intersection::LazySets.HalfSpace)
-    println("Ever used? ")
+    #println("Ever used? ")
     S = Z ∩ H_intersection
     if !isempty(S)
-        box = overapproximate(S, Zonotope)
+        box = box_approximation(S)
         return convert(Zonotope, box)
     else
         return S
@@ -345,21 +349,7 @@ function getBoxIntersection(Z::Zonotope, H_intersection::LazySets.HalfSpace)
 end
 
 function getBoxIntersection(Z::Zonotope, H_intersections::Vector{N}) where N
-    #S1 = foldr((x, y) -> overapproximate(∩(x, y), Zonotope), H_intersections; init=Z)
-    S1 = foldr((x, y) -> 
-        begin 
-            println(x); 
-            println(y); 
-            println(LazySets.order(y))
-            println(∩(x, y))
-            Z = ∩(x, y)
-            #Z = overapproximate(∩(x, y), Hyperrectangle) 
-
-            # box = box_approximation(∩(x, y))
-            # Z = convert(Zonotope, box)
-            return Z
-
-        end, H_intersections; init=Z)
+    S1 = foldr((x, y) -> ∩(x, y), H_intersections; init=Z)
     S = S1 #overapproximate(S1, Zonotope) #foldr(∩, H_intersections; init=Z)
 
     if !isempty(S)
@@ -373,11 +363,10 @@ function getBoxIntersection(Z::Zonotope, H_intersections::Vector{N}) where N
     end
 end
 
-function getBoxIntersection(Z::Zonotope, H_intersections::LazySets.HPolyhedronModule.HPolyhedron)
+function getBoxIntersection(Z::Zonotope, H_intersections::Any)
     #S1 = foldr((x, y) -> ∩(x, y), H_intersections; init=Z)
     S = ∩(H_intersections, Z)
     if !isempty(S)
-        println(isbounded(S))
         box = box_approximation(S)#overapproximate(S, Hyperrectangle)
         return convert(Zonotope, box)
     else

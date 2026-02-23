@@ -4,15 +4,18 @@ include("Utilities.jl")
 include("ReACTed.jl")
 include("models/gearbox.jl")
 
-δ⁺ = 10^-2
-δ⁻ = δ⁺ / 2^3
+δ⁺ = 10^-3
+δ⁻ = δ⁺ / 2^1
 
 sys = loadGearBox()
 n = length(sys.initialState.center)
-res = ReACTed(sys, [0., 0.5], convert(Zonotope, sys.initialState), Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), [LazySets.HalfSpace(sparsevec([5], [1.0], 6), 20.0)], δ⁻, δ⁺)
+res = ReACTed(sys, [0., 0.2], convert(Zonotope, sys.initialState), Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), [LazySets.HalfSpace(sparsevec([5], [1.0], 6), 20.0)], δ⁻, δ⁺)
 
-println(LazySets.order(res[1])) #
-println(map(x -> ρ(Vector(sparsevec([5], [1.0], 6)), x), res))
+#println(res) #
+for (x, y) in res
+    println(ρ(Vector(sparsevec([5], [1.0], 6)), x), " :", y)
+
+end
 #const fig = plot()
 #plot!(fig, res[1], vars=(1, 2), ε=1e-5)
 # plot!(fig, sol_GRBX01, vars=(3, 4), ε=1e-5,
@@ -27,3 +30,4 @@ println(map(x -> ρ(Vector(sparsevec([5], [1.0], 6)), x), res))
 #       bottom_margin=-5mm, left_margin=-1mm, right_margin=10mm, top_margin=3mm,
 #       size=(1000, 1000))
 #savefig(fig, joinpath("results/", "Sandbox.png"))
+

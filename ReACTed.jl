@@ -3,8 +3,8 @@ include("Discretize.jl")
 include("Utilities.jl")
 
 
-function ReACTed(hybridSystem::HybridSystemV2, interval, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, constraint, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}
-    loc = hybridSystem.initialLoc
+function ReACTed(hybridSystem::HybridSystemV2, initialLoc, interval, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, constraint, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}
+    loc = initialLoc
     flowPhiDict = Dict(map(x -> x.id => PhiDict(x.A, δ⁻, δ⁺, alg), hybridSystem.locations))
 
 
@@ -14,18 +14,20 @@ function ReACTed(hybridSystem::HybridSystemV2, interval, X0::Zonotope{N,Vector{N
     endtime::Float64 = maximum(interval)
     reachset = []
 
-    res = auxReACTed(hybridSystem, hybridSystem.locations[loc], interval, X0, U, constraint, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder)
+    res = auxReACTed(hybridSystem, hybridSystem.locations[loc], interval, X0, constraint, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder)
 
     reachset = vcat(reachset, res)
 
     return res
 end
 
-function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, constraint, δ⁻::Float64, δ⁺::Float64, PhiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, Φ=missing) where {N}
-    discretizationDict, inputDiscritezationDict = ReACTDiscretize(loc.A, X0, U, δ⁻, δ⁺, alg, maxOrder, reduceOrder, PhiDict[loc.id])
+function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector{N},Matrix{N}}, constraint, δ⁻::Float64, δ⁺::Float64, PhiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, Φ=missing) where {N}
+    discretizationDict, inputDiscritezationDict = ReACTDiscretize(loc, X0, δ⁻, δ⁺, alg, maxOrder, reduceOrder, PhiDict[loc.id])
     time::Float64 = minimum(interval)
     endtime::Float64 = maximum(interval)
     reachset = []
+    setOfConstraints = vcat(loc.constraints, constraint)
+
     for edge in loc.edges
         guards = edge.guard
         if !ismissing(guards)
@@ -33,10 +35,10 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
 
             #   Compute the reachset closest to the guard without intersecting it and not reaching the unsafe set. 
 
-            tempReachset, tempInput, reachtime, tΦ = ReACTGuards(loc, δ⁻, δ⁺, [time, endtime], guards, constraint, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, Φ)
+            tempReachset, tempInput, reachtime, tΦ = ReACTGuards(loc, δ⁻, δ⁺, [time, endtime], guards, setOfConstraints, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, Φ)
             if reachtime < endtime
                 push!(reachset, (tempReachset, string(time) * " - " * string(reachtime) * ": " * string(loc.id) * "->" * string(edge.targetLoc)))
-                intersectingSet, intersectedInput, timeNotIntersected = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, endtime], guards, constraint, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, tΦ)
+                intersectingSet, intersectedInput, timeNotIntersected = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, endtime], guards, setOfConstraints, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, tΦ)
                 timeIntersected = timeNotIntersected - reachtime
                 #push!(reachset, (intersectingSet, string(loc.id) * "->" * string(edge.targetLoc)))
                 #
@@ -53,33 +55,38 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
 
                     if !isa(loc.invarient, Nothing) && intersects(intersectedSet, loc.invarient)
                         tintersectedSet = getBoxIntersection(intersectedSet, loc.invarient)
+                        #println("Inv intersection: ", ρ(Vector(sparsevec([5], [1.0], 6)), intersectedSet), " vs ", ρ(Vector(sparsevec([5], [1.0], 6)), tintersectedSet))
                         intersectedSet = tintersectedSet
-                        println(ρ(Vector(sparsevec([5], [1.0], 6)), intersectedSet), " vs ", ρ(Vector(sparsevec([5], [1.0], 6)), tintersectedSet))
+                        #println(intersectedSet)
                     end
 
-
+                    (xx, _), _ = tempReachset
                     jumpSet = concretize(edge.jumpMatrix * intersectedSet)
+                    #println(edge.jumpMatrix)
+
                     if !isa(hybridSystem.locations[edge.targetLoc].invarient, Nothing) && intersects(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)
                         tjumpSet = getBoxIntersection(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)# + edge.jumpVector * intersectedSet
+                        #println("Jump intersection: ", ρ(Vector(sparsevec([5], [1.0], 6)), jumpSet), " vs ", ρ(Vector(sparsevec([5], [1.0], 6)), tjumpSet))
                         jumpSet = tjumpSet
-                        println(ρ(Vector(sparsevec([5], [1.0], 6)), jumpSet), " vs ", ρ(Vector(sparsevec([5], [1.0], 6)), tjumpSet))
+                        #println(jumpSet)
                     end
-                    push!(reachset, (jumpSet, string(reachtime) * ": jump(" * string(loc.id) * ")->" * string(edge.targetLoc)))
+                    #push!(reachset, ([(jumpSet, [reachtime, reachtime])], string(reachtime) * ": jump(" * string(loc.id) * ")->" * string(edge.targetLoc)))
                     #
                     #   Here we could optimize it such that in the case where guards ⊆ timeIntersectedSet we calculate both [supMins, endtime] and [infMaxs, endtime] with guards
                     #   and otherwise [supMins, endtime] with hyperplane intersection with timeIntersectedSet and [infMaxs, endtime] with guards intersection
                     #   Maybe look at how input should be handled... and if we can manipulate the constraints to account for the accumulated input
                     #
 
-                    timePointInput = U  #   NEEDS FIXING
-                    branchedRun = auxReACTed(hybridSystem, hybridSystem.locations[edge.targetLoc], [reachtime, endtime], jumpSet, timePointInput, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, tΦ)
+                    #timePointInput = U  #   NEEDS FIXING
+                    branchedRun = auxReACTed(hybridSystem, hybridSystem.locations[edge.targetLoc], [reachtime, endtime], jumpSet, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, tΦ)
                     reachset = vcat(reachset, branchedRun)
                     #reachset = vcat(reachset, nonintersectedSet) #Maybe gets the universe..
 
                     #branchedRun = auxReACTed(loc, [timeIntersected, endtime], nonintersectedSet, intersectedInput, constraint, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder)
                     #push!(reachset, branchedRun)
 
-                else
+                elseif reachtime - time < 0.0
+                    println("Nah but")
                     #   When is this the case? 
                     #=timePointInput = U  #   NEEDS FIXING
                     tempIntectingSet = concretize(intersectingSet)
@@ -98,12 +105,13 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
                 end
             else
                 println("Is here?")
-                if intersects(concretize(tempReachset), constraints_list(loc.invarient))
+                if !isa(loc.invarient, Nothing)
+                    tempReachset = map((x, y) -> intersects(x, loc.invarient) ? (getBoxIntersection(concretize(x), loc.invarient), y) : (x, y), tempReachset)
 
-                    tempReachsetInInv = getBoxIntersection(concretize(tempReachset), loc.invarient)
-                    reachset = vcat(reachset, (tempReachsetInInv, string(loc.id) * "->" * string(edge.targetLoc)))
+                    #tempReachsetInInv = getBoxIntersection(concretize(tempReachset), loc.invarient)
+                    #reachset = vcat(reachset, (tempReachset, string(loc.id) * "->" * string(edge.targetLoc)))
                 else
-                    reachset = vcat(reachset, (concretize(tempReachset), string(loc.id) * "->" * string(edge.targetLoc)))
+                    #reachset = vcat(reachset, (tempReachset, string(loc.id) * "->" * string(edge.targetLoc)))
                 end
             end
         else
@@ -248,7 +256,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
     currentTimeStep = copy(initialTimeStep)
 
     #overapproximateIntersectingSetArray = []
-    lastNewR = missing
+    lastNewR = []
     attemptsRecorder = []
 
 
@@ -274,7 +282,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
         while !approveFlag
             if currentTimeStep < m
                 if ismissing(lastNewR) && intersects(newRR, guards)
-                    lastNewR = newRR
+                    push!(lastNewR, (concretize(newRR), [time, time + currentTimeStep]))
                 elseif !reduce(&, <=(Sρ + map(x -> ρ(x, lastNewR), constraintProjVectors), constraintProjBounds))
                     throw(ErrorException("Reached unsafe set."))
                 end
@@ -303,7 +311,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
             if reduce(&, <=(Sρ + hom + inhom, constraintProjBounds)) && !intersects(newRR, guards)
                 #if mapreduce(x -> intersects(newRR, x), &, guard)
                 #push!(overapproximateIntersectingSetArray, newRR)
-                lastNewR = copy(newRR)
+                push!(lastNewR, (concretize(copy(newRR)), [time, time + currentTimeStep]))
                 approveFlag = true
                 Sρ += inhom
                 mul!(tempM, Φ, ϕt)

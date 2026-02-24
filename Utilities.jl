@@ -27,11 +27,11 @@ struct Location
     id::Int
     invarient::Union{HPolyhedron,Nothing}
     A::Matrix{Float64}
-    B::Union{Nothing, Matrix{Float64}}
+    B::Union{Nothing,Matrix{Float64}}
     u # Unsure 
-    c::Union{Nothing, Vector{Float64}}
+    c::Union{Nothing,Vector{Float64}}
     edges::Vector{Edge}
-    constraints::Vector{Union{HPolyhedron, LazySets.HalfSpace}}
+    constraints::Vector{Union{HPolyhedron,LazySets.HalfSpace}}
 end
 
 
@@ -40,7 +40,7 @@ Base.show(io::Core.IO, l::Location) = print(io, "Location: ", l.id, "\n invarian
 
 mutable struct HybridSystemV2
     locations::Vector{Location}
-    globalConstraints::Vector{Union{HPolyhedron, LazySets.HalfSpace}}
+    globalConstraints::Vector{Union{HPolyhedron,LazySets.HalfSpace}}
     #initialLoc::Int
     #initialState # Fill this in later
 end
@@ -85,15 +85,15 @@ function system(locations, edges, guards, invariants, flows, jumps, init)
     return HybridSystem(locations, E, G, invariants, flows, J, init)
 end
 
-function intersection(Z, H)
-    return Z, Z
+#=function intersection(Z, H)
+    return Z, H
     #=agenSum = reduce(+, abs.(genmat(Z) .* H.a))
     acenSum = dot(Vector(H.a), Z.center)
     if (acenSum - agenSum <= H.b) & (H.b <= acenSum + agenSum)
     else
         return nothing
     end=#
-end
+end=#
 
 function intersects(Z::Zonotope, H::LazySets.HalfSpace)
     agenSum = reduce(+, abs.(genmat(Z) .* H.a))
@@ -353,7 +353,7 @@ function getBoxIntersection(Z::Zonotope, H_intersections::Vector{N}) where N
     S = S1 #overapproximate(S1, Zonotope) #foldr(∩, H_intersections; init=Z)
 
     if !isempty(S)
-        S = overapproximate(S, HPolytope, dirs = BoxDirections())
+        S = overapproximate(S, HPolytope, dirs=BoxDirections())
         if isbounded(S)
             box = box_approximation(S)
             return convert(Zonotope, box)

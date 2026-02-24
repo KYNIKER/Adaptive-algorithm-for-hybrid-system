@@ -3,20 +3,33 @@ using Plots, LazySets, LinearAlgebra, BenchmarkTools, CSV, DataFrames, Expokit #
 include("Utilities.jl")
 include("ReACTed.jl")
 include("models/gearbox.jl")
+include("models/bouncingBall.jl")
 
 δ⁺ = 10^-3
 δ⁻ = δ⁺ / 2^1
 
-sys = loadGearBox()
-n = length(sys.initialState.center)
-res = ReACTed(sys, [0., 0.2], convert(Zonotope, sys.initialState), Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), [LazySets.HalfSpace(sparsevec([5], [1.0], 6), 20.0)], δ⁻, δ⁺)
+sys, initialState, X0, T = loadBouncingBall()
+n = length(X0.center)
+res = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), sys.globalConstraints, δ⁻, δ⁺)
 
 #println(res) #
+const fig = plot()
+cpallete = palette(:tab10, length(res))
+i = 1
 for (x, y) in res
-    println(ρ(Vector(sparsevec([5], [1.0], 6)), x), " :", y)
 
+    println(y)
+    for (r, t) in x
+        box = box_approximation(r)
+        v = vertices_list(r)
+        dimCoords = getindex.(v, 1)
+        maxcor = maximum(dimCoords)
+        mincor = minimum(dimCoords)
+        plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="")
+    end
+    global i += 1
 end
-#const fig = plot()
+
 #plot!(fig, res[1], vars=(1, 2), ε=1e-5)
 # plot!(fig, sol_GRBX01, vars=(3, 4), ε=1e-5,
 #       color=:blue, alpha=0.5, lw=1.0, linecolor=:blue,
@@ -29,5 +42,5 @@ end
 #       xlims=(-0.017, -0.0015), ylims=(-0.008, 0.004),
 #       bottom_margin=-5mm, left_margin=-1mm, right_margin=10mm, top_margin=3mm,
 #       size=(1000, 1000))
-#savefig(fig, joinpath("results/", "Sandbox.png"))
+savefig(fig, joinpath("results/", "Sandbox.png"))
 

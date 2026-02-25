@@ -1,4 +1,3 @@
-
 export ReACTDiscretize, PhiDict
 using LinearAlgebra, LazySets, ReachabilityAnalysis
 
@@ -23,19 +22,20 @@ function ReACTDiscretize(loc, X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Float6
     A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(A)
     Φcache = sum(A) == abs(sum(A)) ? Φ : nothing
     P2A_abs = ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, isInvA, Φcache)
-
+    pis = ReachabilityAnalysis.Exponentiation.Φ₁(A, δ⁻, alg, isInvA, Φcache)
     if !isnothing(U)
         if !isnothing(loc.c)
             U = Zonotope(U.center + loc.c, genmat(U))
         end
         if !(zeros(XDim) ∈ U) #Origin is *not* in input
-            invA = inv(Matrix(A))
+            #invA = inv(Matrix(A))
             û = copy(U.center)
             Ut = Zonotope(U.center - û, genmat(U))
             dU = overapproximate(δ⁻ * Ut, Zonotope)
             E_ψ = convert(Zonotope, symmetric_interval_hull(P2A_abs * symmetric_interval_hull(A * U)))
             P = minkowski_sum(dU, E_ψ)
-            P̂ = invA * (phiDict[d] - dia) * û
+            P̂ = pis * û
+            #P̂ = invA * (phiDict[d] - dia) * û
             lt = minkowski_sum(convert(Zonotope, phiDict[d] * X0), dU)
             E⁺ = convert(Zonotope, symmetric_interval_hull(P2A_abs * symmetric_interval_hull(A * A * X0)))
             rt = minkowski_sum(E_ψ, E⁺)
@@ -107,10 +107,10 @@ function ReACTDiscretize(loc, X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Float6
     else
         #   Cases where no input set, but maybe a constant input
         if !isnothing(loc.c)
-            println("correct")
-            invA = inv(Matrix(A))
+            #invA = inv(Matrix(A))
             û = loc.c
-            P̂ = (A \ (phiDict[d] - dia)) * û
+            println("THIS?")
+            P̂ = pis * û
             PZ = Zonotope(P̂, zeros(Float64, XDim, 1))
             E⁺ = convert(Zonotope, symmetric_interval_hull(P2A_abs * symmetric_interval_hull(A * A * X0)))
 

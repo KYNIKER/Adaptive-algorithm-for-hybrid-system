@@ -6,30 +6,54 @@ include("models/gearbox.jl")
 include("models/platoon.jl")
 include("models/bouncingBall.jl")
 
+<<<<<<< HEAD
 δ⁺ = 10^-3
 δ⁻ = δ⁺ / 2^3
 
+=======
+δ⁺ = 10^-2
+δ⁻ = δ⁺ / 2^2
+>>>>>>> 4d8e9e179abcc56d552b37de1f19ff09cca97435
 
 sys, initialState, X0, T = loadBouncingBall()
 n = length(X0.center)
 res = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), sys.globalConstraints, δ⁻, δ⁺)
 
 #println(res) #
-const fig = plot()
+const fig = plot(ε=1e-5)
+#plot!(LazySets.HalfSpace(sparsevec([1], [1.], 2), 0.01))
+#plot!(LazySets.HalfSpace(sparsevec([1], [-1.], 2), 0.0))
+#plot!(LazySets.HalfSpace(sparsevec([2], [1.], 2), 0.0))
 cpallete = palette(:tab10, length(res))
 i = 1
 for (x, y) in res
 
     println(y)
     for (r, t) in x
-        box = box_approximation(r)
+        #box = box_approximation(r)
         v = vertices_list(r)
         dimCoords = getindex.(v, 1)
         maxcor = maximum(dimCoords)
         mincor = minimum(dimCoords)
-        plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="")
+        plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="", alpha=0.1)
+        #plot!(r, c=cpallete[i], alpha=0.2)
     end
+
+    h, t = x[end]
+    #box = box_approximation(h)
+    v = vertices_list(h)
+    dimCoords = getindex.(v, 1)
+    maxcor = maximum(dimCoords)
+    mincor = minimum(dimCoords)
+    #plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab=i, alpha=0.2)
+    h, t = x[1]
+    v = vertices_list(h)
+    dimCoords = getindex.(v, 1)
+    maxcor = maximum(dimCoords)
+    mincor = minimum(dimCoords)
+    #plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="", alpha=0.8)
     global i += 1
+
 end
 savefig(fig, joinpath("results/", "SandboxDim1.png"))
 

@@ -2,17 +2,6 @@ using LazySets, ReachabilityAnalysis, LinearAlgebra, Polyhedra, Optim
 
 export HybridSystem, HybridSystemV2, Location, Edge, overapproximateIntervalReachset, intersects, splitZonotope, getBoxIntersection
 
-#=struct HybridSystem
-    V::Vector{Any}
-    E::Matrix{Int}
-    G::Matrix{Vector{LazySet.HalfSpaceModule.HalfSpace}}
-    I::Vector{LazySet.HalfSpaceModule.HalfSpace}
-    Flow::Vector{Matrix{Float64}}
-    Jump::Matrix{Tuple{Matrix{Float64},Vector{Float64}}}
-end=#
-
-
-
 struct Edge
     targetLoc::Int
     guard::HPolyhedron

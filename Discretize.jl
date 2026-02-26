@@ -33,7 +33,7 @@ function ReACTDiscretize(loc, X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Float6
             Ut = Zonotope(U.center - û, genmat(U))
             dU = overapproximate(δ⁻ * Ut, Zonotope)
             E_ψ = convert(Zonotope, symmetric_interval_hull(P2A_abs * symmetric_interval_hull(A * U)))
-            P = minkowski_sum(dU, E_ψ)
+            P = concretize(pis * U) #minkowski_sum(dU, E_ψ)
             P̂ = pis * û
             #P̂ = invA * (phiDict[d] - dia) * û
             lt = minkowski_sum(convert(Zonotope, phiDict[d] * X0), dU)
@@ -42,6 +42,7 @@ function ReACTDiscretize(loc, X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Float6
             PZ = Zonotope(P̂, zeros(Float64, size(U.center, 1), 1))
             f = minkowski_sum(lt, rt)
             disc = overapproximate(CH(X0, minkowski_sum(f, PZ)), Zonotope)
+
             while d < δ⁺
                 inputDiscritezationDict[d] = P
                 P = minkowski_sum(P, linear_map(phiDict[d], P))

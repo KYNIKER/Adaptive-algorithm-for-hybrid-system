@@ -359,6 +359,7 @@ function getBoxIntersection(Z::Zonotope, H_intersections::Any)
         box = box_approximation(S)#overapproximate(S, Hyperrectangle)
         return convert(Zonotope, box)
     else
+        #println("EMPTY!!")
         return S
     end
 end

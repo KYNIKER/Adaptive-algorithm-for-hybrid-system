@@ -41,6 +41,9 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
             #println(reachtime)
 
             println(reachtime - time)
+            if reachtime - time == 0.0
+                return reachset
+            end
             if reachtime < endtime
                 push!(reachset, (tempReachset, string(time) * " - " * string(reachtime) * ": " * string(loc.id) * "->" * string(edge.targetLoc)))
                 intersectingSet, intersectedInput, timeNotIntersected = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, endtime], guards, setOfConstraints, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, tΦ, tempInput)
@@ -53,13 +56,17 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
                 #println(timeIntersected)
                 if timeIntersected >= 0.
                     #timeIntersectedSet = concretize(overapproximateIntervalReachset(loc.A, tempReachsets[supMinsIdx], U, δ⁻, timeIntersected, alg, maxOrder, reduceOrder, flowPhiDict[loc.id]))
-                    if !intersects(intersectingSet, guards)
-                        throw(ErrorException("Set intersecting guard does not intersect the guard."))
-                    end
+                    #if !intersects(intersectingSet, guards)
+                    #throw(ErrorException("Set intersecting guard does not intersect the guard."))
+                    #end
                     intersectedSet = getBoxIntersection(intersectingSet, guards)
 
+                    if isempty(intersectedSet)
+                        return reachset
+                    end
+
                     if !isa(loc.invarient, Nothing) && intersects(intersectedSet, loc.invarient)
-                        #println("tes")
+                        println("tes")
                         tintersectedSet = getBoxIntersection(intersectedSet, loc.invarient)
                         #println("Inv intersection: ", ρ(Vector(sparsevec([5], [1.0], 6)), intersectedSet), " vs ", ρ(Vector(sparsevec([5], [1.0], 6)), tintersectedSet))
                         intersectedSet = tintersectedSet
@@ -67,7 +74,7 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
                     end
 
                     #tempSet = exp(reachtime .* loc.A) * X0
-                    x, _ = tempReachset[end]
+                    #=x, _ = tempReachset[end]
                     #x = concretize(exp(reachtime .* loc.A) * X0)
                     #x = getBoxIntersection(x, loc.invarient)
                     if intersects(x, guards)
@@ -82,8 +89,8 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
                         println("WHAT THE ACTUAL FUCK!")
                         throw(ErrorException("WHAT THE ACTUAL FUCK!"))
                     end
-
-                    jumpSet = concretize(linear_map(edge.jumpMatrix, x))
+                    =#
+                    jumpSet = concretize(linear_map(edge.jumpMatrix, intersectedSet))
                     #println(edge.jumpMatrix)
 
                     if !isa(hybridSystem.locations[edge.targetLoc].invarient, Nothing) && intersects(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)
@@ -101,9 +108,9 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
                     #
 
                     #timePointInput = U  #   NEEDS FIXING
-                    println(x.center)
+                    #println(x.center)
                     println(jumpSet.center)
-                    y, _ = tempReachset[1]
+                    #y, _ = tempReachset[1]
                     #println(y.center)
                     branchedRun = auxReACTed(hybridSystem, hybridSystem.locations[edge.targetLoc], [reachtime, endtime], jumpSet, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, tΦ)
                     reachset = vcat(reachset, branchedRun)
@@ -227,11 +234,12 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, cons
             changedTimeStep = false
             hom = map(x -> ρ(x, newRR), constraintProjVectors)
             inhom = map(x -> ρ(x, V), constraintProjVectors)
+            tempVs = remove_redundant_generators(minkowski_sum(Vs, V))
 
-            if reduce(&, <=(Sρ + hom + inhom, constraintProjBounds)) && intersects(concretize(minkowski_sum(newRR, Vs)), guard) #mapreduce(x -> intersects(newRR, x), &, guard)
+            if reduce(&, <=(Sρ + hom + inhom, constraintProjBounds)) && intersects(concretize(minkowski_sum(newRR, tempVs)), guard)# && intersects(concretize(minkowski_sum(newRR, Vs)), loc.invarient) #mapreduce(x -> intersects(newRR, x), &, guard)
                 #if mapreduce(x -> intersects(newRR, x), &, guard)
-                Vs = remove_redundant_generators(minkowski_sum(Vs, V))
-                push!(overapproximateIntersectingSetArray, concretize(minkowski_sum(newRR, Vs)))
+                push!(overapproximateIntersectingSetArray, concretize(minkowski_sum(newRR, tempVs)))
+                Vs = copy(tempVs)
                 approveFlag = true
                 Sρ += inhom
                 mul!(tempM, Φ, ϕt)
@@ -344,15 +352,16 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
             changedTimeStep = false
             hom = map(x -> ρ(x, newRR), constraintProjVectors)
             inhom = map(x -> ρ(x, V), constraintProjVectors)
+            tempVs = remove_redundant_generators(minkowski_sum(Vs, V))
 
-            if reduce(&, <=(Sρ + hom + inhom, constraintProjBounds)) && !intersects(concretize(minkowski_sum(newRR, Vs)), guards)
+            if reduce(&, <=(Sρ + hom + inhom, constraintProjBounds)) && !intersects(concretize(minkowski_sum(newRR, Vs)), guards) && intersects(concretize(minkowski_sum(newRR, tempVs)), loc.invarient)
                 #if mapreduce(x -> intersects(newRR, x), &, guard)
                 #push!(overapproximateIntersectingSetArray, newRR)
                 if isempty(lastNewR)
                     println("first element: ", concretize(newRR).center, " ", currentTimeStep)
                 end
-                push!(lastNewR, (concretize(minkowski_sum(newRR, Vs)), [time, time + currentTimeStep]))
-                Vs = remove_redundant_generators(minkowski_sum(Vs, V))
+                push!(lastNewR, (concretize(minkowski_sum(newRR, tempVs)), [time, time + currentTimeStep]))
+                Vs = tempVs
                 approveFlag = true
                 Sρ += inhom
                 mul!(tempM, Φ, ϕt)

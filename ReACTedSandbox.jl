@@ -6,14 +6,8 @@ include("models/gearbox.jl")
 include("models/platoon.jl")
 include("models/bouncingBall.jl")
 
-<<<<<<< HEAD
-δ⁺ = 10^-3
-δ⁻ = δ⁺ / 2^3
-
-=======
 δ⁺ = 10^-2
 δ⁻ = δ⁺ / 2^2
->>>>>>> 4d8e9e179abcc56d552b37de1f19ff09cca97435
 
 sys, initialState, X0, T = loadBouncingBall()
 n = length(X0.center)

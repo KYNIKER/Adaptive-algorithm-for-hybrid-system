@@ -3,10 +3,12 @@ using Plots, LazySets, LinearAlgebra, BenchmarkTools, CSV, DataFrames, Expokit #
 include("Utilities.jl")
 include("ReACTed.jl")
 include("models/gearbox.jl")
+include("models/platoon.jl")
 include("models/bouncingBall.jl")
 
 δ⁺ = 10^-3
-δ⁻ = δ⁺ / 2^1
+δ⁻ = δ⁺ / 2^3
+
 
 sys, initialState, X0, T = loadBouncingBall()
 n = length(X0.center)
@@ -29,6 +31,31 @@ for (x, y) in res
     end
     global i += 1
 end
+savefig(fig, joinpath("results/", "SandboxDim1.png"))
+
+
+const fig2 = plot(xlabel = "Height", ylabel = "Velocity")
+cpallete = palette(:tab10, length(res))
+i = 1
+for (x, y) in res
+    println(y)
+    for (r, t) in x
+        box = box_approximation(r)
+        v = vertices_list(r)
+        dimCoords1 = getindex.(v, 1)
+        dimCoords2 = getindex.(v, 2)
+        maxcor1 = maximum(dimCoords1)
+        mincor1 = maximum(dimCoords1)
+        maxcor2 = maximum(dimCoords2)
+        mincor2 = minimum(dimCoords2)
+        plot!(Shape([mincor1, maxcor1, maxcor1, mincor1], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
+    end
+    global i += 1
+end
+savefig(fig2, joinpath("results/", "SandboxPlot2Dim.png"))
+
+
+
 
 #plot!(fig, res[1], vars=(1, 2), ε=1e-5)
 # plot!(fig, sol_GRBX01, vars=(3, 4), ε=1e-5,
@@ -42,5 +69,5 @@ end
 #       xlims=(-0.017, -0.0015), ylims=(-0.008, 0.004),
 #       bottom_margin=-5mm, left_margin=-1mm, right_margin=10mm, top_margin=3mm,
 #       size=(1000, 1000))
-savefig(fig, joinpath("results/", "Sandbox.png"))
+#savefig(fig, joinpath("results/", "Sandbox.png"))
 

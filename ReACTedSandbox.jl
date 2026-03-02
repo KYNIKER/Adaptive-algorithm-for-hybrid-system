@@ -7,7 +7,7 @@ include("models/platoon.jl")
 include("models/bouncingBall.jl")
 include("models/simpleModel.jl")
 
-δ⁺ = 10^-2 
+δ⁺ = 10^-2
 δ⁻ = δ⁺ / 2^5
 
 sys, initialState, X0, T = loadPlatoon()
@@ -19,11 +19,7 @@ res = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(
 
 
 #println(res) #
-const fig = plot(ε=1e-5)
-
-# x, _, t = getRealExampleSystem()
-# plot!(t, x, label="x(t)", c=:red)
-
+const fig = Plots.plot(ε=1e-5)
 #plot!(LazySets.HalfSpace(sparsevec([1], [1.], 2), 0.01))
 #plot!(LazySets.HalfSpace(sparsevec([1], [-1.], 2), 0.0))
 #plot!(LazySets.HalfSpace(sparsevec([2], [1.], 2), 0.0))
@@ -38,7 +34,7 @@ for (x, y) in res
         dimCoords = getindex.(v, 1)
         maxcor = maximum(dimCoords)
         mincor = minimum(dimCoords)
-        plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="", alpha=0.1)
+        Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="", alpha=0.1)
         #plot!(r, c=cpallete[i], alpha=0.2)
     end
 
@@ -61,7 +57,7 @@ end
 savefig(fig, joinpath("results/", "SandboxDim1.png"))
 
 
-const fig2 = plot(xlabel = "Height", ylabel = "Velocity")
+const fig2 = Plots.plot(xlabel="Height", ylabel="Velocity")
 cpallete = palette(:tab10, length(res))
 i = 1
 for (x, y) in res
@@ -75,7 +71,7 @@ for (x, y) in res
         mincor1 = maximum(dimCoords1)
         maxcor2 = maximum(dimCoords2)
         mincor2 = minimum(dimCoords2)
-        plot!(Shape([mincor1, maxcor1, maxcor1, mincor1], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
+        Plots.plot!(Shape([mincor1, maxcor1, maxcor1, mincor1], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
     end
     global i += 1
 end

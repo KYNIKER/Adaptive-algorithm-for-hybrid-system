@@ -385,11 +385,18 @@ function splitZonotope(Z::Zonotope, H_intersections::Vector{N}) where N
 end
 
 function splitZonotope(Z::Zonotope, H_intersections::LazySets.HPolyhedronModule.HPolyhedron)
-    #H_rest = map(x -> LazySets.HalfSpace(-x.a, -x.b), H_intersections)
-    #H_rest = HPolyhedron(map(x -> LazySets.HalfSpace(-x.a, -x.b), constraints_list(H_intersections)))
     # Get intersections
-    Z_intersection = getBoxIntersection(Z, H_intersections)
-    Z_rest = getBoxIntersection(Z, H_rest)
+    Z_intersection = zonotopeStripIntersection(Z, H_intersections)
+
+    println(Z_intersection)
+
+    # Flip it!
+    constraint_list = H_intersections.constraints
+    flipped_constraint_list = map(x -> LazySets.HalfSpace(-x.a, -x.b), constraint_list)
+
+    println("Flipped constraint list: ", flipped_constraint_list)
+
+    Z_rest = zonotopeStripIntersection(Z, HPolyhedron(flipped_constraint_list))
 
     return Z_intersection, Z_rest
 end
@@ -481,7 +488,7 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
                 #println(x, b)
                 thp = LazySets.HyperplaneModule.Hyperplane(-a, (b + x) / 2)  #   Should check the calculation of the sigma values
                 println((x - b) / 2)
-                res = zonotopeStripIntersection(res, thp, abs(x - b) / 2)
+                res = zonotopeStripIntersection(res, thp, (x - b) / 2)
             else
                 println("Not applicable")
                 x = ρ(a, Z)

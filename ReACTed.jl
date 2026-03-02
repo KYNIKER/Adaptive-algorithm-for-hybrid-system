@@ -62,6 +62,7 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
                     intersectedSet = getBoxIntersection(intersectingSet, guards)
 
                     if isempty(intersectedSet)
+                        println("Empty..")
                         return reachset
                     end
 
@@ -187,6 +188,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, cons
     currentTimeStep = copy(initialTimeStep)
 
     overapproximateIntersectingSetArray = []
+    preclustering = missing
     attemptsRecorder = []
 
     V = copy(inputDiscritezationDict[initialTimeStep])
@@ -216,8 +218,12 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, cons
                 end
                 bigCH = foldr((x, y) -> overapproximate(CH(x, y), Zonotope), overapproximateIntersectingSetArray; init=concretize(newRR))
                 intersectingSet = overapproximate(bigCH, Zonotope)
+                if ismissing(preclustering)
+                    println(minkowski_sum(newRR, Vs))
+                    preclustering = minkowski_sum(newRR, Vs)
+                end
                 #println(norm(intersectingSet), " ", norm(newRR))
-                return (intersectingSet, Sρ, time)
+                return (preclustering, Sρ, time)
             end
 
             if changedTimeStep
@@ -239,6 +245,11 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, cons
             if reduce(&, <=(Sρ + hom + inhom, constraintProjBounds)) && intersects(concretize(minkowski_sum(newRR, tempVs)), guard)# && intersects(concretize(minkowski_sum(newRR, Vs)), loc.invarient) #mapreduce(x -> intersects(newRR, x), &, guard)
                 #if mapreduce(x -> intersects(newRR, x), &, guard)
                 push!(overapproximateIntersectingSetArray, concretize(minkowski_sum(newRR, tempVs)))
+                if ismissing(preclustering)
+                    preclustering = concretize(minkowski_sum(newRR, tempVs))
+                else
+                    preclustering = overapproximate(CH(preclustering, concretize(minkowski_sum(newRR, tempVs))), Zonotope)
+                end
                 Vs = copy(tempVs)
                 approveFlag = true
                 Sρ += inhom
@@ -281,7 +292,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, cons
     end
     bigCH = foldr((x, y) -> overapproximate(CH(x, y), Zonotope), overapproximateIntersectingSetArray; init=concretize(newRR))
     intersectingSet = overapproximate(bigCH, Zonotope)
-    return (intersectingSet, Sρ, time)
+    return (preclustering, Sρ, time)
 end
 
 function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, constraint, STRATEGY::Integer, PhiDict, discritezationDict, inputDiscritezationDict, Φ)
@@ -327,10 +338,13 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
             if currentTimeStep < m
                 println(isempty(lastNewR))
                 if isempty(lastNewR) && intersects(newRR, guards)
-                    push!(lastNewR, (concretize(newRR), [time, time + currentTimeStep]))
-                elseif !reduce(&, <=(Sρ + map(x -> ρ(x, lastNewR), constraintProjVectors), constraintProjBounds))
-                    throw(ErrorException("Reached unsafe set."))
+                    if !reduce(&, <=(Sρ + map(x -> ρ(x, concretize(newRR)), constraintProjVectors), constraintProjBounds))
+                        throw(ErrorException("Reached unsafe set."))
+                    else
+                        push!(lastNewR, (concretize(newRR), [time, time + currentTimeStep]))
+                    end
                 end
+
                 #push!(overapproximateIntersectingSetArray, newRR)
                 #intersectingSet = overapproximate(ConvexHullArray(overapproximateIntersectingSetArray), Zonotope)
                 #println(norm(lastNewR), " ", time)

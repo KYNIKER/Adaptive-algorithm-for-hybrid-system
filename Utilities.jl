@@ -393,3 +393,39 @@ function splitZonotope(Z::Zonotope, H_intersections::LazySets.HPolyhedronModule.
 
     return Z_intersection, Z_rest
 end
+
+#   Based on Alamo et al. "Guaranteed state estimation by zonotopes" (2005)
+function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HyperplaneModule.Hyperplane, σ::Float64)
+    G = genmat(Z)
+    c = Z.center
+    b = H.a
+    d = H.b
+    λ = (G * transpose(G) * b) / (transpose(b) * G * transpose(G) * b + σ^2)
+    ĉ = c + λ * (d - transpose(b) * c)
+    upper = ((I - λ * transpose(b)) * G)
+    lower = (σ * λ)
+    Ĝ::Matrix{eltype(G)} = hcat(upper, lower)
+    return Zonotope(ĉ, Ĝ)
+end
+
+function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HPolyhedron)
+    HalfSpaces = constraints_list(H)
+    res = copy(Z)
+    for hs in HalfSpaces
+        a = hs.a
+        b = hs.b
+        if applicable(ρ, a, H)
+            y = ρ(a, H)
+            x = max(ρ(a, H), ρ(a, Z))
+            println(x, b)
+            thp = LazySets.HyperplaneModule.Hyperplane(a, (b + x) / 2)  #   Should check the calculation of the sigma values
+            println((2 * b + x) / 2)
+            res = zonotopeStripIntersection(res, thp, abs(x - b) / 2)
+        else
+            x = ρ(a, Z)
+            thp = HyperPlane(a, (2 * b + x) / 2)
+            res = zonotopeStripIntersection(res, thp, x / 2)
+        end
+    end
+    return res
+end

@@ -5,16 +5,25 @@ include("ReACTed.jl")
 include("models/gearbox.jl")
 include("models/platoon.jl")
 include("models/bouncingBall.jl")
+include("models/simpleModel.jl")
 
-δ⁺ = 10^-2
-δ⁻ = δ⁺ / 2^2
+δ⁺ = 10^-2 
+δ⁻ = δ⁺ / 2^5
 
-sys, initialState, X0, T = loadBouncingBall()
+sys, initialState, X0, T = loadPlatoon()
+sys, initial_state, X0, T = loadBouncingBall()
 n = length(X0.center)
 res = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), sys.globalConstraints, δ⁻, δ⁺)
 
+
+
+
 #println(res) #
 const fig = plot(ε=1e-5)
+
+# x, _, t = getRealExampleSystem()
+# plot!(t, x, label="x(t)", c=:red)
+
 #plot!(LazySets.HalfSpace(sparsevec([1], [1.], 2), 0.01))
 #plot!(LazySets.HalfSpace(sparsevec([1], [-1.], 2), 0.0))
 #plot!(LazySets.HalfSpace(sparsevec([2], [1.], 2), 0.0))
@@ -71,6 +80,8 @@ for (x, y) in res
     global i += 1
 end
 savefig(fig2, joinpath("results/", "SandboxPlot2Dim.png"))
+
+
 
 
 

@@ -122,8 +122,9 @@ function loadPlatoon(; deterministic_switching::Bool=true,
     push!(locations, Location(2, invariant, A, B, u, c, edgeListLoc2, []))
 
 
-    X0 = Singleton(zeros(n))
-    X0 = convert(Zonotope, X0)
+    # X0 = Singleton(zeros(n))
+    # X0 = convert(Zonotope, X0)
+    X0 = Zonotope(zeros(n), [zeros(n)])
 
     # Global constraints
     properties = []

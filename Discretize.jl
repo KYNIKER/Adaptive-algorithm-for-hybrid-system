@@ -28,20 +28,22 @@ function ReACTDiscretize(loc, X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Float6
             U = Zonotope(U.center + loc.c, genmat(U))
         end
         if !(zeros(XDim) ∈ U) #Origin is *not* in input
+            println("We in this")
             #invA = inv(Matrix(A))
             û = copy(U.center)
             Ut = Zonotope(U.center - û, genmat(U))
             dU = overapproximate(δ⁻ * Ut, Zonotope)
             E_ψ = convert(Zonotope, symmetric_interval_hull(P2A_abs * symmetric_interval_hull(A * U)))
-            P = concretize(pis * U) #minkowski_sum(dU, E_ψ)
+            P = minkowski_sum(overapproximate(δ⁻ * U, Zonotope), E_ψ) #
             P̂ = pis * û
             #P̂ = invA * (phiDict[d] - dia) * û
-            lt = minkowski_sum(convert(Zonotope, phiDict[d] * X0), dU)
+            lt = minkowski_sum(convert(Zonotope, phiDict[d] * X0), overapproximate(δ⁻ * U, Zonotope))  #minkowski_sum(convert(Zonotope, phiDict[d] * X0), dU)
             E⁺ = convert(Zonotope, symmetric_interval_hull(P2A_abs * symmetric_interval_hull(A * A * X0)))
             rt = minkowski_sum(E_ψ, E⁺)
             PZ = Zonotope(P̂, zeros(Float64, size(U.center, 1), 1))
             f = minkowski_sum(lt, rt)
-            disc = overapproximate(CH(X0, minkowski_sum(f, PZ)), Zonotope)
+            disc = overapproximate(CH(X0, minkowski_sum(f, PZ)), Zonotope) # overapproximate(CH(X0, minkowski_sum(f, PZ)), Zonotope) #
+            #disc = Zonotope(disc.center - P̂, genmat(disc))
 
             while d < δ⁺
                 inputDiscritezationDict[d] = P

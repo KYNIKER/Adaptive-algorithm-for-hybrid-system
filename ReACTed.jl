@@ -198,6 +198,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, cons
 
     V = copy(inputDiscritezationDict[initialTimeStep])
     Vs = accInput
+    lastVs = copy(Vs)
     Sρ = zeros(Float64, length(constraint))
     newR = discritezationDict[initialTimeStep]
     i = 1
@@ -250,14 +251,15 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, cons
             inhom = map(x -> ρ(x, V), constraintProjVectors)
             tempVs = remove_redundant_generators(minkowski_sum(Vs, V))
 
-            if reduce(&, <=(Sρ + hom + inhom, constraintProjBounds)) && intersects(concretize(minkowski_sum(newRR, tempVs)), guard) && intersects(concretize(minkowski_sum(newRR, Vs)), loc.invarient) #mapreduce(x -> intersects(newRR, x), &, guard)
+            if reduce(&, <=(Sρ + hom + inhom, constraintProjBounds)) && intersects(concretize(minkowski_sum(newRR, Vs)), guard) && intersects(concretize(minkowski_sum(newRR, Vs)), loc.invarient) #mapreduce(x -> intersects(newRR, x), &, guard)
                 #if mapreduce(x -> intersects(newRR, x), &, guard)
-                push!(overapproximateIntersectingSetArray, concretize(minkowski_sum(newRR, tempVs)))
+                push!(overapproximateIntersectingSetArray, concretize(minkowski_sum(newRR, Vs)))
                 if ismissing(preclustering)
-                    preclustering = concretize(minkowski_sum(newRR, tempVs))
+                    preclustering = concretize(minkowski_sum(newRR, Vs))
                 else
-                    preclustering = overapproximate(CH(preclustering, concretize(minkowski_sum(newRR, tempVs))), Zonotope)
+                    preclustering = overapproximate(CH(preclustering, concretize(minkowski_sum(newRR, Vs))), Zonotope)
                 end
+                lastVs = copy(Vs)
                 Vs = copy(tempVs)
                 approveFlag = true
                 Sρ += inhom
@@ -308,7 +310,8 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
     m = copy(δ⁻)
     changedTimeStep = true
     phiDict = PhiDict
-
+    A = copy(loc.A)
+    println(A)
     constraintProjVectors = map(x -> x.a, constraint)
     constraintProjBounds = ρ.(constraintProjVectors, constraint)
 
@@ -330,6 +333,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
 
     V = copy(inputDiscritezationDict[initialTimeStep])
     Vs = Zonotope(zeros(size(loc.A, 2)), [zeros(size(loc.A, 2))])
+    lastVs = copy(Vs)
     Sρ = zeros(Float64, length(constraint))
     newR = discritezationDict[initialTimeStep]
     i = 1
@@ -356,7 +360,8 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
                 #push!(overapproximateIntersectingSetArray, newRR)
                 #intersectingSet = overapproximate(ConvexHullArray(overapproximateIntersectingSetArray), Zonotope)
                 #println(norm(lastNewR), " ", time)
-                println("Guards Vs: ", Vs)
+                println("Guards Vs: ", concretize(minkowski_sum(newRR, Vs)))
+                println("Guards newRR: ", pop!(lastNewR))
                 return (lastNewR, Vs, time, Φ)
             end
 
@@ -375,16 +380,18 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
             changedTimeStep = false
             hom = map(x -> ρ(x, newRR), constraintProjVectors)
             inhom = map(x -> ρ(x, V), constraintProjVectors)
+
             tempVs = remove_redundant_generators(minkowski_sum(Vs, V))
 
-            if reduce(&, <=(Sρ + hom + inhom, constraintProjBounds)) && !intersects(concretize(minkowski_sum(newRR, Vs)), guards) && intersects(concretize(minkowski_sum(newRR, tempVs)), loc.invarient)
+            if reduce(&, <=(Sρ + hom + inhom, constraintProjBounds)) && !intersects(concretize(minkowski_sum(newRR, Vs)), guards) && intersects(concretize(minkowski_sum(newRR, Vs)), loc.invarient)
                 #if mapreduce(x -> intersects(newRR, x), &, guard)
                 #push!(overapproximateIntersectingSetArray, newRR)
                 if isempty(lastNewR)
                     println("first element: ", concretize(newRR).center, " ", currentTimeStep)
                 end
-                push!(lastNewR, (concretize(minkowski_sum(newRR, tempVs)), [time, time + currentTimeStep]))
-                Vs = tempVs
+                push!(lastNewR, (concretize(minkowski_sum(newRR, Vs)), [time, time + currentTimeStep]))
+                lastVs = copy(Vs)
+                Vs = copy(tempVs)
                 approveFlag = true
                 Sρ += inhom
                 mul!(tempM, Φ, ϕt)

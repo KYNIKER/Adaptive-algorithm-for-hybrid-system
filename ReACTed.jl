@@ -260,7 +260,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, cons
                     preclustering = overapproximate(CH(preclustering, concretize(minkowski_sum(newRR, Vs))), Zonotope)
                 end
                 lastVs = copy(Vs)
-                Vs = copy(tempVs)
+                Vs = reduce_order(copy(tempVs), 5)
                 approveFlag = true
                 Sρ += inhom
                 mul!(tempM, Φ, ϕt)
@@ -391,7 +391,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
                 end
                 push!(lastNewR, (concretize(minkowski_sum(newRR, Vs)), [time, time + currentTimeStep]))
                 lastVs = copy(Vs)
-                Vs = copy(tempVs)
+                Vs = reduce_order(copy(tempVs), 6)
                 approveFlag = true
                 Sρ += inhom
                 mul!(tempM, Φ, ϕt)

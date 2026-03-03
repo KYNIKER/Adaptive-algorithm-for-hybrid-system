@@ -8,7 +8,7 @@ include("models/bouncingBall.jl")
 include("models/simpleModel.jl")
 
 δ⁺ = 10^-2
-δ⁻ = δ⁺ / 2^5
+δ⁻ = δ⁺ / 2^2
 
 sys, initialState, X0, T = loadPlatoon()
 sys, initial_state, X0, T = loadBouncingBall()
@@ -19,7 +19,7 @@ res = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(
 
 
 #println(res) #
-const fig = Plots.plot(ε=1e-5)
+const fig = Plots.plot(ε=1e-6)
 #plot!(LazySets.HalfSpace(sparsevec([1], [1.], 2), 0.01))
 #plot!(LazySets.HalfSpace(sparsevec([1], [-1.], 2), 0.0))
 #plot!(LazySets.HalfSpace(sparsevec([2], [1.], 2), 0.0))
@@ -68,7 +68,7 @@ for (x, y) in res
         dimCoords1 = getindex.(v, 1)
         dimCoords2 = getindex.(v, 2)
         maxcor1 = maximum(dimCoords1)
-        mincor1 = maximum(dimCoords1)
+        mincor1 = minimum(dimCoords1)
         maxcor2 = maximum(dimCoords2)
         mincor2 = minimum(dimCoords2)
         Plots.plot!(Shape([mincor1, maxcor1, maxcor1, mincor1], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")

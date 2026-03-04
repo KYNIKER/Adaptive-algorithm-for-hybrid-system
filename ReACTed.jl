@@ -178,6 +178,29 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
         end
     end
 
+    if isempty(loc.edges) # This means it is just a continous system from here
+        println("No edges? call ReACT")
+
+        #tempReachset, _, _ = ReACT(loc, δ⁻, δ⁺, interval, constraint, 2, alg, maxOrder, reduceOrder, PhiDict[loc.id])
+        tempReachset, _, _, _ = ReACT(loc, δ⁻, δ⁺, interval, constraint, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, Φ)
+        if !isa(loc.invarient, Nothing)
+            newReach = []
+            for (Z, timeInterval) in tempReachset
+                if intersects(Z, loc.invarient)
+                    push!(newReach, (getBoxIntersection(concretize(Z), loc.invarient), timeInterval))
+                else
+                    push!(newReach, (Z, timeInterval))
+                end
+            end
+            reachset = vcat(reachset, (newReach, string(loc.id) * "->" * string(loc.id)))
+        else
+            reachset = vcat(reachset, (tempReachset, string(loc.id) * "->" * string(loc.id)))
+        end
+    end
+
+
+
+
     return reachset
 end
 
@@ -428,17 +451,18 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
     return (lastNewR, Vs, time, Φ)
 end
 
-function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, constraint, STRATEGY::Integer, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, PhiDict=nothing) where {N}
+#function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, constraint, STRATEGY::Integer, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, PhiDict=nothing) where {N}
+function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, constraint, STRATEGY::Integer, PhiDict, discritezationDict, inputDiscritezationDict, Φ)
     initialTimeStep = δ⁺
     changedTimeStep = true
     phiDict = PhiDict
-    discritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
-    inputDiscritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
+    # discritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
+    # inputDiscritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
 
     constraintProjVectors = map(x -> x.a, constraint)
     constraintProjBounds = ρ.(constraintProjVectors, constraint)
 
-    discritezationDict, inputDiscritezationDict, phiDict = ReACTDiscretize(A, X0, U, δ⁻, δ⁺, alg, maxOrder, reduceOrder, phiDict)
+    #discritezationDict, inputDiscritezationDict, phiDict = ReACTDiscretize(A, X0, U, δ⁻, δ⁺, alg, maxOrder, reduceOrder, phiDict)
 
     time::Float64 = minimum(interval)
     endtime::Float64 = maximum(interval)
@@ -447,17 +471,26 @@ function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, X0::Zonotope{N,Vec
 
     attemptsRecorder = Integer[]
 
-    V::Zonotope{N,Vector{N},Matrix{N}} = copy(inputDiscritezationDict[initialTimeStep])
+    #V::Zonotope{N,Vector{N},Matrix{N}} = copy(inputDiscritezationDict[initialTimeStep])
+    V = copy(inputDiscritezationDict[initialTimeStep])
     Sρ = zeros(Float64, length(constraint))
-    newR::Zonotope{N,Vector{N},Matrix{N}} = discritezationDict[initialTimeStep]
+    #newR::Zonotope{N,Vector{N},Matrix{N}} = discritezationDict[initialTimeStep]
+    newR = discritezationDict[initialTimeStep]
     i = 1
 
 
-    Φ::Matrix{Float64} = diagm(ones(Float64, size(A, 2)))
+    #Φ::Matrix{Float64} = diagm(ones(Float64, size(A, 2)))
+    if ismissing(Φ)
+        Φ::Matrix{Float64} = exp(0 .* loc.A)
+    end
     tempM = similar(Φ)
     ϕt = similar(Φ)
     newRR = copy(newR)
 
+    reachSets = []
+
+    sρ = zeros(Float64, length(constraint))
+    Vs = Zonotope(zeros(size(loc.A, 2)), [zeros(size(loc.A, 2))])
 
     while time < endtime
 
@@ -465,7 +498,7 @@ function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, X0::Zonotope{N,Vec
         approveFlag = false
 
         while !approveFlag
-            if currentTimeStep < m
+            if currentTimeStep < δ⁻
                 return (newR, sρ, time)
             end
 
@@ -483,10 +516,13 @@ function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, X0::Zonotope{N,Vec
             changedTimeStep = false
             hom = map(x -> ρ(x, newRR), constraintProjVectors)
             inhom = map(x -> ρ(x, V), constraintProjVectors)
+            tempVs = remove_redundant_generators(minkowski_sum(Vs, V))
 
             if reduce(&, <=(Sρ + hom + inhom, constraintProjBounds))
+                push!(reachSets, (concretize(minkowski_sum(newRR, tempVs)), [time, time + currentTimeStep]))
                 approveFlag = true
                 Sρ += inhom
+                Vs = tempVs
                 mul!(tempM, Φ, ϕt)
                 copy!(Φ, tempM)
             else
@@ -525,5 +561,6 @@ function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, X0::Zonotope{N,Vec
         end
     end
 
-    return (newR, sρ, time)
+    #return (newR, sρ, time)
+    return (reachSets, Vs, time, Φ)
 end

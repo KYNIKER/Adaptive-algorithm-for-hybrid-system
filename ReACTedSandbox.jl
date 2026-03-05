@@ -7,13 +7,16 @@ include("models/platoon.jl")
 include("models/bouncingBall.jl")
 include("models/simpleModel.jl")
 
-δ⁺ = 10^-2
+saveResult = true
+
+δ⁺ = 10^-1
+#δ⁺ = 0.05
 δ⁻ = δ⁺ / 2^2
 
 sys, initialState, X0, T = loadPlatoon()
-sys, initial_state, X0, T = loadBouncingBall()
+sys, initialState, X0, T = loadBouncingBall()
 n = length(X0.center)
-res = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), sys.globalConstraints, δ⁻, δ⁺)
+res = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, 5, 5, saveResult)
 
 
 
@@ -25,6 +28,7 @@ const fig = Plots.plot(ε=1e-6)
 #plot!(LazySets.HalfSpace(sparsevec([2], [1.], 2), 0.0))
 cpallete = palette(:tab10, length(res))
 i = 1
+
 for (x, y) in res
 
     println(y)
@@ -57,25 +61,25 @@ end
 savefig(fig, joinpath("results/", "SandboxDim1.png"))
 
 
-const fig2 = Plots.plot(xlabel="Height", ylabel="Velocity")
-cpallete = palette(:tab10, length(res))
-i = 1
-for (x, y) in res
-    println(y)
-    for (r, t) in x
-        box = box_approximation(r)
-        v = vertices_list(r)
-        dimCoords1 = getindex.(v, 1)
-        dimCoords2 = getindex.(v, 2)
-        maxcor1 = maximum(dimCoords1)
-        mincor1 = minimum(dimCoords1)
-        maxcor2 = maximum(dimCoords2)
-        mincor2 = minimum(dimCoords2)
-        Plots.plot!(Shape([mincor1, maxcor1, maxcor1, mincor1], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
-    end
-    global i += 1
-end
-savefig(fig2, joinpath("results/", "SandboxPlot2Dim.png"))
+# const fig2 = Plots.plot(xlabel="Height", ylabel="Velocity")
+# cpallete = palette(:tab10, length(res))
+# i = 1
+# for (x, y) in res
+#     println(y)
+#     for (r, t) in x
+#         box = box_approximation(r)
+#         v = vertices_list(r)
+#         dimCoords1 = getindex.(v, 1)
+#         dimCoords2 = getindex.(v, 2)
+#         maxcor1 = maximum(dimCoords1)
+#         mincor1 = minimum(dimCoords1)
+#         maxcor2 = maximum(dimCoords2)
+#         mincor2 = minimum(dimCoords2)
+#         Plots.plot!(Shape([mincor1, maxcor1, maxcor1, mincor1], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
+#     end
+#     global i += 1
+# end
+# savefig(fig2, joinpath("results/", "SandboxPlot2Dim.png"))
 
 
 

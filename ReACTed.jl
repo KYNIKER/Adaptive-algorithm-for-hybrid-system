@@ -245,8 +245,11 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, cons
 
         while !approveFlag
             if currentTimeStep < m
-                if reduce(&, <=(Sρ + map(x -> ρ(x, newRR), constraintProjVectors), constraintProjBounds))
+
+                
+                if !reduce(&, <=(Sρ + map(x -> ρ(x, newRR), constraintProjVectors), constraintProjBounds))
                     #throw(ErrorException("Reached unsafe set."))
+                    handleHitConstraint(time, loc.id)
                 end
                 bigCH = foldr((x, y) -> overapproximate(CH(x, y), Zonotope), overapproximateIntersectingSetArray; init=concretize(newRR))
                 intersectingSet = overapproximate(bigCH, Zonotope)
@@ -374,7 +377,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
                 println(isempty(lastNewR))
                 if isempty(lastNewR) && intersects(newRR, guards)
                     if !reduce(&, <=(Sρ + map(x -> ρ(x, concretize(newRR)), constraintProjVectors), constraintProjBounds))
-                        throw(ErrorException("Reached unsafe set."))
+                        handleHitConstraint(time, loc.id)
                     else
                         push!(lastNewR, (concretize(newRR), [time, time + currentTimeStep]))
                     end
@@ -405,7 +408,6 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
             inhom = map(x -> ρ(x, V), constraintProjVectors)
 
             tempVs = remove_redundant_generators(minkowski_sum(Vs, V))
-
             if reduce(&, <=(Sρ + hom + inhom, constraintProjBounds)) && !intersects(concretize(minkowski_sum(newRR, Vs)), guards) && intersects(concretize(minkowski_sum(newRR, Vs)), loc.invarient)
                 #if mapreduce(x -> intersects(newRR, x), &, guard)
                 #push!(overapproximateIntersectingSetArray, newRR)
@@ -505,7 +507,7 @@ function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, constraint, STRATE
         approveFlag = false
 
         while !approveFlag
-            if currentTimeStep < δ⁻
+            if currentTimeStep < δ⁻ 
                 return (newR, sρ, time)
             end
 
@@ -525,13 +527,24 @@ function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, constraint, STRATE
             inhom = map(x -> ρ(x, V), constraintProjVectors)
             tempVs = remove_redundant_generators(minkowski_sum(Vs, V))
 
-            if reduce(&, <=(Sρ + hom + inhom, constraintProjBounds))
+
+            notHitConstraint = reduce(&, <=(Sρ + hom + inhom, constraintProjBounds))
+
+            if notHitConstraint && intersects(concretize(minkowski_sum(newRR, Vs)), loc.invarient)
                 push!(reachSets, (concretize(minkowski_sum(newRR, tempVs)), [time, time + currentTimeStep]))
                 approveFlag = true
                 Sρ += inhom
                 Vs = tempVs
                 mul!(tempM, Φ, ϕt)
                 copy!(Φ, tempM)
+
+            elseif !notHitConstraint && currentTimeStep == δ⁻
+                # We are hitting a constraint and cannot increase precision further
+                handleHitConstraint(time, loc.id)
+
+                newR = copy(newR)
+                currentTimeStep = currentTimeStep / 2
+                changedTimeStep = true
             else
                 newR = copy(newR)
                 currentTimeStep = currentTimeStep / 2
@@ -570,4 +583,14 @@ function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, constraint, STRATE
 
     #return (newR, sρ, time)
     return (reachSets, Vs, time, Φ)
+end
+
+# This can be replaced with throwing an error. Currently we continue and just print
+function handleHitConstraint(time, locationId)
+    throw(error("ERROR!!! We have hit a constraint at loc: $(locationId) time: $time"))
+    # println("\nERROR!!!\n 
+    #         ERROR!!!\n\n
+    #         We have hit a constraint at loc: $(loc.id) time: $time\n\n
+    #         ERROR!!!\n
+    #         ERROR!!!\n")
 end

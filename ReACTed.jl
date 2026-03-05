@@ -31,159 +31,143 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
     println("Smallest disc center: ", discretizationDict[δ⁻].center)
 
     for edge in loc.edges
-        guards = edge.guard
-        if !ismissing(guards)
-            #guards = constraints_list(guards)
+        guards = edge.guard # Technically the guard is one singular HPolyhedron, but it composes the other guards
 
-            #   Compute the reachset closest to the guard without intersecting it and not reaching the unsafe set. 
+        #guards = constraints_list(guards)
 
-            tempReachset, tempInput, reachtime, tΦ = ReACTGuards(loc, δ⁻, δ⁺, [time, endtime], guards, setOfConstraints, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, missing, saveResult)
-            #println(reachtime)
-            println(reachtime - time)
-            if reachtime - time == 0.0
-                return reachset
+        #   Compute the reachset closest to the guard without intersecting it and not reaching the unsafe set. 
+
+        tempReachset, tempInput, reachtime, tΦ = ReACTGuards(loc, δ⁻, δ⁺, [time, endtime], guards, setOfConstraints, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, missing, saveResult)
+        #println(reachtime)
+        println(reachtime - time)
+        if reachtime - time == 0.0
+            return reachset
+        end
+        if reachtime < endtime
+            if saveResult
+                push!(reachset, (tempReachset, string(time) * " - " * string(reachtime) * ": " * string(loc.id) * "->" * string(edge.targetLoc)))
             end
-            if reachtime < endtime
-                if saveResult
-                    push!(reachset, (tempReachset, string(time) * " - " * string(reachtime) * ": " * string(loc.id) * "->" * string(edge.targetLoc)))
+            intersectingSet, intersectedInput, timeNotIntersected = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, endtime], guards, setOfConstraints, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, tΦ, tempInput)
+            timeIntersected = timeNotIntersected - reachtime
+            #push!(reachset, (intersectingSet, string(loc.id) * "->" * string(edge.targetLoc)))
+            #
+            #   Here we should check whether we have reached endtime. If true we should only push the jumpSet
+            #   Still need to check whether we have reached the invariant. If true we should NOT push the else branch result, only the tempReachsets[infMaxsIdx]
+            #
+            #println(timeIntersected)
+            if timeIntersected >= 0.
+                #timeIntersectedSet = concretize(overapproximateIntervalReachset(loc.A, tempReachsets[supMinsIdx], U, δ⁻, timeIntersected, alg, maxOrder, reduceOrder, flowPhiDict[loc.id]))
+                #if !intersects(intersectingSet, guards)
+                #throw(ErrorException("Set intersecting guard does not intersect the guard."))
+                #end
+                intersectedSet = intersectingSet
+
+
+
+                if !isa(loc.invarient, Nothing) && intersects(intersectedSet, loc.invarient)
+                    #println("tes")
+                    tintersectedSet = getBoxIntersection(intersectedSet, loc.invarient)
+                    #println("Inv intersection: ", ρ(Vector(sparsevec([5], [1.0], 6)), intersectedSet), " vs ", ρ(Vector(sparsevec([5], [1.0], 6)), tintersectedSet))
+                    intersectedSet = tintersectedSet
+                    #println(intersectedSet)
                 end
-                intersectingSet, intersectedInput, timeNotIntersected = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, endtime], guards, setOfConstraints, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, tΦ, tempInput)
-                timeIntersected = timeNotIntersected - reachtime
-                #push!(reachset, (intersectingSet, string(loc.id) * "->" * string(edge.targetLoc)))
-                #
-                #   Here we should check whether we have reached endtime. If true we should only push the jumpSet
-                #   Still need to check whether we have reached the invariant. If true we should NOT push the else branch result, only the tempReachsets[infMaxsIdx]
-                #
-                #println(timeIntersected)
-                if timeIntersected >= 0.
-                    #timeIntersectedSet = concretize(overapproximateIntervalReachset(loc.A, tempReachsets[supMinsIdx], U, δ⁻, timeIntersected, alg, maxOrder, reduceOrder, flowPhiDict[loc.id]))
-                    #if !intersects(intersectingSet, guards)
-                    #throw(ErrorException("Set intersecting guard does not intersect the guard."))
-                    #end
-                    intersectedSet = intersectingSet
+                if isempty(intersectedSet)
+                    println("Empty...")
+                    return reachset
+                end
+                println("Inv intersectedSet: ", intersectedSet)
+                intersectedSet = getBoxIntersection(intersectedSet, guards)
+                if isempty(intersectedSet)
+                    println("Empty..")
+                    return reachset
+                end
+                println("Guard intersectedSet: ", intersectedSet)
 
-
-
-                    if !isa(loc.invarient, Nothing) && intersects(intersectedSet, loc.invarient)
-                        #println("tes")
-                        tintersectedSet = getBoxIntersection(intersectedSet, loc.invarient)
-                        #println("Inv intersection: ", ρ(Vector(sparsevec([5], [1.0], 6)), intersectedSet), " vs ", ρ(Vector(sparsevec([5], [1.0], 6)), tintersectedSet))
-                        intersectedSet = tintersectedSet
-                        #println(intersectedSet)
-                    end
-                    if isempty(intersectedSet)
-                        println("Empty...")
-                        return reachset
-                    end
-                    println("Inv intersectedSet: ", intersectedSet)
-                    intersectedSet = getBoxIntersection(intersectedSet, guards)
-                    if isempty(intersectedSet)
-                        println("Empty..")
-                        return reachset
-                    end
-                    println("Guard intersectedSet: ", intersectedSet)
-
-                    #tempSet = exp(reachtime .* loc.A) * X0
-                    #=x, _ = tempReachset[end]
-                    #x = concretize(exp(reachtime .* loc.A) * X0)
-                    #x = getBoxIntersection(x, loc.invarient)
+                #tempSet = exp(reachtime .* loc.A) * X0
+                #=x, _ = tempReachset[end]
+                #x = concretize(exp(reachtime .* loc.A) * X0)
+                #x = getBoxIntersection(x, loc.invarient)
+                if intersects(x, guards)
+                    x = getBoxIntersection(x, loc.invarient)
                     if intersects(x, guards)
-                        x = getBoxIntersection(x, loc.invarient)
-                        if intersects(x, guards)
-                            #throw(ErrorException("WHAT THE ACTUAL FUCK!!!!!"))
-                        end
-                        println("WHAT THE FUCK!")
+                        #throw(ErrorException("WHAT THE ACTUAL FUCK!!!!!"))
                     end
+                    println("WHAT THE FUCK!")
+                end
 
-                    if intersects(x, guards)
-                        println("WHAT THE ACTUAL FUCK!")
-                        throw(ErrorException("WHAT THE ACTUAL FUCK!"))
-                    end
-                    =#
-                    jumpSet = concretize(linear_map(edge.jumpMatrix, intersectedSet))
-                    #println(edge.jumpMatrix)
+                if intersects(x, guards)
+                    println("WHAT THE ACTUAL FUCK!")
+                    throw(ErrorException("WHAT THE ACTUAL FUCK!"))
+                end
+                =#
+                jumpSet = concretize(linear_map(edge.jumpMatrix, intersectedSet))
+                #println(edge.jumpMatrix)
 
-                    if !isa(hybridSystem.locations[edge.targetLoc].invarient, Nothing) && intersects(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)
-                        tjumpSet = getBoxIntersection(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)# + edge.jumpVector * intersectedSet
-                        #println("Jump intersection: ", ρ(Vector(sparsevec([5], [1.0], 6)), jumpSet), " vs ", ρ(Vector(sparsevec([5], [1.0], 6)), tjumpSet))
-                        jumpSet = tjumpSet
-                        #println(jumpSet)
-                        #println("tes2")
-                    end
-                    #push!(reachset, ([(jumpSet, [reachtime, reachtime])], string(reachtime) * ": jump(" * string(loc.id) * ")->" * string(edge.targetLoc)))
-                    #
-                    #   Here we could optimize it such that in the case where guards ⊆ timeIntersectedSet we calculate both [supMins, endtime] and [infMaxs, endtime] with guards
-                    #   and otherwise [supMins, endtime] with hyperplane intersection with timeIntersectedSet and [infMaxs, endtime] with guards intersection
-                    #   Maybe look at how input should be handled... and if we can manipulate the constraints to account for the accumulated input
-                    #
+                if !isa(hybridSystem.locations[edge.targetLoc].invarient, Nothing) && intersects(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)
+                    tjumpSet = getBoxIntersection(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)# + edge.jumpVector * intersectedSet
+                    #println("Jump intersection: ", ρ(Vector(sparsevec([5], [1.0], 6)), jumpSet), " vs ", ρ(Vector(sparsevec([5], [1.0], 6)), tjumpSet))
+                    jumpSet = tjumpSet
+                    #println(jumpSet)
+                    #println("tes2")
+                end
+                #push!(reachset, ([(jumpSet, [reachtime, reachtime])], string(reachtime) * ": jump(" * string(loc.id) * ")->" * string(edge.targetLoc)))
+                #
+                #   Here we could optimize it such that in the case where guards ⊆ timeIntersectedSet we calculate both [supMins, endtime] and [infMaxs, endtime] with guards
+                #   and otherwise [supMins, endtime] with hyperplane intersection with timeIntersectedSet and [infMaxs, endtime] with guards intersection
+                #   Maybe look at how input should be handled... and if we can manipulate the constraints to account for the accumulated input
+                #
 
-                    #timePointInput = U  #   NEEDS FIXING
-                    #println(x.center)
-                    println("Jumpset center: ", jumpSet.center)
-                    #y, _ = tempReachset[1]
-                    #println(y.center)
-                    branchedRun = auxReACTed(hybridSystem, hybridSystem.locations[edge.targetLoc], [reachtime, endtime], jumpSet, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, tΦ, saveResult)
-                    
-                    if saveResult
-                        reachset = vcat(reachset, branchedRun)
-                    end
-                    #reachset = vcat(reachset, nonintersectedSet) #Maybe gets the universe..
-
-                    #branchedRun = auxReACTed(loc, [timeIntersected, endtime], nonintersectedSet, intersectedInput, constraint, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder)
-                    #push!(reachset, branchedRun)
-
-                elseif timeIntersected == 0.0
-                    println("Nah but")
-                    #   When is this the case? 
-                    #=timePointInput = U  #   NEEDS FIXING
-                    tempIntectingSet = concretize(intersectingSet)
-                    if intersects(tempIntectingSet, constraints_list(loc.invarient))
-                        tempReachsetInInv = getBoxIntersection(concretize(tempReachset), constraints_list(loc.invarient))
-                        tempIntectingSet = tempReachsetInInv
-                    end
-                    #intersectedSet, nonintersectedSet = splitZonotope(intersectingSet, constraints_list(hybridSystem.locations[edge.targetLoc].invarient))
-                    branchedRun = auxReACTed(hybridSystem, loc, [reachtime, endtime], tempIntectingSet, U, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder)
+                #timePointInput = U  #   NEEDS FIXING
+                #println(x.center)
+                println("Jumpset center: ", jumpSet.center)
+                #y, _ = tempReachset[1]
+                #println(y.center)
+                branchedRun = auxReACTed(hybridSystem, hybridSystem.locations[edge.targetLoc], [reachtime, endtime], jumpSet, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, tΦ, saveResult)
+                
+                if saveResult
                     reachset = vcat(reachset, branchedRun)
-                    #=
-                    if ρ(timeIntersectedSet.center, guard.a) >= guard.b
+                end
+                #reachset = vcat(reachset, nonintersectedSet) #Maybe gets the universe..
 
-                    =#
-                    =#
+                #branchedRun = auxReACTed(loc, [timeIntersected, endtime], nonintersectedSet, intersectedInput, constraint, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder)
+                #push!(reachset, branchedRun)
+
+            elseif timeIntersected == 0.0
+                println("Nah but")
+                #   When is this the case? 
+                #=timePointInput = U  #   NEEDS FIXING
+                tempIntectingSet = concretize(intersectingSet)
+                if intersects(tempIntectingSet, constraints_list(loc.invarient))
+                    tempReachsetInInv = getBoxIntersection(concretize(tempReachset), constraints_list(loc.invarient))
+                    tempIntectingSet = tempReachsetInInv
                 end
-            else
-                println("Is here?")
-                if saveResult
-                    if !isa(loc.invarient, Nothing)
-                        newReach = []
-                        for (Z, timeInterval) in tempReachset
-                            if intersects(Z, loc.invarient)
-                                push!(newReach, (getBoxIntersection(concretize(Z), loc.invarient), timeInterval))
-                            else
-                                push!(newReach, (Z, timeInterval))
-                            end
-                        end
-                        tempReachset = newReach
-                        reachset = vcat(reachset, (tempReachset, string(loc.id) * "->" * string(edge.targetLoc)))
-                    else
-                        reachset = vcat(reachset, (tempReachset, string(loc.id) * "->" * string(edge.targetLoc)))
-                    end
-                end
+                #intersectedSet, nonintersectedSet = splitZonotope(intersectingSet, constraints_list(hybridSystem.locations[edge.targetLoc].invarient))
+                branchedRun = auxReACTed(hybridSystem, loc, [reachtime, endtime], tempIntectingSet, U, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder)
+                reachset = vcat(reachset, branchedRun)
+                #=
+                if ρ(timeIntersectedSet.center, guard.a) >= guard.b
+
+                =#
+                =#
             end
         else
-            println("No guards? call ReACT")
-
-            tempReachset, _, _ = ReACT(loc, δ⁻, δ⁺, interval, X0, U, constraint, 2, alg, maxOrder, reduceOrder, PhiDict[loc.id])
-            
+            println("Is here?")
             if saveResult
-                if intersects(concretize(tempReachset), constraints_list(loc.invarient))
-
-                    tempReachsetInInv = getBoxIntersection(concretize(tempReachset), constraints_list(loc.invarient))
-                    reachset = vcat(reachset, (tempReachsetInInv, string(loc.id) * "->" * string(edge.targetLoc)))
+                if !isa(loc.invarient, Nothing)
+                    newReach = []
+                    for (Z, timeInterval) in tempReachset
+                        if intersects(Z, loc.invarient)
+                            push!(newReach, (getBoxIntersection(concretize(Z), loc.invarient), timeInterval))
+                        else
+                            push!(newReach, (Z, timeInterval))
+                        end
+                    end
+                    tempReachset = newReach
+                    reachset = vcat(reachset, (tempReachset, string(loc.id) * "->" * string(edge.targetLoc)))
                 else
-                    reachset = vcat(reachset, (concretize(tempReachset), string(loc.id) * "->" * string(edge.targetLoc)))
+                    reachset = vcat(reachset, (tempReachset, string(loc.id) * "->" * string(edge.targetLoc)))
                 end
             end
-
         end
     end
 

@@ -140,12 +140,12 @@ function ReACTDiscretize(loc, X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Float6
             discritezationDict[δ⁺] = copy(disc)
             inputDiscritezationDict[δ⁺] = P
         else    #   When there also is no constant input
-            invA = inv(Matrix(A))
+            #invA = inv(Matrix(A))
             E⁺ = convert(Zonotope, symmetric_interval_hull(P2A_abs * symmetric_interval_hull(A * A * X0)))
             rt = E⁺
-            f = minkowski_sum(phiDict[d], rt)
+            f = minkowski_sum(convert(Zonotope, phiDict[d] * X0), rt)
             disc = overapproximate(CH(X0, f), Zonotope)
-            P = Zonotope(zeros(Float64, XDim, 1), zeros(Float64, XDim, 1))
+            P = Zonotope(zeros(Float64, XDim), zeros(Float64, XDim, 1))
             while d < δ⁺
                 inputDiscritezationDict[d] = P
 

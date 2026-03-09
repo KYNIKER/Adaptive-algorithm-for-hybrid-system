@@ -2,20 +2,28 @@ using Plots, LazySets, LinearAlgebra, BenchmarkTools, CSV, DataFrames, Expokit #
 
 include("Utilities.jl")
 include("ReACTed.jl")
+include("models/girardExample.jl")
 include("models/gearbox.jl")
 include("models/platoon.jl")
 include("models/bouncingBall.jl")
 include("models/simpleModel.jl")
 
+using Cthulhu, ProfileView
 saveResult = true
 
 δ⁺ = 10^-1
 #δ⁺ = 0.05
 δ⁻ = δ⁺ / 2^2
 
-sys, initialState, X0, T = loadPlatoon()
+#sys, initialState, X0, T = loadPlatoon()
 sys, initialState, X0, T = loadBouncingBall()
+sys, initialState, X0, T = loadGirardExample(δ⁻)
+
 n = length(X0.center)
+
+#@ProfileView.profview ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, 5, 5, saveResult)
+res = []
+
 res = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, 5, 5, saveResult)
 
 

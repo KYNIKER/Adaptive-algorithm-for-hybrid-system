@@ -46,6 +46,12 @@ struct HybridSystem
     Init
 end
 
+
+function sparseHPolyhedronToDense(H_sparse::HPolyhedron)
+    H_dense = HPolyhedron([LazySets.HalfSpace(Vector(c.a), c.b) for c in H_sparse.constraints])
+    return H_dense
+end
+
 function system(locations, edges, guards, invariants, flows, jumps, init)
     n = length(locations)
 
@@ -100,9 +106,34 @@ function intersects(Z::Zonotope, H::Vector{N}) where N
     return sen
 end
 
+
+
 function intersects(Z::Zonotope, H::Any)
     return !isempty(∩(Z, H))
 end
+
+function isSubSet(Z::Zonotope, H::LazySets.HalfSpace)
+    agenSum = reduce(+, abs.(genmat(Z) .* H.a))
+    acenSum = dot(Vector(H.a), Z.center)
+    return (acenSum + agenSum <= H.b)
+    #return (acenSum - agenSum <= H.b) & (acenSum + agenSum <= H.b)
+end
+
+function isSubSet(Z::Zonotope, H::HPolyhedron)
+    sen = true
+    for h in H.constraints
+        agenSum = reduce(+, abs.(genmat(Z) .* h.a))
+        acenSum = dot(Vector(h.a), Z.center)
+        sen = sen & (acenSum + agenSum <= h.b)
+        #sen = sen & (acenSum - agenSum <= h.b) & (acenSum + agenSum <= h.b)
+    end
+    return sen
+end
+
+function isSubSet(Z::Zonotope, H::Any)
+    return ⊆(Z, H, false) # Do not return a witness, just boolean
+end
+
 
 function overapproximateIntervalReachset(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, δ⁻, δ⁺, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing) where {N}
     XDim, _ = size(genmat(X0))
@@ -498,4 +529,12 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
         end
     end
     return res
+end
+
+function getUFromInputUncertainty(A, μ, δ⁻, P₁)
+    ANorm = norm(A, Inf)
+    β = (exp(ANorm*(δ⁻))-1)*μ/ANorm
+    #println("original area ballβ: ", area(Zonotope(zeros(dim(P₁)), ((exp(ANorm*(initialTimeStep))-1)*μ/ANorm)*I(dim(P₁)))))
+    u = Zonotope(zeros(LazySets.dim(P₁)), β*I(LazySets.dim(P₁)))
+    return u
 end

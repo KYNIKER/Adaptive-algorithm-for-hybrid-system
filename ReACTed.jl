@@ -273,7 +273,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, cons
             inhom = map(x -> ρ(x, V), constraintProjVectors)
             tempVs = remove_redundant_generators(minkowski_sum(Vs, V))
 
-            if reduce(&, <=(Sρ + hom + inhom, constraintProjBounds)) && intersects(concretize(minkowski_sum(newRR, Vs)), guard) && intersects(concretize(minkowski_sum(newRR, Vs)), loc.invarient) #mapreduce(x -> intersects(newRR, x), &, guard)
+            if reduce(&, <=(Sρ + hom + inhom, constraintProjBounds)) && intersects(concretize(minkowski_sum(newRR, Vs)), guard) && (isnothing(loc.invarient) || intersects(concretize(minkowski_sum(newRR, Vs)), loc.invarient)) #mapreduce(x -> intersects(newRR, x), &, guard)
                 #if mapreduce(x -> intersects(newRR, x), &, guard)
                 push!(overapproximateIntersectingSetArray, concretize(minkowski_sum(newRR, Vs)))
                 if ismissing(preclustering)
@@ -370,7 +370,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
 
         while !approveFlag
             if currentTimeStep < m
-                if isempty(lastNewR) && intersects(newRR, guards)
+                if isempty(lastNewR) & intersects(newRR, guards)
                     if !reduce(&, <=(Sρ + map(x -> ρ(x, concretize(newRR)), constraintProjVectors), constraintProjBounds))
                         handleHitConstraint(time, loc.id)
                     else
@@ -404,7 +404,11 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
             inhom = map(x -> ρ(x, V), constraintProjVectors)
 
             tempVs = remove_redundant_generators(minkowski_sum(Vs, V))
-            if reduce(&, <=(Sρ + hom + inhom, constraintProjBounds)) && !intersects(concretize(minkowski_sum(newRR, Vs)), guards) && intersects(concretize(minkowski_sum(newRR, Vs)), loc.invarient)
+
+
+
+            # TODO maybe it should be &&, such that we use short-circuit
+            if reduce(&, <=(Sρ + hom + inhom, constraintProjBounds)) && !intersects(concretize(minkowski_sum(newRR, Vs)), guards) && (isnothing(loc.invarient) || intersects(concretize(minkowski_sum(newRR, Vs)), loc.invarient))
                 #if mapreduce(x -> intersects(newRR, x), &, guard)
                 #push!(overapproximateIntersectingSetArray, newRR)
                 if saveResult

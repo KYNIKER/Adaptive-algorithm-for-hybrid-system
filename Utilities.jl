@@ -474,7 +474,9 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
                 y = ρ(a, H)
                 x = max(ρ(a, H), ρ(-a, res))
                 thp = LazySets.HyperplaneModule.Hyperplane(a, (b - x) / 2)  #   Should check the calculation of the sigma values
-                res = zonotopeStripIntersection(res, thp, abs(x + b) / 2)
+                σ = abs(x + b) / 2
+                σ = σ == 0.0 ? eps(1.0) : σ
+                res = zonotopeStripIntersection(res, thp, σ)
             else
                 x = ρ(-a, Z)
                 thp = HyperPlane(a, (2 * b + x) / 2)

@@ -452,6 +452,7 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
     HSG = stack([x.a for x in HalfSpaces]; dims=1)
     res = copy(Z)
     if rank(HSG) < size(HSG, 1)
+        println("Collinear")
         collinear = []
         remidx = stack([false for x in HalfSpaces])
         for hs in HalfSpaces
@@ -471,11 +472,11 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
             b = hs.b
             if applicable(ρ, a, H)
                 y = ρ(a, H)
-                x = max(ρ(a, H), ρ(a, res))
-                thp = LazySets.HyperplaneModule.Hyperplane(-a, (b + x) / 2)  #   Should check the calculation of the sigma values
-                res = zonotopeStripIntersection(res, thp, abs(x - b) / 2)
+                x = max(ρ(a, H), ρ(-a, res))
+                thp = LazySets.HyperplaneModule.Hyperplane(a, (b - x) / 2)  #   Should check the calculation of the sigma values
+                res = zonotopeStripIntersection(res, thp, abs(x + b) / 2)
             else
-                x = ρ(a, Z)
+                x = ρ(-a, Z)
                 thp = HyperPlane(a, (2 * b + x) / 2)
                 res = zonotopeStripIntersection(res, thp, x / 2)
             end
@@ -493,13 +494,17 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
             collinear = deleteat!(collinear, cols)
 
             minDists = map(x -> x.b / norm(x.a), temphs)
-            diff = (minimum(minDists) - maximum(minDists)) / 2
-            σ = diff == 0.0 ? eps(1.0) : diff
+            minDists = map(x -> x.b, temphs)
 
             a = temphs[1].a
-            a = a ./ norm(a)
+            diff = norm((minimum(minDists) * a + maximum(minDists) * a) / 2 - minimum(minDists) * a)
+
+            σ = maximum(minDists) - diff
+            σ == 0.0 ? eps(1.0) : σ
+
+            #a = a ./ norm(a)
             if applicable(ρ, a, H)
-                thp = LazySets.HyperplaneModule.Hyperplane(-a, diff)  #   Should check the calculation of the sigma values
+                thp = LazySets.HyperplaneModule.Hyperplane(a, diff)  #   Should check the calculation of the sigma values
                 res = zonotopeStripIntersection(res, thp, σ)
             else
 
@@ -510,17 +515,18 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
 
         end
     else
+        println("Linear independent")
         for hs in HalfSpaces
             a = hs.a
             b = hs.b
             if applicable(ρ, a, H)
                 #println("Applicable")
                 y = ρ(a, H)
-                x = max(ρ(a, H), ρ(a, res))
-                #println(x, b)
-                thp = LazySets.HyperplaneModule.Hyperplane(-a, (b + x) / 2)  #   Should check the calculation of the sigma values
-                println((x - b) / 2)
-                res = zonotopeStripIntersection(res, thp, (x - b) / 2)
+                x = max(ρ(a, H), ρ(-a, res))
+                #println(sign(b) * x, " ", b)
+                thp = LazySets.HyperplaneModule.Hyperplane(a, (b - x) / 2)  #   Should check the calculation of the sigma values
+                #println((x - b) / 2)
+                res = zonotopeStripIntersection(res, thp, (x + b) / 2)
             else
                 println("Not applicable")
                 x = ρ(a, Z)

@@ -109,7 +109,7 @@ end
 
 
 function intersects(Z::Zonotope, H::Any)
-    return !isempty(∩(Z, H))
+    return isnothing(H) ? true : !isdisjoint(Z, H)
 end
 
 function isSubSet(Z::Zonotope, H::LazySets.HalfSpace)
@@ -364,6 +364,7 @@ function getBoxIntersection(Z::Zonotope, H_intersection::LazySets.HalfSpace)
         box = box_approximation(S)
         return convert(Zonotope, box)
     else
+        println("empty?")
         return S
     end
 end
@@ -387,10 +388,10 @@ function getBoxIntersection(Z::Zonotope, H_intersections::Any)
     #S1 = foldr((x, y) -> ∩(x, y), H_intersections; init=Z)
     S = ∩(H_intersections, Z)
     if !isempty(S)
-        box = box_approximation(S)#overapproximate(S, Hyperrectangle)
+        box = overapproximate(S, Hyperrectangle)#box_approximation(S)#
         return convert(Zonotope, box)
     else
-        #println("EMPTY!!")
+        println("EMPTY!!")
         return S
     end
 end
@@ -533,8 +534,8 @@ end
 
 function getUFromInputUncertainty(A, μ, δ⁻, P₁)
     ANorm = norm(A, Inf)
-    β = (exp(ANorm*(δ⁻))-1)*μ/ANorm
+    β = (exp(ANorm * (δ⁻)) - 1) * μ / ANorm
     #println("original area ballβ: ", area(Zonotope(zeros(dim(P₁)), ((exp(ANorm*(initialTimeStep))-1)*μ/ANorm)*I(dim(P₁)))))
-    u = Zonotope(zeros(LazySets.dim(P₁)), β*I(LazySets.dim(P₁)))
+    u = Zonotope(zeros(LazySets.dim(P₁)), β * I(LazySets.dim(P₁)))
     return u
 end

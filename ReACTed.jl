@@ -47,7 +47,7 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
             if saveResult
                 push!(reachset, (tempReachset, string(time) * " - " * string(reachtime) * ": " * string(loc.id) * "->" * string(edge.targetLoc)))
             end
-            intersectingSet, intersectedInput, timeNotIntersected = ReACTTouches2(loc, δ⁻, δ⁺, [reachtime, endtime], guards, setOfConstraints, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, tΦ, tempInput)
+            intersectingSet, intersectedInput, timeNotIntersected = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, endtime], guards, setOfConstraints, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, tΦ, tempInput)
             timeIntersected = timeNotIntersected - reachtime
             #push!(reachset, (intersectingSet, string(loc.id) * "->" * string(edge.targetLoc)))
             #
@@ -62,11 +62,17 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
                 #end
                 intersectedSet = intersectingSet
 
-
+                if !isa(guards, Nothing) && !isdisjoint(intersectedSet, guards)
+                    intersectedSet = zonotopeStripIntersection(intersectedSet, guards)
+                end
+                if isempty(intersectedSet)
+                    println("Empty..")
+                    return reachset
+                end
 
                 if !isa(loc.invarient, Nothing) && !isdisjoint(intersectedSet, loc.invarient)
                     #println("tes")
-                    tintersectedSet = getBoxIntersection(intersectedSet, loc.invarient)
+                    tintersectedSet = zonotopeStripIntersection(intersectedSet, loc.invarient)
                     #println("Inv intersection: ", ρ(Vector(sparsevec([5], [1.0], 6)), intersectedSet), " vs ", ρ(Vector(sparsevec([5], [1.0], 6)), tintersectedSet))
                     intersectedSet = tintersectedSet
                     #println(intersectedSet)
@@ -76,11 +82,6 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
                     return reachset
                 end
                 #println("Inv intersectedSet: ", intersectedSet)
-                intersectedSet = getBoxIntersection(intersectedSet, guards)
-                if isempty(intersectedSet)
-                    println("Empty..")
-                    return reachset
-                end
                 #println("Guard intersectedSet: ", intersectedSet)
 
                 #tempSet = exp(reachtime .* loc.A) * X0
@@ -187,9 +188,9 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
                         push!(newReach, (Z, timeInterval))
                     end
                 end
-                reachset = vcat(reachset, (newReach, string(loc.id) * "->" * string(loc.id)))
+                #reachset = vcat(reachset, (newReach, string(loc.id) * "->" * string(loc.id)))
             else
-                reachset = vcat(reachset, (tempReachset, string(loc.id) * "->" * string(loc.id)))
+                #reachset = vcat(reachset, (tempReachset, string(loc.id) * "->" * string(loc.id)))
             end
         end
     end
@@ -216,7 +217,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, cons
 
 
     V = copy(inputDiscritezationDict[initialTimeStep])
-    Vs = accInput
+    Vs = concretize(ReachabilityAnalysis.Exponentiation.Φ₁(loc.A, time, ReachabilityAnalysis.Exponentiation.BaseExp) * inputDiscritezationDict[0])
     lastVs = copy(Vs)
     Sρ = zeros(Float64, length(constraint))
     newR = discritezationDict[initialTimeStep]
@@ -231,7 +232,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, cons
     newRR = copy(newR)
 
     overapproximateIntersectingSetArray = []
-    preclustering = minkowski_sum(linear_map(Φ * PhiDict[m], discritezationDict[m]), minkowski_sum(linear_map(PhiDict[m], inputDiscritezationDict[m]), accInput))
+    preclustering = minkowski_sum(linear_map(Φ, discritezationDict[m]), accInput)
     attemptsRecorder = []
 
     while time < endtime
@@ -247,8 +248,8 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, cons
                     #throw(ErrorException("Reached unsafe set."))
                     handleHitConstraint(time, loc.id)
                 end
-                bigCH = foldr((x, y) -> overapproximate(CH(x, y), Zonotope), overapproximateIntersectingSetArray; init=concretize(newRR))
-                intersectingSet = overapproximate(bigCH, Zonotope)
+                #bigCH = foldr((x, y) -> overapproximate(CH(x, y), Zonotope), overapproximateIntersectingSetArray; init=concretize(newRR))
+                #intersectingSet = overapproximate(bigCH, Zonotope)
                 if ismissing(preclustering)
                     preclustering = minkowski_sum(newRR, Vs)
                 end
@@ -270,10 +271,12 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, cons
 
             changedTimeStep = false
             hom = map(x -> ρ(x, newRR), constraintProjVectors)
-            inhom = map(x -> ρ(x, V), constraintProjVectors)
-            tempVs = remove_redundant_generators(minkowski_sum(Vs, V))
+            inhom = map(x -> ρ(x, Vs), constraintProjVectors)
+            #tempVs = concretize(ReachabilityAnalysis.Exponentiation.Φ₁(loc.A, time, ReachabilityAnalysis.Exponentiation.BaseExp) * inputDiscritezationDict[0])
 
-            if reduce(&, <=(Sρ + hom + inhom, constraintProjBounds)) && intersects(concretize(minkowski_sum(newRR, Vs)), guard) && (isnothing(loc.invarient) || intersects(concretize(minkowski_sum(newRR, Vs)), loc.invarient)) #mapreduce(x -> intersects(newRR, x), &, guard)
+
+
+            if reduce(&, <=(hom + inhom, constraintProjBounds)) && intersects(concretize(minkowski_sum(newRR, Vs)), guard) && (isnothing(loc.invarient) || intersects(concretize(minkowski_sum(newRR, Vs)), loc.invarient)) #mapreduce(x -> intersects(newRR, x), &, guard)
                 #if mapreduce(x -> intersects(newRR, x), &, guard)
                 push!(overapproximateIntersectingSetArray, concretize(minkowski_sum(newRR, Vs)))
                 if ismissing(preclustering)
@@ -282,9 +285,9 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, cons
                     preclustering = overapproximate(CH(preclustering, concretize(minkowski_sum(newRR, Vs))), Zonotope)
                 end
                 lastVs = copy(Vs)
-                Vs = reduce_order(copy(tempVs), 5)
+                Vs = concretize(ReachabilityAnalysis.Exponentiation.Φ₁(loc.A, time + currentTimeStep, ReachabilityAnalysis.Exponentiation.BaseExp) * inputDiscritezationDict[0])
                 approveFlag = true
-                Sρ += inhom
+                #Sρ += inhom
                 mul!(tempM, Φ, ϕt)
                 copy!(Φ, tempM)
             else
@@ -322,8 +325,8 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, cons
             end
         end
     end
-    bigCH = foldr((x, y) -> overapproximate(CH(x, y), Zonotope), overapproximateIntersectingSetArray; init=concretize(newRR))
-    intersectingSet = overapproximate(bigCH, Zonotope)
+    #bigCH = foldr((x, y) -> overapproximate(CH(x, y), Zonotope), overapproximateIntersectingSetArray; init=concretize(newRR))
+    #intersectingSet = overapproximate(bigCH, Zonotope)
     return (preclustering, Sρ, time)
 end
 
@@ -619,7 +622,7 @@ function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, constraint, STRATE
 
         while !approveFlag
             if currentTimeStep < δ⁻
-                return (newR, sρ, time)
+                return (reachSets, Vs, time, Φ)
             end
 
             if changedTimeStep
@@ -700,10 +703,10 @@ end
 
 # This can be replaced with throwing an error. Currently we continue and just print
 function handleHitConstraint(time, locationId)
-    throw(error("ERROR!!! We have hit a constraint at loc: $(locationId) time: $time"))
-    # println("\nERROR!!!\n 
-    #         ERROR!!!\n\n
-    #         We have hit a constraint at loc: $(loc.id) time: $time\n\n
-    #         ERROR!!!\n
-    #         ERROR!!!\n")
+    #throw(error("ERROR!!! We have hit a constraint at loc: $(locationId) time: $time"))
+    println("\nERROR!!!\n 
+            ERROR!!!\n\n
+            We have hit a constraint at loc: $locationId time: $time\n\n
+            ERROR!!!\n
+            ERROR!!!\n")
 end

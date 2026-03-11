@@ -500,7 +500,7 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
             diff = norm((minimum(minDists) * a + maximum(minDists) * a) / 2 - minimum(minDists) * a)
 
             σ = maximum(minDists) - diff
-            σ == 0.0 ? eps(1.0) : σ
+            σ = σ == 0.0 ? eps(1.0) : σ
 
             #a = a ./ norm(a)
             if applicable(ρ, a, H)
@@ -523,10 +523,12 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
                 #println("Applicable")
                 y = ρ(a, H)
                 x = max(ρ(a, H), ρ(-a, res))
-                #println(sign(b) * x, " ", b)
+                println(sign(b) * x, " ", b)
                 thp = LazySets.HyperplaneModule.Hyperplane(a, (b - x) / 2)  #   Should check the calculation of the sigma values
                 #println((x - b) / 2)
-                res = zonotopeStripIntersection(res, thp, (x + b) / 2)
+                σ = abs(x + b) / 2
+                σ = σ == 0.0 ? eps(1.0) : σ
+                res = zonotopeStripIntersection(res, thp, σ)
             else
                 println("Not applicable")
                 x = ρ(a, Z)

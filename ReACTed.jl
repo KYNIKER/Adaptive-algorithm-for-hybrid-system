@@ -69,6 +69,7 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
                     println("Empty..")
                     return reachset
                 end
+                println("Guard intersectedSet: ", intersectedSet)
 
                 if !isa(loc.invarient, Nothing) && !isdisjoint(intersectedSet, loc.invarient)
                     #println("tes")
@@ -76,13 +77,12 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
                     #println("Inv intersection: ", ρ(Vector(sparsevec([5], [1.0], 6)), intersectedSet), " vs ", ρ(Vector(sparsevec([5], [1.0], 6)), tintersectedSet))
                     intersectedSet = tintersectedSet
                     #println(intersectedSet)
+                    println("Inv intersectedSet: ", intersectedSet)
                 end
                 if isempty(intersectedSet)
                     println("Empty...")
                     return reachset
                 end
-                #println("Inv intersectedSet: ", intersectedSet)
-                #println("Guard intersectedSet: ", intersectedSet)
 
                 #tempSet = exp(reachtime .* loc.A) * X0
                 #=x, _ = tempReachset[end]
@@ -102,10 +102,10 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
                 end
                 =#
                 jumpSet = concretize(linear_map(edge.jumpMatrix, intersectedSet))
-                #println(edge.jumpMatrix)
+                println(jumpSet)
 
                 if !isa(hybridSystem.locations[edge.targetLoc].invarient, Nothing) && intersects(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)
-                    tjumpSet = getBoxIntersection(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)# + edge.jumpVector * intersectedSet
+                    tjumpSet = zonotopeStripIntersection(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)# + edge.jumpVector * intersectedSet
                     #println("Jump intersection: ", ρ(Vector(sparsevec([5], [1.0], 6)), jumpSet), " vs ", ρ(Vector(sparsevec([5], [1.0], 6)), tjumpSet))
                     jumpSet = tjumpSet
                     #println(jumpSet)
@@ -255,7 +255,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, cons
                 end
                 println("Touches Vs: ", accInput)
                 #println(norm(intersectingSet), " ", norm(newRR))
-                return (preclustering, Sρ, time)
+                return (reduce_order(preclustering, 10), Sρ, time)
             end
 
             if changedTimeStep
@@ -407,7 +407,7 @@ function ReACTTouches2(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, con
 
             if !isnothing(loc.invarient) && !isSubSet(runningset, loc.invarient)
                 #println("intersection!")
-                runningset = concretize(getBoxIntersection(runningset, loc.invarient))
+                runningset = concretize(zonotopeStripIntersection(runningset, loc.invarient))
             end
             hom = map(x -> ρ(x, runningset), constraintProjVectors)
             flowpipe = map(x -> ρ(x, concretize(minkowski_sum(linear_map(Φ, discritezationDict[m]), concretize(ReachabilityAnalysis.Exponentiation.Φ₁(loc.A, time, ReachabilityAnalysis.Exponentiation.BaseExp) * inputDiscritezationDict[0])))), constraintProjVectors)

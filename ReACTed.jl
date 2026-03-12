@@ -69,7 +69,7 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
                     println("Empty..")
                     return reachset
                 end
-                println("Guard intersectedSet: ", intersectedSet)
+                println("\nGuard intersectedSet: ", intersectedSet)
 
                 if !isa(loc.invarient, Nothing) && !isdisjoint(intersectedSet, loc.invarient)
                     #println("tes")
@@ -77,7 +77,7 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
                     #println("Inv intersection: ", ρ(Vector(sparsevec([5], [1.0], 6)), intersectedSet), " vs ", ρ(Vector(sparsevec([5], [1.0], 6)), tintersectedSet))
                     intersectedSet = tintersectedSet
                     #println(intersectedSet)
-                    println("Inv intersectedSet: ", intersectedSet)
+                    println("\n\nInv intersectedSet: ", intersectedSet)
                 end
                 if isempty(intersectedSet)
                     println("Empty...")
@@ -276,7 +276,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, cons
 
 
 
-            if reduce(&, <=(hom + inhom, constraintProjBounds)) && intersects(concretize(minkowski_sum(newRR, Vs)), guard) && (isnothing(loc.invarient) || intersects(concretize(minkowski_sum(newRR, Vs)), loc.invarient)) #mapreduce(x -> intersects(newRR, x), &, guard)
+            if reduce(&, <=(hom + inhom, constraintProjBounds)) && intersects(concretize(minkowski_sum(newRR, Vs)), guard) && (isnothing(loc.invarient) || isSubSet(concretize(minkowski_sum(newRR, Vs)), loc.invarient)) #mapreduce(x -> intersects(newRR, x), &, guard)
                 #if mapreduce(x -> intersects(newRR, x), &, guard)
                 push!(overapproximateIntersectingSetArray, concretize(minkowski_sum(newRR, Vs)))
                 if ismissing(preclustering)
@@ -412,7 +412,7 @@ function ReACTTouches2(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, con
             hom = map(x -> ρ(x, runningset), constraintProjVectors)
             flowpipe = map(x -> ρ(x, concretize(minkowski_sum(linear_map(Φ, discritezationDict[m]), concretize(ReachabilityAnalysis.Exponentiation.Φ₁(loc.A, time, ReachabilityAnalysis.Exponentiation.BaseExp) * inputDiscritezationDict[0])))), constraintProjVectors)
 
-            if reduce(&, <=(hom, constraintProjBounds)) && reduce(&, <=(flowpipe, constraintProjBounds)) && intersects(runningset, guard) && (invariantIsMissing || intersects(runningset, loc.invarient)) #mapreduce(x -> intersects(newRR, x), &, guard)
+            if reduce(&, <=(hom, constraintProjBounds)) && reduce(&, <=(flowpipe, constraintProjBounds)) && intersects(runningset, guard) && (invariantIsMissing || isSubSet(runningset, loc.invarient)) #mapreduce(x -> intersects(newRR, x), &, guard)
                 #if mapreduce(x -> intersects(newRR, x), &, guard)
                 #push!(overapproximateIntersectingSetArray, concretize(minkowski_sum(newRR, Vs)))
                 if ismissing(preclustering)
@@ -520,7 +520,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
             hom = map(x -> ρ(x, newRR), constraintProjVectors)
 
             # TODO maybe it should be &&, such that we use short-circuit
-            if reduce(&, <=(Sρ + hom, constraintProjBounds)) && !intersects(concretize(minkowski_sum(newRR, Vs)), guards) && (isnothing(loc.invarient) || intersects(concretize(minkowski_sum(newRR, Vs)), loc.invarient))
+            if reduce(&, <=(Sρ + hom, constraintProjBounds)) && !intersects(concretize(minkowski_sum(newRR, Vs)), guards) && (isnothing(loc.invarient) || isSubSet(concretize(minkowski_sum(newRR, Vs)), loc.invarient))
                 #if mapreduce(x -> intersects(newRR, x), &, guard)
                 #push!(overapproximateIntersectingSetArray, newRR)
                 if saveResult

@@ -495,7 +495,7 @@ function ReACTTattler(loc, δ⁻::Float64, δ⁺::Float64, interval, constraint,
                         if !intersectingNow # We are not intersecting currently. 
                             if currentTimeStep == δ⁻ # We are at the lowest timestep. And must stop intersecting
                                 # We push to the tattler
-                                push!(guardIntersectTattler[count], (intersectBuildSpace[count], startIntersectTimeTracker))
+                                push!(guardIntersectTattler[count], (intersectBuildSpace[count], startIntersectTimeTracker[count]))
                                 intersectBuildSpace[count] = nothing # Reset
                                 currentlyIntersectingGuard[count] = (guard, false)
 

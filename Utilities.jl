@@ -549,3 +549,66 @@ function getUFromInputUncertainty(A, μ, δ⁻, P₁)
     u = Zonotope(zeros(LazySets.dim(P₁)), β * I(LazySets.dim(P₁)))
     return u
 end
+
+
+function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination)
+    fig = Plots.plot(xlabel="dim: " * string(dim1), ylabel="dim: " * string(dim2), ε=1e-6)
+    cpallete = palette(:tab10, length(res))
+    i = 1
+
+    #=
+    dimSize = dim(flowpipe[1][1])
+    projectionMatrix = zeros(Float64, dimSize, dimSize)
+    projectionMatrix[dim1, dim1] = 1.0
+    projectionMatrix[dim2, dim2] = 1.0
+    =#
+    if dim1 != 0
+
+        for (x, y) in res
+
+            println(y)
+            for (r, t) in x
+                G = abs.(genmat(r))
+                c = r.center
+                projectGDim1 = reduce(+, reduce(+, G, dims=dim1))
+                projectGDim2 = reduce(+, reduce(+, G, dims=dim2))
+                maxcor1 = c[dim1] + projectGDim1
+                mincor1 = c[dim1] - projectGDim1
+                maxcor2 = c[dim2] + projectGDim2
+                mincor2 = c[dim2] - projectGDim2
+
+                #Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="", alpha=0.1)
+                Plots.plot!(Shape([mincor1, maxcor1, maxcor1, mincor1], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
+
+                #plot!(r, c=cpallete[i], alpha=0.2)
+            end
+            #plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="", alpha=0.8)
+            i += 1
+
+        end
+    else
+        for (x, y) in res
+
+            println(y)
+            for (r, t) in x
+                G = abs.(genmat(r))
+                c = r.center
+                #projectGDim1 = reduce(+, reduce(+, G, dims=dim1))
+                projectGDim2 = reduce(+, reduce(+, G, dims=dim2))
+                #maxcor1 = c[dim1] + projectGDim1
+                #mincor1 = c[dim1] - projectGDim1
+                maxcor2 = c[dim2] + projectGDim2
+                mincor2 = c[dim2] - projectGDim2
+
+                Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
+                #Plots.plot!(Shape([mincor1, maxcor1, maxcor1, mincor1], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
+
+                #plot!(r, c=cpallete[i], alpha=0.2)
+            end
+            #plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="", alpha=0.8)
+            i += 1
+
+        end
+    end
+    savefig(fig, destination)
+end

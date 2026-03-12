@@ -553,23 +553,33 @@ end
 
 function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination)
     fig = Plots.plot(xlabel="dim: " * string(dim1), ylabel="dim: " * string(dim2), ε=1e-6)
-    cpallete = palette(:tab10, length(res))
+    cpallete = palette(:tab10, length(flowpipe))
     i = 1
 
-    #=
-    dimSize = dim(flowpipe[1][1])
+    println(length(flowpipe))
+    dimSize = size(genmat(flowpipe[1][1][1][1]), 1)
     projectionMatrix = zeros(Float64, dimSize, dimSize)
     projectionMatrix[dim1, dim1] = 1.0
     projectionMatrix[dim2, dim2] = 1.0
-    =#
+
     if dim1 != 0
 
-        for (x, y) in res
+        for (x, y) in flowpipe
 
             println(y)
             for (r, t) in x
-                G = abs.(genmat(r))
+                G = genmat(r)
                 c = r.center
+
+                projectedG = projectionMatrix * G
+                projectGDim1s = mapreduce(x -> sign(x[dim1]) * x, +, eachcol(projectedG))
+                projectGDim2s = mapreduce(x -> sign(x[dim2]) * x, +, eachcol(projectedG))
+
+                maxcor1s = c + projectGDim1s
+                mincor1s = c - projectGDim1s
+                maxcor2s = c + projectGDim2s
+                mincor2s = c - projectGDim2s
+
                 projectGDim1 = reduce(+, reduce(+, G, dims=dim1))
                 projectGDim2 = reduce(+, reduce(+, G, dims=dim2))
                 maxcor1 = c[dim1] + projectGDim1
@@ -578,7 +588,8 @@ function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination)
                 mincor2 = c[dim2] - projectGDim2
 
                 #Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="", alpha=0.1)
-                Plots.plot!(Shape([mincor1, maxcor1, maxcor1, mincor1], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
+                #Plots.plot!(Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], maxcor1s[dim2], maxcor2s[dim2], mincor2s[dim2]]), c=cpallete[i], lab="") # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
+                Plots.plot!(Shape([(mincor1s[dim1], mincor1s[dim2]), (mincor2s[dim1], mincor2s[dim2]), (maxcor1s[dim1], maxcor1s[dim2]), (maxcor2s[dim1], maxcor2s[dim2])]), c=cpallete[i], lab="") # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
 
                 #plot!(r, c=cpallete[i], alpha=0.2)
             end
@@ -587,7 +598,7 @@ function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination)
 
         end
     else
-        for (x, y) in res
+        for (x, y) in flowpipe
 
             println(y)
             for (r, t) in x

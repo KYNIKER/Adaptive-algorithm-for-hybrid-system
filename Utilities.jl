@@ -452,7 +452,7 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
     HSG = stack([x.a for x in HalfSpaces]; dims=1)
     res = copy(Z)
     if rank(HSG) < size(HSG, 1)
-        println("Collinear")
+        #println("Collinear")
         collinear = []
         remidx = stack([false for x in HalfSpaces])
         for hs in HalfSpaces
@@ -517,7 +517,7 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
 
         end
     else
-        println("Linear independent")
+        #println("Linear independent")
         for hs in HalfSpaces
             a = hs.a
             b = hs.b
@@ -532,7 +532,7 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
                 σ = σ == 0.0 ? eps(1.0) : σ
                 res = zonotopeStripIntersection(res, thp, σ)
             else
-                println("Not applicable")
+                #println("Not applicable")
                 x = ρ(a, Z)
                 thp = HyperPlane(a, (2 * b + x) / 2)
                 res = zonotopeStripIntersection(res, thp, x / 2)
@@ -553,20 +553,20 @@ end
 
 function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination, alpha=1)
     fig = Plots.plot(xlabel="dim: " * string(dim1), ylabel="dim: " * string(dim2), ε=1e-6)
-    cpallete = palette(:tab10, length(flowpipe))
+    cpallete = palette(:roma, length(flowpipe))
     i = 1
 
-    println(length(flowpipe))
-    dimSize = size(genmat(flowpipe[1][1][1][1]), 1)
-    projectionMatrix = zeros(Float64, dimSize, dimSize)
-    projectionMatrix[dim1, dim1] = 1.0
-    projectionMatrix[dim2, dim2] = 1.0
-
     if dim1 != 0
+        dimSize = size(genmat(flowpipe[1][1][1][1]), 1)
+        projectionMatrix = zeros(Float64, dimSize, dimSize)
+        projectionMatrix[dim1, dim1] = 1.0
+        projectionMatrix[dim2, dim2] = 1.0
+
 
         for (x, y) in flowpipe
 
             println(y)
+            sen = true
             for (r, t) in x
                 G = genmat(r)
                 c = r.center
@@ -589,16 +589,21 @@ function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination, alpha=1)
 
                 #Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="", alpha=0.1)
                 #Plots.plot!(Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], maxcor1s[dim2], maxcor2s[dim2], mincor2s[dim2]]), c=cpallete[i], lab="") # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
-                Plots.plot!(Shape([(mincor1s[dim1], mincor1s[dim2]), (mincor2s[dim1], mincor2s[dim2]), (maxcor1s[dim1], maxcor1s[dim2]), (maxcor2s[dim1], maxcor2s[dim2])]), c=cpallete[i], lab="", alpha=alpha) # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
-
+                if sen
+                    Plots.plot!(Shape([(mincor1s[dim1], mincor1s[dim2]), (mincor2s[dim1], mincor2s[dim2]), (maxcor1s[dim1], maxcor1s[dim2]), (maxcor2s[dim1], maxcor2s[dim2])]), c=cpallete[i], lab="S" * string(i)) # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
+                    sen = false
+                else
+                    Plots.plot!(Shape([(mincor1s[dim1], mincor1s[dim2]), (mincor2s[dim1], mincor2s[dim2]), (maxcor1s[dim1], maxcor1s[dim2]), (maxcor2s[dim1], maxcor2s[dim2])]), c=cpallete[i], lab="") # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
+                end
                 #plot!(r, c=cpallete[i], alpha=0.2)
             end
-            #plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="", alpha=0.8)
+            #Plots.plot!(c=cpallete[i], lab=string(i))
             i += 1
 
         end
     else
         for (x, y) in flowpipe
+            sen = true
 
             println(y)
             for (r, t) in x
@@ -610,8 +615,12 @@ function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination, alpha=1)
                 #mincor1 = c[dim1] - projectGDim1
                 maxcor2 = c[dim2] + projectGDim2
                 mincor2 = c[dim2] - projectGDim2
-
-                Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="", alpha=alpha)
+                if sen
+                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="S" * string(i))
+                    sen = false
+                else
+                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
+                end
                 #Plots.plot!(Shape([mincor1, maxcor1, maxcor1, mincor1], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
 
                 #plot!(r, c=cpallete[i], alpha=0.2)

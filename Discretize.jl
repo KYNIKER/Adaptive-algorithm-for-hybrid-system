@@ -67,42 +67,6 @@ function ReACTDiscretize(loc, X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Float6
     end
     discritezationDict[δ⁺] = copy(disc)
     inputDiscritezationDict[δ⁺] = P
-    #=else
-        dU = overapproximate(d * U, Zonotope)
-        E_ψ = convert(Zonotope, symmetric_interval_hull(P2A_abs * symmetric_interval_hull(A * U)))
-        P = minkowski_sum(dU, E_ψ)
-        E⁺ = convert(Zonotope, symmetric_interval_hull(P2A_abs * symmetric_interval_hull(A * A * X0)))
-        lt = concretize(minkowski_sum(convert(Zonotope, phiDict[d] * X0), dU))
-        rt = concretize(minkowski_sum(E_ψ, E⁺))
-        f = concretize(minkowski_sum(lt, rt))
-        disc = overapproximate(CH(X0, f), Zonotope)
-        while d < δ⁺
-            inputDiscritezationDict[d] = P
-            P = minkowski_sum(P, linear_map(phiDict[d], P))
-            discritezationDict[d] = copy(disc)
-            if maxOrder > 0
-                if LazySets.order(P) > maxOrder
-                    P = reduce_order(P, reduceOrder)
-                end
-                if LazySets.order(disc) > maxOrder
-                    disc = reduce_order(disc, reduceOrder)
-                end
-            end
-
-            disc = overapproximate(CH(disc, linear_map(phiDict[d], disc)), Zonotope)
-            d = d * 2
-        end
-        if maxOrder > 0
-            if LazySets.order(P) > maxOrder
-                P = reduce_order(P, reduceOrder)
-            end
-            if LazySets.order(disc) > maxOrder
-                disc = reduce_order(disc, reduceOrder)
-            end
-        end
-        discritezationDict[δ⁺] = copy(disc)
-        inputDiscritezationDict[δ⁺] = P
-    end=#
 
     return discritezationDict, inputDiscritezationDict
 end

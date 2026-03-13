@@ -261,7 +261,9 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, cons
             if currentTimeStep < m
 
 
-                if !reduce(&, <=(Sρ + map(x -> ρ(x, newRR), constraintProjVectors), constraintProjBounds))
+                #if !reduce((x, y -> x && y), <=(Sρ + map(x -> ρ(x, newRR), constraintProjVectors), constraintProjBounds))
+                # Any has short-circuit, and returns false if no constraints
+                if any(((input + ρ(x, newRR)) > y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
                     #throw(ErrorException("Reached unsafe set."))
                     handleHitConstraint(time, loc.id)
                 end
@@ -287,13 +289,14 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, cons
             end
 
             changedTimeStep = false
-            hom = map(x -> ρ(x, newRR), constraintProjVectors)
-            inhom = map(x -> ρ(x, Vs), constraintProjVectors)
+            # hom = map(x -> ρ(x, newRR), constraintProjVectors)
+            # inhom = map(x -> ρ(x, Vs), constraintProjVectors)
             #tempVs = concretize(ReachabilityAnalysis.Exponentiation.Φ₁(loc.A, time, ReachabilityAnalysis.Exponentiation.BaseExp) * inputDiscritezationDict[0])
 
 
-
-            if reduce(&, <=(hom + inhom, constraintProjBounds)) && intersects(concretize(minkowski_sum(newRR, Vs)), guard) && (isnothing(loc.invarient) || isSubSet(concretize(minkowski_sum(newRR, Vs)), loc.invarient)) #mapreduce(x -> intersects(newRR, x), &, guard)
+            #if all(&, <=(hom + inhom, constraintProjBounds)) && intersects(concretize(minkowski_sum(newRR, Vs)), guard) && (isnothing(loc.invarient) || isSubSet(concretize(minkowski_sum(newRR, Vs)), loc.invarient)) #mapreduce(x -> intersects(newRR, x), &, guard)
+                
+            if all((ρ(x, newRR) + ρ(x, Vs)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && intersects(concretize(minkowski_sum(newRR, Vs)), guard) && (isnothing(loc.invarient) || isSubSet(concretize(minkowski_sum(newRR, Vs)), loc.invarient)) #mapreduce(x -> intersects(newRR, x), &, guard)
                 #if mapreduce(x -> intersects(newRR, x), &, guard)
                 push!(overapproximateIntersectingSetArray, concretize(minkowski_sum(newRR, Vs)))
                 if ismissing(preclustering)
@@ -400,8 +403,8 @@ function ReACTTouches2(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, con
         while !approveFlag
             if currentTimeStep < m
 
-
-                if !reduce(&, <=(Sρ + map(x -> ρ(x, runningset), constraintProjVectors), constraintProjBounds))
+                if any((input + ρ(x, runningset)) <= y for (input, x, y) in zip(Sp, constraintProjVectors, constraintProjBounds))
+                #if !reduce(&, <=(Sρ + map(x -> ρ(x, runningset), constraintProjVectors), constraintProjBounds))
                     #throw(ErrorException("Reached unsafe set."))
                     handleHitConstraint(time, loc.id)
                 end
@@ -429,7 +432,12 @@ function ReACTTouches2(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, con
             hom = map(x -> ρ(x, runningset), constraintProjVectors)
             flowpipe = map(x -> ρ(x, concretize(minkowski_sum(linear_map(Φ, discritezationDict[m]), concretize(ReachabilityAnalysis.Exponentiation.Φ₁(loc.A, time, ReachabilityAnalysis.Exponentiation.BaseExp) * inputDiscritezationDict[0])))), constraintProjVectors)
 
-            if reduce(&, <=(hom, constraintProjBounds)) && reduce(&, <=(flowpipe, constraintProjBounds)) && intersects(runningset, guard) && (invariantIsMissing || isSubSet(runningset, loc.invarient)) #mapreduce(x -> intersects(newRR, x), &, guard)
+            if all(ρ(x, runningset) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && 
+                all(ρ(x, flowpipe) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && 
+                intersects(runningset, guard) && 
+                (invariantIsMissing || isSubSet(runningset, loc.invarient)) #mapreduce(x -> intersects(newRR, x), &, guard)
+                
+            #if reduce(&, <=(hom, constraintProjBounds)) && reduce(&, <=(flowpipe, constraintProjBounds)) && intersects(runningset, guard) && (invariantIsMissing || isSubSet(runningset, loc.invarient)) #mapreduce(x -> intersects(newRR, x), &, guard)
                 #if mapreduce(x -> intersects(newRR, x), &, guard)
                 #push!(overapproximateIntersectingSetArray, concretize(minkowski_sum(newRR, Vs)))
                 if ismissing(preclustering)
@@ -501,8 +509,10 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
 
         while !approveFlag
             if currentTimeStep < m
-                if isempty(lastNewR) & intersects(newRR, guards)
-                    if !reduce(&, <=(Sρ + map(x -> ρ(x, concretize(newRR)), constraintProjVectors), constraintProjBounds))
+                if isempty(lastNewR) && intersects(newRR, guards)
+                    newRR = concretize(newRR)
+                    if any((input + ρ(x, newRR)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
+                    #if !reduce(&, <=(Sρ + map(x -> ρ(x, concretize(newRR)), constraintProjVectors), constraintProjBounds))
                         handleHitConstraint(time, loc.id)
                     else
                         #println("Pushing!")
@@ -535,10 +545,12 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
 
             changedTimeStep = false
 
-            # TODO maybe it should be &&, such that we use short-circuit
             tempSet = concretize(minkowski_sum(newRR, Vs))
-            hom = map(x -> ρ(x, tempSet), constraintProjVectors)
-            if reduce(&, <=(hom, constraintProjBounds)) && !intersects(tempSet, guards) && (isnothing(loc.invarient) || intersects(tempSet, loc.invarient))
+            #hom = map(x -> ρ(x, tempSet), constraintProjVectors)
+
+            if all(((ρ(x, tempSet)) <= y) for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && 
+                !intersects(tempSet, guards) && 
+                (isnothing(loc.invarient) || intersects(tempSet, loc.invarient))
                 #if mapreduce(x -> intersects(newRR, x), &, guard)
                 #push!(overapproximateIntersectingSetArray, newRR)
                 if saveResult
@@ -655,12 +667,14 @@ function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, constraint, STRATE
             end
 
             changedTimeStep = false
-            hom = map(x -> ρ(x, newRR), constraintProjVectors)
+            #hom = map(x -> ρ(x, newRR), constraintProjVectors)
             inhom = map(x -> ρ(x, V), constraintProjVectors)
             tempVs = remove_redundant_generators(minkowski_sum(Vs, V))
 
 
-            notHitConstraint = reduce(&, <=(Sρ + hom + inhom, constraintProjBounds))
+            #notHitConstraint = reduce(&, <=(Sρ + hom + inhom, constraintProjBounds))
+            # TODO should we include both Sp and V?
+            notHitConstraint = all((input + input2 + ρ(x, newRR)) <= y for (input, input2, x, y) in zip(Sρ, inhom, constraintProjVectors, constraintProjBounds))
 
             if notHitConstraint && intersects(concretize(minkowski_sum(newRR, Vs)), loc.invarient)
                 if saveResult

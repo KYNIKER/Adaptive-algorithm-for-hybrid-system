@@ -1,15 +1,18 @@
 using LazySets, BenchmarkTools, Random
 
-const amountOfTests = 10
-const amountOfConstraints = 1
+const amountOfTests = 50
+const amountOfConstraints = 40
 BenchmarkTools.DEFAULT_PARAMETERS.samples = 1
 
 totalReduce = 0.
 totalAny = 0.
-
+c = [1.0, 0.0]
 for _ in 1:amountOfTests
     Z = rand(Zonotope)
-    constraints = [rand(LazySets.HalfSpace) for _ in 1:amountOfConstraints]
+    Z = Zonotope(c, genmat(Z))
+    constraints = [LazySets.HalfSpace([-1.0, 0.0], 1.0) for _ in 1:amountOfConstraints]
+    push!(constraints, LazySets.HalfSpace([1.0, 0.0], 0.0))
+    shuffle!(constraints)
     #[1:amountOfConstraints] # Produce an amount of random constraints 
 
     constraintProjVectors = map(x -> x.a, constraints)
@@ -26,7 +29,11 @@ for _ in 1:amountOfTests
     global totalAny += mean(t2.times)
 end
 
-    
+
 println("Accumulated time for $amountOfConstraints constraints with $amountOfTests tests: 
         \n reduce: $totalReduce
         \n any: $totalAny")
+
+println("Average time for $amountOfConstraints constraints with $amountOfTests tests: 
+\n reduce: $(totalReduce/amountOfTests)
+\n any: $(totalAny/amountOfTests)")

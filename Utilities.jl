@@ -632,3 +632,5 @@ function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination, alpha=1)
     end
     savefig(fig, destination)
 end
+
+Base.:+(z1::Zonotope, z2::Zonotope) = Zonotope(z1.center + z2.center, z1.generators + z2.generators)

@@ -155,8 +155,8 @@ function _inhomogPowertrain(; θ::Int=1, X0_scale::Float64=1.0)
     push!(initAngleEdges, Edge(1, HPolyhedron([LazySets.HalfSpace(sparsevec([n], [-1.], n), -t_init)]), I(n), zeros(n))) # t >= t_init
     push!(negAngleEdges, Edge(2, HPolyhedron([LazySets.HalfSpace(sparsevec([1], [-1.], n), α)]), I(n), zeros(n))) # x1 >= -α
     push!(deadzoneEdges, Edge(3, HPolyhedron([LazySets.HalfSpace(sparsevec([1], [-1.], n), -α)]), I(n), zeros(n)))  # x1 >= α
-    push!(deadzoneEdges, Edge(1, HPolyhedron([LazySets.HalfSpace(sparsevec([1], [1.], n), -α)]), I(n), zeros(n))) # x1 <= -α
-    push!(posAngleEdges, Edge(2, HPolyhedron([LazySets.HalfSpace(sparsevec([1], [1.], n), α)]), I(n), zeros(n))) # x1 <= α
+    #push!(deadzoneEdges, Edge(1, HPolyhedron([LazySets.HalfSpace(sparsevec([1], [1.], n), -α)]), I(n), zeros(n))) # x1 <= -α
+    #push!(posAngleEdges, Edge(2, HPolyhedron([LazySets.HalfSpace(sparsevec([1], [1.], n), α)]), I(n), zeros(n))) # x1 <= α
     
 
 
@@ -186,7 +186,7 @@ function _inhomogPowertrain(; θ::Int=1, X0_scale::Float64=1.0)
 
     # posAngle
     A, b = get_dynamics(kₛ, α, u, n, θ)
-    inv = HPolyhedron([LazySets.HalfSpace(sparsevec([1], [-1.], n), α)])  # x1 >= α
+    inv = HPolyhedron([LazySets.HalfSpace(sparsevec([1], [-1.], n), -α)])  # x1 >= α
     # Aext = add_dimension(A, 1)
     # Aext[1:n, n+1] .= b
     #m_posAngle = @system(x' = Aext * x, x ∈ X)
@@ -243,9 +243,13 @@ function _homogPowertrain(; θ::Int=1, X0_scale::Float64=1.0)
     push!(initAngleEdges, Edge(1, HPolyhedron([LazySets.HalfSpace(sparsevec([n], [-1.], n+1), -t_init)]), I(n+1), zeros(n+1))) # t >= t_init
     push!(negAngleEdges, Edge(2, HPolyhedron([LazySets.HalfSpace(sparsevec([1], [-1.], n+1), α)]), I(n+1), zeros(n+1))) # x1 >= -α
     push!(deadzoneEdges, Edge(3, HPolyhedron([LazySets.HalfSpace(sparsevec([1], [-1.], n+1), -α)]), I(n+1), zeros(n+1)))  # x1 >= α
-    push!(deadzoneEdges, Edge(1, HPolyhedron([LazySets.HalfSpace(sparsevec([1], [1.], n+1), -α)]), I(n+1), zeros(n+1))) # x1 <= -α
-    push!(posAngleEdges, Edge(2, HPolyhedron([LazySets.HalfSpace(sparsevec([1], [1.], n+1), α)]), I(n+1), zeros(n+1))) # x1 <= α
-    
+    #push!(deadzoneEdges, Edge(1, HPolyhedron([LazySets.HalfSpace(sparsevec([1], [1.], n+1), -α)]), I(n+1), zeros(n+1))) # x1 <= -α
+    #push!(posAngleEdges, Edge(2, HPolyhedron([LazySets.HalfSpace(sparsevec([1], [1.], n+1), α)]), I(n+1), zeros(n+1))) # x1 <= α
+    deadZoneConstraint = [LazySets.HalfSpace(sparsevec([1], [-1.], n+1), -α)]
+    posAngleConstraint = [LazySets.HalfSpace(sparsevec([1], [-1.], n+1), -α)]
+
+    deadZoneConstraint = []
+    posAngleConstraint = []
 
     locations = Vector{Location}()
 
@@ -268,18 +272,18 @@ function _homogPowertrain(; θ::Int=1, X0_scale::Float64=1.0)
     #m_deadzone = @system(x' = Aext * x, x ∈ X)
     uInput = nothing
     constraints = []
-    push!(locations, Location(2, inv, Aext, nothing, uInput, nothing, deadzoneEdges, []))
+    push!(locations, Location(2, inv, Aext, nothing, uInput, nothing, deadzoneEdges, deadZoneConstraint))
 
 
     # posAngle
     A, b = get_dynamics(kₛ, α, u, n, θ)
-    inv = HPolyhedron([LazySets.HalfSpace(sparsevec([1], [-1.], n+1), α)])  # x1 >= α
+    inv = HPolyhedron([LazySets.HalfSpace(sparsevec([1], [-1.], n+1), -α)])  # x1 >= α
     Aext = add_dimension(A, 1)
     Aext[1:n, n+1] .= b
     #m_posAngle = @system(x' = Aext * x, x ∈ X)
     uInput = nothing
     constraints = []
-    push!(locations, Location(3, inv, Aext, nothing, uInput, nothing, posAngleEdges, []))
+    push!(locations, Location(3, inv, Aext, nothing, uInput, nothing, posAngleEdges, posAngleConstraint))
 
 
     # negAngleInit

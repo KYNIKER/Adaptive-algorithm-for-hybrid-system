@@ -511,6 +511,9 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
             if currentTimeStep < m
                 if isempty(lastNewR) && intersects(newRR, guards)
                     newRR = concretize(newRR)
+                    print(constraintProjBounds)
+                    print(constraintProjVectors)
+                    print(Sρ)
                     if any((input + ρ(x, newRR)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
                     #if !reduce(&, <=(Sρ + map(x -> ρ(x, concretize(newRR)), constraintProjVectors), constraintProjBounds))
                         handleHitConstraint(time, loc.id)

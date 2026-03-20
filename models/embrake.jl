@@ -21,8 +21,8 @@ function loadembrake(x0, Tsample, ζ)
                 K / i/drot 0 0 0 0;
                 0 0 0 0 0;
                 0 0 0 0 0;
-                0 0 0 0 1])
-
+                0 0 0 0 1/ℯ])
+    c = [0.0,0,0,0,1]
     # reset map
     Ar = sparse([1, 2, 3, 4, 4, 5], [1, 2, 2, 2, 4, 5], [1.0, 1.0, -1.0, -Tsample, 1.0, 1.0], 5, 5)
     br = sparsevec([3, 4, 5], [x0, Tsample * x0, -Tsample], 5)
@@ -37,11 +37,11 @@ function loadembrake(x0, Tsample, ζ)
   
     #edge 
     #guard = HPolyhedron([LazySets.HalfSpace(SingleEntryVector(5, 5, -1.), Tsample-ζ)]) # T >= Tsample - ζ
-    guard = HPolyhedron([LazySets.HalfSpace(sparsevec([5], [-1.], 5), Tsample-ζ)]) # T >= Tsample - ζ
+    guard = HPolyhedron([LazySets.HalfSpace(sparsevec([5], [-1.], 5), -(Tsample-ζ))]) # T >= Tsample - ζ
     edges::Vector{Edge} = [Edge(1, guard, Ar, br)]
 
     # location
-    locations = [Location(1, invariant, A, nothing, nothing, nothing, edges, [])]
+    locations = [Location(1, invariant, A, nothing, nothing, c, edges, [])]
 
     # global constraint 
     property = LazySets.HalfSpace(sparsevec([2], [1.], 5), x0)

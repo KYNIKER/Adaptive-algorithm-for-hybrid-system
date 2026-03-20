@@ -12,23 +12,23 @@ include("models/embrake.jl")
 #using Cthulhu, ProfileView
 saveResult = true
 
-δ⁺ = 10^-5
+δ⁺ = 2*10^-7
 #δ⁺ = 0.05
 δ⁻ = δ⁺ / 2^0
 
 #sys, initialState, X0, T = loadPlatoon()
 #sys, initialState, X0, T = loadBouncingBall()
 #sys, initialState, X0, T = loadGirardExample(δ⁻)
-sys, initialState, X0, T = loadembrake(0.05,1.E-4, 1e-6)
+sys, initialState, X0, T = loadembrake(0.05,1e-4, 0)
 n = length(X0.center)
 
 #@ProfileView.profview ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, 5, 5, saveResult)
 res = []
 
-res = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, 5, 5, saveResult)
+res = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), [zeros(Float64, n)]), sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, 5, 5, saveResult)
 
 
-plotProjectedFlowpipe(res, 1, 4, joinpath("results/", "SandboxPlot1Dim.png"))
+plotProjectedFlowpipe(res, 0, 2, joinpath("results/", "SandboxPlot1Dim.png"))
 
 #println(res) #
 #=const fig = Plots.plot(ε=1e-6)

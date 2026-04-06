@@ -29,7 +29,7 @@ function ReACTed(hybridSystem::HybridSystemV2, initialLoc, interval, X0::Zonotop
 end
 
 function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector{N},Matrix{N}}, constraint, δ⁻::Float64, δ⁺::Float64, PhiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, Φ=missing, saveResult::Bool=true) where {N}
-    discretizationDict, inputDiscritezationDict = ReACTDiscretize(loc, X0, δ⁻, δ⁺, alg, maxOrder, reduceOrder, PhiDict[loc.id])
+    discretizationDict, inputDiscritezationDict = ReACTDiscretizePlus(loc, X0, δ⁻, δ⁺, alg, maxOrder, reduceOrder, PhiDict[loc.id])
     time::Float64 = minimum(interval)
     endtime::Float64 = maximum(interval)
     reachset = []
@@ -129,14 +129,14 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
                     throw(ErrorException("WHAT THE ACTUAL FUCK!"))
                     end
                     =#
-                    jumpSet = concretize(linear_map(edge.jumpMatrix, intersectedSet))
+                    jumpSet = minkowski_sum(linear_map(edge.jumpMatrix, intersectedSet), Zonotope(edge.jumpVector, [zero(edge.jumpVector)]))
                     #println(jumpSet)
 
                     if !isa(hybridSystem.locations[edge.targetLoc].invarient, Nothing) && intersects(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)
                         tjumpSet = zonotopeStripIntersection(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)# + edge.jumpVector * intersectedSet
                         #println("Jump intersection: ", ρ(Vector(sparsevec([5], [1.0], 6)), jumpSet), " vs ", ρ(Vector(sparsevec([5], [1.0], 6)), tjumpSet))
                         jumpSet = tjumpSet
-                        println(LazySets.order(jumpSet))
+                        #println(LazySets.order(jumpSet))
                         #println("tes2")
                     end
                     #push!(reachset, ([(jumpSet, [reachtime, reachtime])], string(reachtime) * ": jump(" * string(loc.id) * ")->" * string(edge.targetLoc)))
@@ -551,14 +551,19 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
 
         while !approveFlag
             if currentTimeStep < m
-                # If we hit a constraint
-                newRR = concretize(newRR)
-                if any((input + ρ(x, newRR)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
-
-                    #println(newRR)
-
-
-                    handleHitConstraint(time, loc.id)
+                if isempty(lastNewR) && intersects(newRR, guards)
+                    newRR = concretize(newRR)
+                    
+                    if any((input + ρ(x, newRR)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
+                    #if !reduce(&, <=(Sρ + map(x -> ρ(x, concretize(newRR)), constraintProjVectors), constraintProjBounds))
+                        handleHitConstraint(time, loc.id)
+                    else
+                        #println("Pushing!")
+                        #push!(lastNewR, (concretize(newRR), [time, time + currentTimeStep]))
+                        #println(!intersects(concretize(minkowski_sum(newRR, Vs)), guards))
+                        #println(guards)
+                        #println((isnothing(loc.invarient) || intersects(concretize(minkowski_sum(newRR, Vs)), loc.invarient)))
+                    end
                 end
 
                 
@@ -582,6 +587,11 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
                 #println(norm(lastNewR), " ", time)
                 # println("Guards Vs: ", concretize(minkowski_sum(newRR, Vs)))
                 #println("Guards newRR: ", pop!(lastNewR))
+                #newRR = minkowski_sum(newRR, Vs)
+                #println("x :", ρ(sparsevec([2],[1.], 5), newRR))
+                #println("t :", ρ(sparsevec([5],[1.], 5), newRR))
+                #println("t :", ρ(sparsevec([5],[-1.], 5), newRR))
+                #println(intersects(newRR, guards))
                 return (lastNewR, Vs, time, Φ)
             end
 
@@ -627,11 +637,9 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
             end
         end
 
-
         push!(attemptsRecorder, attempts)
         i = i + 1
         time = time + currentTimeStep
-
         # Reset / apply strategy
         # Only do this if the current timestep is less than the initial
         if STRATEGY == 0
@@ -655,6 +663,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
         end
     end
     #intersectingSet = overapproximate(ConvexHullArray(overapproximateIntersectingSetArray), Zonotope)
+    #println(lastNewR)
     return (lastNewR, Vs, time, Φ)
 end
 

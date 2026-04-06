@@ -526,7 +526,7 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
                 #println("Applicable")
                 y = ρ(a, H)
                 x = max(ρ(a, H), ρ(-a, res))
-                println(sign(b) * x, " ", b)
+                #println(sign(b) * x, " ", b)
                 thp = LazySets.HyperplaneModule.Hyperplane(a, (b - x) / 2)  #   Should check the calculation of the sigma values
                 #println((x - b) / 2)
                 σ = abs(x + b) / 2
@@ -558,7 +558,8 @@ function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination, alpha=1)
     fig = Plots.plot(xlabel="dim: " * string(dim1), ylabel="dim: " * string(dim2), ε=1e-6)
     cpallete = palette(:roma, length(flowpipe))
     i = 1
-
+    k = 0
+    
     if dim1 != 0
         dimSize = size(genmat(flowpipe[1][1][1][1]), 1)
         projectionMatrix = zeros(Float64, dimSize, dimSize)

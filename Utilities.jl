@@ -47,6 +47,7 @@ struct HybridSystem
 end
 
 
+
 function sparseHPolyhedronToDense(H_sparse::HPolyhedron)
     H_dense = HPolyhedron([LazySets.HalfSpace(Vector(c.a), c.b) for c in H_sparse.constraints])
     return H_dense
@@ -549,6 +550,8 @@ function getUFromInputUncertainty(A, μ, δ⁻, P₁)
     u = Zonotope(zeros(LazySets.dim(P₁)), β * I(LazySets.dim(P₁)))
     return u
 end
+
+
 
 
 function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination, alpha=1)

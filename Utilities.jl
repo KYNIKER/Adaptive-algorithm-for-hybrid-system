@@ -1,17 +1,6 @@
-using LazySets, ReachabilityAnalysis, LinearAlgebra
+using LazySets, ReachabilityAnalysis, LinearAlgebra, Polyhedra, Optim
 
-export HybridSystem, HybridSystemV2, Location, Edge, overapproximateIntervalReachset, intersects
-
-#=struct HybridSystem
-    V::Vector{Any}
-    E::Matrix{Int}
-    G::Matrix{Vector{LazySet.HalfSpaceModule.HalfSpace}}
-    I::Vector{LazySet.HalfSpaceModule.HalfSpace}
-    Flow::Vector{Matrix{Float64}}
-    Jump::Matrix{Tuple{Matrix{Float64},Vector{Float64}}}
-end=#
-
-
+export HybridSystem, HybridSystemV2, Location, Edge, overapproximateIntervalReachset, intersects, splitZonotope, getBoxIntersection
 
 struct Edge
     targetLoc::Int
@@ -27,7 +16,11 @@ struct Location
     id::Int
     invarient::Union{HPolyhedron,Nothing}
     A::Matrix{Float64}
+    B::Union{Nothing,Matrix{Float64}}
+    u # Unsure 
+    c::Union{Nothing,Vector{Float64}}
     edges::Vector{Edge}
+    constraints::Vector{Union{HPolyhedron,LazySets.HalfSpace}}
 end
 
 
@@ -36,8 +29,9 @@ Base.show(io::Core.IO, l::Location) = print(io, "Location: ", l.id, "\n invarian
 
 mutable struct HybridSystemV2
     locations::Vector{Location}
-    initialLoc::Int
-    initialState # Fill this in later
+    globalConstraints::Vector{Union{HPolyhedron,LazySets.HalfSpace}}
+    #initialLoc::Int
+    #initialState # Fill this in later
 end
 
 Base.show(io::Core.IO, s::HybridSystemV2) = print(io, "System with ", length(s.locations), " locations.")
@@ -50,6 +44,12 @@ struct HybridSystem
     Flow
     Jump
     Init
+end
+
+
+function sparseHPolyhedronToDense(H_sparse::HPolyhedron)
+    H_dense = HPolyhedron([LazySets.HalfSpace(Vector(c.a), c.b) for c in H_sparse.constraints])
+    return H_dense
 end
 
 function system(locations, edges, guards, invariants, flows, jumps, init)
@@ -80,21 +80,60 @@ function system(locations, edges, guards, invariants, flows, jumps, init)
     return HybridSystem(locations, E, G, invariants, flows, J, init)
 end
 
-function intersection(Z, H)
-    return Z, Z
+#=function intersection(Z, H)
+    return Z, H
     #=agenSum = reduce(+, abs.(genmat(Z) .* H.a))
     acenSum = dot(Vector(H.a), Z.center)
     if (acenSum - agenSum <= H.b) & (H.b <= acenSum + agenSum)
     else
         return nothing
     end=#
-end
+end=#
 
-function intersects(Z, H)
+function intersects(Z::Zonotope, H::LazySets.HalfSpace)
     agenSum = reduce(+, abs.(genmat(Z) .* H.a))
     acenSum = dot(Vector(H.a), Z.center)
     return (acenSum - agenSum <= H.b) & (H.b <= acenSum + agenSum)
 end
+
+function intersects(Z::Zonotope, H::Vector{N}) where N
+    sen = true
+    for h in H
+        agenSum = reduce(+, abs.(genmat(Z) .* h.a))
+        acenSum = dot(Vector(h.a), Z.center)
+        sen = sen & (acenSum - agenSum <= h.b) & (h.b <= acenSum + agenSum)
+    end
+    return sen
+end
+
+
+
+function intersects(Z::Zonotope, H::Any)
+    return isnothing(H) ? true : !isdisjoint(Z, H)
+end
+
+function isSubSet(Z::Zonotope, H::LazySets.HalfSpace)
+    agenSum = reduce(+, abs.(genmat(Z) .* H.a))
+    acenSum = dot(Vector(H.a), Z.center)
+    return (acenSum + agenSum <= H.b)
+    #return (acenSum - agenSum <= H.b) & (acenSum + agenSum <= H.b)
+end
+
+function isSubSet(Z::Zonotope, H::HPolyhedron)
+    sen = true
+    for h in H.constraints
+        agenSum = reduce(+, abs.(genmat(Z) .* h.a))
+        acenSum = dot(Vector(h.a), Z.center)
+        sen = sen & (acenSum + agenSum <= h.b)
+        #sen = sen & (acenSum - agenSum <= h.b) & (acenSum + agenSum <= h.b)
+    end
+    return sen
+end
+
+function isSubSet(Z::Zonotope, H::Any)
+    return ⊆(Z, H, false) # Do not return a witness, just boolean
+end
+
 
 function overapproximateIntervalReachset(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, δ⁻, δ⁺, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing) where {N}
     XDim, _ = size(genmat(X0))
@@ -213,12 +252,12 @@ function produceDirections(n)
     return directions
 end
 
-function project2d(Z :: Zonotope, n::Vector, direction::Vector)
+function project2d(Z::Zonotope, n::Vector, direction::Vector)
     c = Z.center
     G = genmat(Z)
 
     newC = [dot(c, n), dot(c, direction)]
-    newG =[[dot(g, n), dot(g, direction)] for g in eachcol(G)]
+    newG = [[dot(g, n), dot(g, direction)] for g in eachcol(G)]
 
     return Zonotope(newC, newG)
 end
@@ -227,7 +266,7 @@ function segmentLineIntersection(segment1, segment2, line)
     x1, y1 = segment1
     x2, y2 = segment2
 
-    if (x1 - line)*(x2 - line) > 0 || (x1 == x2)
+    if (x1 - line) * (x2 - line) > 0 || (x1 == x2)
         return nothing
     end
     # Use interpolation
@@ -235,7 +274,7 @@ function segmentLineIntersection(segment1, segment2, line)
     return y1 + t * (y2 - y1)
 end
 
-function GirardGuernicAlgorithm(Z :: Zonotope, line :: Float64)
+function GirardGuernicAlgorithm(Z::Zonotope, line::Float64)
     # We assume it is 2 dimensional
     c = Z.center
     G = [copy(g) for g in eachcol(genmat(Z))]
@@ -288,12 +327,12 @@ end
 
 # Zonotope intersection with hyperplane
 # Gets the area where we meet the intersection.
-function lineIntersection(Z :: Zonotope, H :: HalfSpace)
+function lineIntersection(Z::Zonotope, H::LazySets.HalfSpace)
     directions = produceDirections(length(Z.center))
-    val = H.b 
+    val = H.b
     n = H.a
 
-    constraints = HalfSpace[]
+    constraints = LazySets.HalfSpace[]
 
     for direction in directions
         Z2 = project2d(Z, n, direction)
@@ -301,14 +340,14 @@ function lineIntersection(Z :: Zonotope, H :: HalfSpace)
 
         #Produce the constraints
         if isfinite(m)
-            push!(constraints, HalfSpace(direction, M))
-            push!(constraints, HalfSpace(-direction, -m))
+            push!(constraints, LazySets.HalfSpace(direction, M))
+            push!(constraints, LazySets.HalfSpace(-direction, -m))
         end
     end
 
     # enforce hyperplane equality n⋅x = γ
-    push!(constraints, HalfSpace(n, val))
-    push!(constraints, HalfSpace(-n, -val))
+    push!(constraints, LazySets.HalfSpace(n, val))
+    push!(constraints, LazySets.HalfSpace(-n, -val))
 
 
     HpolyRep = HPolyhedron(constraints)
@@ -318,15 +357,47 @@ function lineIntersection(Z :: Zonotope, H :: HalfSpace)
 end
 
 
-function getBoxIntersection(Z :: Zonotope, H_intersection :: HalfSpace)
+function getBoxIntersection(Z::Zonotope, H_intersection::LazySets.HalfSpace)
+    #println("Ever used? ")
     S = Z ∩ H_intersection
-    box = overapproximate(S, Hyperrectangle)
-    return convert(Zonotope, box)
+    if !isempty(S)
+        box = box_approximation(S)
+        return convert(Zonotope, box)
+    else
+        println("empty?")
+        return S
+    end
 end
 
+function getBoxIntersection(Z::Zonotope, H_intersections::Vector{N}) where N
+    S1 = foldr((x, y) -> ∩(x, y), H_intersections; init=Z)
+    S = S1 #overapproximate(S1, Zonotope) #foldr(∩, H_intersections; init=Z)
 
-function splitZonotope(Z :: Zonotope, H_intersection :: HalfSpace)
-    H_rest = HalfSpace(-H_intersection.a, -H_intersection.b)
+    if !isempty(S)
+        S = overapproximate(S, HPolytope, dirs=BoxDirections())
+        if isbounded(S)
+            box = box_approximation(S)
+            return convert(Zonotope, box)
+        end
+        println("Warning not bounded")
+        throw(ErrorException("Warning not bounded"))
+    end
+end
+
+function getBoxIntersection(Z::Zonotope, H_intersections::Any)
+    #S1 = foldr((x, y) -> ∩(x, y), H_intersections; init=Z)
+    S = ∩(H_intersections, Z)
+    if !isempty(S)
+        box = overapproximate(S, Hyperrectangle)#box_approximation(S)#
+        return convert(Zonotope, box)
+    else
+        println("EMPTY!!")
+        return S
+    end
+end
+
+function splitZonotope(Z::Zonotope, H_intersection::LazySets.HalfSpace)
+    H_rest = LazySets.HalfSpace(-H_intersection.a, -H_intersection.b)
 
     # Get intersections
     Z_intersection = getBoxIntersection(Z, H_intersection)
@@ -334,3 +405,233 @@ function splitZonotope(Z :: Zonotope, H_intersection :: HalfSpace)
 
     return Z_intersection, Z_rest
 end
+
+function splitZonotope(Z::Zonotope, H_intersections::Vector{N}) where N
+    H_rest = map(x -> LazySets.HalfSpace(-x.a, -x.b), H_intersections)
+
+    # Get intersections
+    Z_intersection = getBoxIntersection(Z, H_intersections)
+    Z_rest = getBoxIntersection(Z, H_rest)
+
+    return Z_intersection, Z_rest
+end
+
+function splitZonotope(Z::Zonotope, H_intersections::LazySets.HPolyhedronModule.HPolyhedron)
+    # Get intersections
+    Z_intersection = zonotopeStripIntersection(Z, H_intersections)
+
+    println(Z_intersection)
+
+    # Flip it!
+    constraint_list = H_intersections.constraints
+    flipped_constraint_list = map(x -> LazySets.HalfSpace(-x.a, -x.b), constraint_list)
+
+    println("Flipped constraint list: ", flipped_constraint_list)
+
+    Z_rest = zonotopeStripIntersection(Z, HPolyhedron(flipped_constraint_list))
+
+    return Z_intersection, Z_rest
+end
+
+#   Based on Alamo et al. "Guaranteed state estimation by zonotopes" (2005)
+function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HyperplaneModule.Hyperplane, σ::Float64)
+    G = genmat(Z)
+    c = Z.center
+    b = H.a
+    d = H.b
+    λ = (G * transpose(G) * b) / (transpose(b) * G * transpose(G) * b + σ^2)
+    ĉ = c + λ * (d - transpose(b) * c)
+    upper = ((I - λ * transpose(b)) * G)
+    lower = (σ * λ)
+    Ĝ::Matrix{eltype(G)} = hcat(upper, lower)
+    return Zonotope(ĉ, Ĝ)
+end
+
+function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HPolyhedron)
+    HalfSpaces = copy(constraints_list(H))
+    HSG = stack([x.a for x in HalfSpaces]; dims=1)
+    res = copy(Z)
+    if rank(HSG) < size(HSG, 1)
+        #println("Collinear")
+        collinear = []
+        remidx = stack([false for x in HalfSpaces])
+        for hs in HalfSpaces
+            if any(i -> rank([i.a hs.a]) <= 1 && (i !== hs), HalfSpaces) #any(i -> abs(dot(i.a, hs.a)) == norm(i.a) * norm(hs.a) && (i !== hs), HalfSpaces)
+                push!(collinear, hs)
+                remidx = remidx .|| any(i -> rank([i.a hs.a]) <= 1 && (i !== hs), HalfSpaces, dims=2)
+            end
+        end
+
+        HalfSpaces = deleteat!(HalfSpaces, remidx)
+
+
+
+
+        for hs in HalfSpaces
+            a = hs.a
+            b = hs.b
+            if applicable(ρ, a, H)
+                y = ρ(a, H)
+                x = max(ρ(a, H), ρ(-a, res))
+                thp = LazySets.HyperplaneModule.Hyperplane(a, (b - x) / 2)  #   Should check the calculation of the sigma values
+                σ = abs(x + b) / 2
+                σ = σ == 0.0 ? eps(1.0) : σ
+                res = zonotopeStripIntersection(res, thp, σ)
+            else
+                x = ρ(-a, Z)
+                thp = HyperPlane(a, (2 * b + x) / 2)
+                res = zonotopeStripIntersection(res, thp, x / 2)
+            end
+        end
+        while !isempty(collinear)
+            temphs = []
+            push!(temphs, pop!(collinear))
+            cols = any(i -> rank([i.a temphs[1].a]) <= 1, collinear, dims=2)
+            for i in eachindex(cols)
+                if cols[i] == true
+                    push!(temphs, collinear[i])
+                end
+            end
+
+            collinear = deleteat!(collinear, cols)
+
+            minDists = map(x -> x.b / norm(x.a), temphs)
+            minDists = map(x -> x.b, temphs)
+
+            a = temphs[1].a
+            diff = norm((minimum(minDists) * a + maximum(minDists) * a) / 2 - minimum(minDists) * a)
+
+            σ = maximum(minDists) - diff
+            σ = σ == 0.0 ? eps(1.0) : σ
+
+            #a = a ./ norm(a)
+            if applicable(ρ, a, H)
+                thp = LazySets.HyperplaneModule.Hyperplane(a, diff)  #   Should check the calculation of the sigma values
+                res = zonotopeStripIntersection(res, thp, σ)
+            else
+
+                x = ρ(a, Z)
+                thp = HyperPlane(a, (2 * b + x) / 2)
+                res = zonotopeStripIntersection(res, thp, x / 2)
+            end
+
+        end
+    else
+        #println("Linear independent")
+        for hs in HalfSpaces
+            a = hs.a
+            b = hs.b
+            if applicable(ρ, a, H)
+                #println("Applicable")
+                y = ρ(a, H)
+                x = max(ρ(a, H), ρ(-a, res))
+                #println(sign(b) * x, " ", b)
+                thp = LazySets.HyperplaneModule.Hyperplane(a, (b - x) / 2)  #   Should check the calculation of the sigma values
+                #println((x - b) / 2)
+                σ = abs(x + b) / 2
+                σ = σ == 0.0 ? eps(1.0) : σ
+                res = zonotopeStripIntersection(res, thp, σ)
+            else
+                #println("Not applicable")
+                x = ρ(a, Z)
+                thp = HyperPlane(a, (2 * b + x) / 2)
+                res = zonotopeStripIntersection(res, thp, x / 2)
+            end
+        end
+    end
+    return res
+end
+
+function getUFromInputUncertainty(A, μ, δ⁻, P₁)
+    ANorm = norm(A, Inf)
+    β = (exp(ANorm * (δ⁻)) - 1) * μ / ANorm
+    #println("original area ballβ: ", area(Zonotope(zeros(dim(P₁)), ((exp(ANorm*(initialTimeStep))-1)*μ/ANorm)*I(dim(P₁)))))
+    u = Zonotope(zeros(LazySets.dim(P₁)), β * I(LazySets.dim(P₁)))
+    return u
+end
+
+
+function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination, alpha=1)
+    fig = Plots.plot(xlabel="dim: " * string(dim1), ylabel="dim: " * string(dim2), ε=1e-6)
+    cpallete = palette(:roma, length(flowpipe))
+    i = 1
+    k = 0
+    
+    if dim1 != 0
+        dimSize = size(genmat(flowpipe[1][1][1][1]), 1)
+        projectionMatrix = zeros(Float64, dimSize, dimSize)
+        projectionMatrix[dim1, dim1] = 1.0
+        projectionMatrix[dim2, dim2] = 1.0
+
+
+        for (x, y) in flowpipe
+
+            println(y)
+            sen = true
+            for (r, t) in x
+                G = genmat(r)
+                c = r.center
+
+                projectedG = projectionMatrix * G
+                projectGDim1s = mapreduce(x -> sign(x[dim1]) * x, +, eachcol(projectedG))
+                projectGDim2s = mapreduce(x -> sign(x[dim2]) * x, +, eachcol(projectedG))
+
+                maxcor1s = c + projectGDim1s
+                mincor1s = c - projectGDim1s
+                maxcor2s = c + projectGDim2s
+                mincor2s = c - projectGDim2s
+
+                projectGDim1 = reduce(+, reduce(+, G, dims=dim1))
+                projectGDim2 = reduce(+, reduce(+, G, dims=dim2))
+                maxcor1 = c[dim1] + projectGDim1
+                mincor1 = c[dim1] - projectGDim1
+                maxcor2 = c[dim2] + projectGDim2
+                mincor2 = c[dim2] - projectGDim2
+
+                #Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="", alpha=0.1)
+                #Plots.plot!(Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], maxcor1s[dim2], maxcor2s[dim2], mincor2s[dim2]]), c=cpallete[i], lab="") # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
+                if sen
+                    Plots.plot!(Shape([(mincor1s[dim1], mincor1s[dim2]), (mincor2s[dim1], mincor2s[dim2]), (maxcor1s[dim1], maxcor1s[dim2]), (maxcor2s[dim1], maxcor2s[dim2])]), c=cpallete[i], lab="S" * string(i)) # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
+                    sen = false
+                else
+                    Plots.plot!(Shape([(mincor1s[dim1], mincor1s[dim2]), (mincor2s[dim1], mincor2s[dim2]), (maxcor1s[dim1], maxcor1s[dim2]), (maxcor2s[dim1], maxcor2s[dim2])]), c=cpallete[i], lab="") # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
+                end
+                #plot!(r, c=cpallete[i], alpha=0.2)
+            end
+            #Plots.plot!(c=cpallete[i], lab=string(i))
+            i += 1
+
+        end
+    else
+        for (x, y) in flowpipe
+            sen = true
+
+            println(y)
+            for (r, t) in x
+                G = abs.(genmat(r))
+                c = r.center
+                #projectGDim1 = reduce(+, reduce(+, G, dims=dim1))
+                projectGDim2 = reduce(+, reduce(+, G, dims=dim2))
+                #maxcor1 = c[dim1] + projectGDim1
+                #mincor1 = c[dim1] - projectGDim1
+                maxcor2 = c[dim2] + projectGDim2
+                mincor2 = c[dim2] - projectGDim2
+                if sen
+                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="S" * string(i))
+                    sen = false
+                else
+                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
+                end
+                #Plots.plot!(Shape([mincor1, maxcor1, maxcor1, mincor1], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
+
+                #plot!(r, c=cpallete[i], alpha=0.2)
+            end
+            #plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="", alpha=0.8)
+            i += 1
+
+        end
+    end
+    savefig(fig, destination)
+end
+
+Base.:+(z1::Zonotope, z2::Zonotope) = Zonotope(z1.center + z2.center, z1.generators + z2.generators)

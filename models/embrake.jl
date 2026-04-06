@@ -21,10 +21,10 @@ function loadembrake(x0, Tsample, ζ)
                 K / i/drot 0 0 0 0;
                 0 0 0 0 0;
                 0 0 0 0 0;
-                0 0 0 0 1/ℯ])
+                0 0 0 0 0])
     c = [0.0,0,0,0,1]
     # reset map
-    Ar = sparse([1, 2, 3, 4, 4, 5], [1, 2, 2, 2, 4, 5], [1.0, 1.0, -1.0, -Tsample, 1.0, 1.0], 5, 5)
+    Ar = sparse([1, 2, 3, 4, 4, 5], [1, 2, 2, 2, 4, 5], [1.0, 1.0, -1.0, -Tsample, 1.0, 0.0], 5, 5)
     br = sparsevec([3, 4, 5], [x0, Tsample * x0, -Tsample], 5)
 
     # initial condition
@@ -48,6 +48,6 @@ function loadembrake(x0, Tsample, ζ)
 
     H = HybridSystemV2(locations, [property])
 
-    T = 0.1
+    T = 0.05
     return H, 1, X0, T
 end

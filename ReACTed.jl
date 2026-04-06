@@ -115,7 +115,7 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
                         tjumpSet = zonotopeStripIntersection(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)# + edge.jumpVector * intersectedSet
                         #println("Jump intersection: ", ρ(Vector(sparsevec([5], [1.0], 6)), jumpSet), " vs ", ρ(Vector(sparsevec([5], [1.0], 6)), tjumpSet))
                         jumpSet = tjumpSet
-                        println(LazySets.order(jumpSet))
+                        #println(LazySets.order(jumpSet))
                         #println("tes2")
                     end
                     #push!(reachset, ([(jumpSet, [reachtime, reachtime])], string(reachtime) * ": jump(" * string(loc.id) * ")->" * string(edge.targetLoc)))
@@ -529,11 +529,11 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
                 #println(norm(lastNewR), " ", time)
                 # println("Guards Vs: ", concretize(minkowski_sum(newRR, Vs)))
                 #println("Guards newRR: ", pop!(lastNewR))
-                newRR = minkowski_sum(newRR, Vs)
-                println("x :", ρ(sparsevec([2],[1.], 5), newRR))
-                println("t :", ρ(sparsevec([5],[1.], 5), newRR))
-                println("t :", ρ(sparsevec([5],[-1.], 5), newRR))
-                println(intersects(newRR, guards))
+                #newRR = minkowski_sum(newRR, Vs)
+                #println("x :", ρ(sparsevec([2],[1.], 5), newRR))
+                #println("t :", ρ(sparsevec([5],[1.], 5), newRR))
+                #println("t :", ρ(sparsevec([5],[-1.], 5), newRR))
+                #println(intersects(newRR, guards))
                 return (lastNewR, Vs, time, Φ)
             end
 

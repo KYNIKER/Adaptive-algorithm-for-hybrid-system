@@ -12,7 +12,7 @@ include("models/embrake.jl")
 #using Cthulhu, ProfileView
 saveResult = true
 
-δ⁺ = 2*10^-7
+δ⁺ = 2*10^-5
 #δ⁺ = 0.05
 δ⁻ = δ⁺ / 2^0
 
@@ -28,7 +28,7 @@ res = []
 res = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), [zeros(Float64, n)]), sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, 5, 5, saveResult)
 
 
-plotProjectedFlowpipe(res, 0, 2, joinpath("results/", "SandboxPlot1Dim.png"))
+plotProjectedFlowpipe(res, 0, 5, joinpath("results/", "SandboxPlot1Dim.png"))
 
 #println(res) #
 #=const fig = Plots.plot(ε=1e-6)

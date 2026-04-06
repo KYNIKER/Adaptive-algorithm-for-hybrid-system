@@ -614,7 +614,8 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
                     push!(lastNewR, (tempSet, [time, time + currentTimeStep]))
                 end
                 lastVs = copy(Vs)
-                Vs = concretize(ReachabilityAnalysis.Exponentiation.Φ₁(A, time, ReachabilityAnalysis.Exponentiation.BaseExp) * U)
+
+                Vs = concretize(ReachabilityAnalysis.Exponentiation.Φ₁(A, time - minimum(interval), ReachabilityAnalysis.Exponentiation.BaseExp) * U)
                 approveFlag = true
                 Sρ += map(x -> ρ(x, Vs), constraintProjVectors)
                 mul!(tempM, Φ, ϕt)

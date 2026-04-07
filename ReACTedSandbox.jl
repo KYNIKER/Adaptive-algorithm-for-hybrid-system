@@ -15,14 +15,14 @@ include("models/spacecraft.jl")
 saveResult = true
 
 δ⁺ = 10^-3 * 2
-δ⁺ = 0.04
+δ⁺ = 0.002
 δ⁻ = δ⁺ / 2^0
 
 #sys, initialState, X0, T = loadPlatoon()
 sys, initialState, X0, T = loadBouncingBall()
 sys, initialState, X0, T = loadPowertrain(θ=3, homog = true)
-sys, initialState, X0, T = loadSpacecraft()
-sys, initialState, X0, T = loadSpacecraft(abort_time = 120.)
+# sys, initialState, X0, T = loadSpacecraft()
+# sys, initialState, X0, T = loadSpacecraft(abort_time = 120.)
 
 
 n = length(X0.center)

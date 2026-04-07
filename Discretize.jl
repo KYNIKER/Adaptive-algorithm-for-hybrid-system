@@ -100,12 +100,15 @@ function ReACTDiscretizePlus(loc, X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Fl
     dU = overapproximate(δ⁻ * U, Zonotope)#linear_map(dia, U) 
     E_ψ = convert(Zonotope, symmetric_interval_hull(linear_map(P2A_abs, symmetric_interval_hull(A * U))))
     P = minkowski_sum(dU, E_ψ) #
-
     lt = minkowski_sum(linear_map(phiDict[d], X0), dU)  #minkowski_sum(convert(Zonotope, phiDict[d] * X0), dU)
     E⁺ = convert(Zonotope, symmetric_interval_hull(linear_map(P2A_abs, symmetric_interval_hull(linear_map(A * A, X0)))))
     rt = minkowski_sum(E_ψ, E⁺)
     f = minkowski_sum(lt, rt)
     disc = overapproximate(CH(X0, f), Zonotope) # overapproximate(CH(X0, minkowski_sum(f, PZ)), Zonotope) #
+    if (size(genmat(disc),2)==0)
+        disc = X0
+    end
+        
     #disc = Zonotope(disc.center - P̂, genmat(disc))
     P = linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A, d, alg, isInvA, Φcache), U)
     #return discritezationDict, inputDiscritezationDict

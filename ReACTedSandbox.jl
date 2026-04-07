@@ -8,17 +8,22 @@ include("models/platoon.jl")
 include("models/bouncingBall.jl")
 include("models/simpleModel.jl")
 include("models/powerTrain.jl")
+include("models/spacecraft.jl")
 
 #using Cthulhu, ProfileView
+
 saveResult = true
 
 δ⁺ = 10^-3 * 2
-#δ⁺ = 0.05
+δ⁺ = 0.04
 δ⁻ = δ⁺ / 2^0
 
 #sys, initialState, X0, T = loadPlatoon()
 sys, initialState, X0, T = loadBouncingBall()
 sys, initialState, X0, T = loadPowertrain(θ=3, homog = true)
+sys, initialState, X0, T = loadSpacecraft()
+sys, initialState, X0, T = loadSpacecraft(abort_time = 120.)
+
 
 n = length(X0.center)
 
@@ -27,8 +32,38 @@ res = []
 
 res = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, 5, 5, saveResult)
 
-plotProjectedFlowpipe(res, 1, 3, joinpath("results/", "SandboxDim2.png"), 0.1)
+plotProjectedFlowpipe(res, 1, 2, joinpath("results/", "SandboxDim2.png"))
+# plotProjectedFlowpipe(res, 0, 1, joinpath("results/", "SandboxDim1.png"))
+#plotProjectedFlowpipe(res, 0, 3, joinpath("results/", "SandboxDimVx.png"))
+# plotProjectedFlowpipe(res, 0, 4, joinpath("results/", "SandboxDimVy.png"))
+x  = 1  # x position (negative!)
+y  = 2  # y position (negative!)
+vx = 3  # x velocity
+vy = 4  # y velocity
+velocity = 0.055 * 60.0     # meters per minute
+cx = velocity * cos(π / 8)  # x-coordinate of the octagon's first (ENE) corner
+cy = velocity * sin(π / 8)  # y-coordinate of the octagon's first (ENE) corner
+n = 5
 
+loc2Constraint = [
+    # Line of sight property
+    LazySets.HalfSpace(sparsevec([x], [-1.0], n), 100.0),             # x >= -100
+    LazySets.HalfSpace(sparsevec([x, y], [tan(π/6), -1.0], n), 0.0),  # -x tan(30°) + y >= 0
+    LazySets.HalfSpace(sparsevec([x, y], [tan(π/6), 1.0], n), 0.0),   # -x tan(30°) - y >= 0
+    # Velocity / octagon property
+    # LazySets.HalfSpace(sparsevec([vx], [-1.0], n), cx),                # vx >= -cx
+    # LazySets.HalfSpace(sparsevec([vx], [1.0], n), cx),                 # vx <= cx
+    # LazySets.HalfSpace(sparsevec([vy], [-1.0], n), cx),                # vy >= -cx
+    # LazySets.HalfSpace(sparsevec([vy], [1.0], n), cx),                 # vy <= cx
+    # LazySets.HalfSpace(sparsevec([vx, vy], [1., 1.0], n), cy + cx),    # vx + vy <= cy + cx
+    # LazySets.HalfSpace(sparsevec([vx, vy], [1., -1.0], n), cy + cx),   # vx - vy <= cy + cx
+    # LazySets.HalfSpace(sparsevec([vx, vy], [-1., 1.0], n), cy + cx),   # -vx + vy <= cy + cx
+    # LazySets.HalfSpace(sparsevec([vx, vy], [-1., -1.0], n), cy + cx)   # -vx - vy <= cy + cx
+]
+
+#println(loc2Constraint)
+
+#plotProjectedFlowpipe(res, 1, 2, joinpath("results/", "SandboxDim2Constraint.png"), loc2Constraint, 0.1)
 
 # #println(res) #
 # const fig = Plots.plot(ε=1e-6)

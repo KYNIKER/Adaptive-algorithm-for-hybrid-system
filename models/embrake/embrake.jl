@@ -47,5 +47,5 @@ function loadembrake(x0, Tsample, ζ)
     H = HybridSystemV2(locations, [property])
 
     T = 0.1
-    return H, 1, X0, T, Tsample, ζ
+    return H, 1, X0, T
 end

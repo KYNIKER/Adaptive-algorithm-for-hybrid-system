@@ -4,14 +4,13 @@ include("../../Utilities.jl")
 include("../../ReACTed.jl")
 include("embrake.jl")
 
-function solve_embrake(saveResult = true)
-    δ⁺ = 2*10^-7
-    δ⁻ = δ⁺ / 2^0
-    maxOrder = 5
-    reduceOrder = 5
+function solve_embrake(δ⁺ = 2*10^-7, δ⁻ = 2*10^-7, maxOrder = 5, reduceOrder = 5, saveResult = true)
     time = 0
 
-    sys, initialState, X0, T, Tsample, ζ = loadembrake(0.05,1e-4, 1e-6)
+    x0 = 0.05
+    Tsample = 1e-4
+    ζ = 1e-6
+    sys, initialState, X0, T = loadembrake(x0, Tsample, ζ)
     n = length(X0.center)
     reachset = []
 
@@ -70,9 +69,6 @@ function run(hybridSystem, loc::Location, time, Tsample, ζ, T, X0::Zonotope{N,V
             push!(reachset, ([(intersectedSet, [reachtime, timeNotIntersected])], string(reachtime) * " - " * string(timeNotIntersected) * ": " * string(loc.id) * "->" * string(loc.id)))
 
             if true
-                #paul = HPolyhedron(vcat(constraints_list(guards), constraints_list(loc.invarient)))
-                #intersectedSet = zonotopeStripIntersection(intersectedSet, loc.invarient) ### TODO: Find the correct way to intersect now that we have no invariant
-
                 jumpSet = minkowski_sum(linear_map(edge.jumpMatrix, intersectedSet), Zonotope(edge.jumpVector, [zero(edge.jumpVector)]))
 
                 if !isa(hybridSystem.locations[edge.targetLoc].invarient, Nothing) && intersects(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)

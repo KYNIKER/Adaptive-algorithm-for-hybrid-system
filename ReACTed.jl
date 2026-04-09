@@ -104,6 +104,7 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
 
 
                 if !isdisjoint(intersectedSet, guards)
+
                     intersectedSet = zonotopeStripIntersection(intersectedSet, guards)
 
 
@@ -343,7 +344,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
                     preclustering = overapproximate(CH(preclustering, concretize(minkowski_sum(newRR, Vs))), Zonotope)
                 end
                 lastVs = copy(Vs)
-                Vs = concretize(ReachabilityAnalysis.Exponentiation.Φ₁(loc.A, time + currentTimeStep, ReachabilityAnalysis.Exponentiation.BaseExp) * inputDiscritezationDict[0])
+                Vs = concretize(ReachabilityAnalysis.Exponentiation.Φ₁(loc.A, time + currentTimeStep - minimum(interval), ReachabilityAnalysis.Exponentiation.BaseExp) * inputDiscritezationDict[0])
                 approveFlag = true
                 #Sρ += inhom
                 mul!(tempM, Φ, ϕt)
@@ -551,6 +552,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
                 # If we hit a constraint
                 newRR = concretize(newRR)
                 if any((input + ρ(x, newRR)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
+
                     handleHitConstraint(time, loc.id)
                 end
                 return (lastNewR, Vs, time, Φ)
@@ -585,10 +587,10 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
                     push!(lastNewR, (tempSet, [time, time + currentTimeStep]))
                 end
                 lastVs = copy(Vs)
-
                 Vs = concretize(ReachabilityAnalysis.Exponentiation.Φ₁(A, time - minimum(interval), ReachabilityAnalysis.Exponentiation.BaseExp) * U)
+                
                 approveFlag = true
-                Sρ += map(x -> ρ(x, Vs), constraintProjVectors)
+                Sρ = map(x -> ρ(x, Vs), constraintProjVectors)
                 mul!(tempM, Φ, ϕt)
                 copy!(Φ, tempM)
             else
@@ -712,8 +714,7 @@ function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, constraint, STRATE
 
             if all(((ρ(x, tempSet)) <= y) for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && 
                 (isnothing(loc.invarient) || intersects(tempSet, loc.invarient))
-                #if mapreduce(x -> intersects(newRR, x), &, guard)
-                #push!(overapproximateIntersectingSetArray, newRR)
+
                 if saveResult
                     if isempty(lastNewR)
                         #println("first element: ", concretize(newRR).center, " ", currentTimeStep)
@@ -723,7 +724,7 @@ function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, constraint, STRATE
                 lastVs = copy(Vs)
                 Vs = concretize(ReachabilityAnalysis.Exponentiation.Φ₁(A, time - minimum(interval), ReachabilityAnalysis.Exponentiation.BaseExp) * U)
                 approveFlag = true
-                Sρ += map(x -> ρ(x, Vs), constraintProjVectors)
+                Sρ = map(x -> ρ(x, Vs), constraintProjVectors)
                 mul!(tempM, Φ, ϕt)
                 copy!(Φ, tempM)
             else

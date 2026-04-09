@@ -4,7 +4,7 @@ export HybridSystem, HybridSystemV2, Location, Edge, overapproximateIntervalReac
 
 struct Edge
     targetLoc::Int
-    guard::HPolyhedron
+    guard::Union{HPolyhedron,Nothing}
     jumpMatrix::Matrix{Float64}
     jumpVector::Vector{Float64}
 end
@@ -620,10 +620,10 @@ function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination, alpha=1)
                 maxcor2 = c[dim2] + projectGDim2
                 mincor2 = c[dim2] - projectGDim2
                 if sen
-                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="S" * string(i))
+                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], leg=false)
                     sen = false
                 else
-                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
+                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], leg=false)
                 end
                 #Plots.plot!(Shape([mincor1, maxcor1, maxcor1, mincor1], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
 

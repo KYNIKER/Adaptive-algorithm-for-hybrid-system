@@ -12,7 +12,7 @@ function zonotopePrintDim(Z::Zonotope, dim)
     return "center: $center, generators: $genContribute"
 end
 
-function ReACTed(hybridSystem::HybridSystemV2, initialLoc, interval, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, constraint, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, saveResult::Bool=true) where {N}
+function ReACTed(hybridSystem::HybridSystemV2, initialLoc, interval, X0, U, constraint, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, saveResult::Bool=true) where {N}
     loc = initialLoc
     flowPhiDict = Dict(map(x -> x.id => PhiDict(x.A, δ⁻, δ⁺, alg), hybridSystem.locations))
 
@@ -29,7 +29,7 @@ end
 
 
 # AucReacted is called recursively each time we have a new starting location (after a transition)
-function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector{N},Matrix{N}}, constraint, δ⁻::Float64, δ⁺::Float64, PhiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, Φ=missing, saveResult::Bool=true) where {N}
+function auxReACTed(hybridSystem, loc::Location, interval, X0, constraint, δ⁻::Float64, δ⁺::Float64, PhiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, Φ=missing, saveResult::Bool=true) where {N}
     discretizationDict, inputDiscritezationDict = ReACTDiscretizePlus(loc, X0, δ⁻, δ⁺, alg, maxOrder, reduceOrder, PhiDict[loc.id])
     time::Float64 = minimum(interval)
     endtime::Float64 = maximum(interval)
@@ -80,7 +80,8 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
                 intersectedSet = intersectingSet
 
                 if !isa(guards, Nothing) && !isdisjoint(intersectedSet, guards)
-                    intersectedSet = zonotopeStripIntersection(intersectedSet, guards)
+                    #intersectedSet = zonotopeStripIntersection(intersectedSet, guards)
+                    intersectedSet = intersectedSet ∩ guards
                 end
                 if isempty(intersectedSet)
                     println("Empty..")
@@ -90,7 +91,8 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
 
                 if !isa(loc.invarient, Nothing) && !isdisjoint(intersectedSet, loc.invarient)
                     #println("tes")
-                    tintersectedSet = zonotopeStripIntersection(intersectedSet, loc.invarient)
+                    #tintersectedSet = zonotopeStripIntersection(intersectedSet, loc.invarient)
+                    tintersectedSet = intersectedSet ∩ loc.invarient
                     #println("Inv intersection: ", ρ(Vector(sparsevec([5], [1.0], 6)), intersectedSet), " vs ", ρ(Vector(sparsevec([5], [1.0], 6)), tintersectedSet))
                     intersectedSet = tintersectedSet
                     #println(intersectedSet)
@@ -105,7 +107,7 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
 
                 if !isdisjoint(intersectedSet, guards)
 
-                    intersectedSet = zonotopeStripIntersection(intersectedSet, guards)
+                    intersectedSet = Z ∩ guards # zonotopeStripIntersection(intersectedSet, guards)
 
 
                     #println("Guard intersectedSet: ", intersectedSet)
@@ -132,7 +134,8 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
                     #println(jumpSet)
 
                     if !isa(hybridSystem.locations[edge.targetLoc].invarient, Nothing) && intersects(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)
-                        tjumpSet = zonotopeStripIntersection(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)# + edge.jumpVector * intersectedSet
+                        tjumpSet = jumpset ∩ hybridSystem.location[edge.targetloc].invarient
+                        #tjumpSet = zonotopeStripIntersection(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)# + edge.jumpVector * intersectedSet
                         #println("Jump intersection: ", ρ(Vector(sparsevec([5], [1.0], 6)), jumpSet), " vs ", ρ(Vector(sparsevec([5], [1.0], 6)), tjumpSet))
                         jumpSet = tjumpSet
                         #println(LazySets.order(jumpSet))
@@ -160,7 +163,8 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
                 else
                     nonintersectedSet = minkowski_sum(linear_map(exp(timeNotIntersected .* loc.A), X0), concretize(ReachabilityAnalysis.Exponentiation.Φ₁(loc.A, timeNotIntersected, ReachabilityAnalysis.Exponentiation.BaseExp) * inputDiscritezationDict[0]))
                     if !isa(loc.invarient, Nothing) && !isdisjoint(nonintersectedSet, loc.invarient)
-                        nonintersectedSet = zonotopeStripIntersection(nonintersectedSet, loc.invarient)
+                        nonintersectedSet = nonintersectedSet ∩ loc.invarient
+                        #nonintersectedSet = zonotopeStripIntersection(nonintersectedSet, loc.invarient)
                     end
                     branchedRun = auxReACTed(hybridSystem, loc, [timeNotIntersected, endtime], nonintersectedSet, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder)
                     if saveResult
@@ -197,6 +201,7 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0::Zonotope{N,Vector
                     newReach = []
                     for (Z, timeInterval) in tempReachset
                         if intersects(Z, loc.invarient)
+                            push!(newReach, (zonotopeStripIntersection(concretize(Z), loc.invarient), timeInterval))
                             push!(newReach, (zonotopeStripIntersection(concretize(Z), loc.invarient), timeInterval))
                         else
                             push!(newReach, (Z, timeInterval))

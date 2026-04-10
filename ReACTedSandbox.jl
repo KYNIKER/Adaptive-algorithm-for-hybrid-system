@@ -16,7 +16,7 @@ saveResult = true
 
 δ⁺ = 10^-3 * 2
 δ⁺ = 0.03
-δ⁻ = δ⁺ / 2^0
+δ⁻ = δ⁺ / 2^2
 
 sys, initialState, X0, T = loadPlatoon()
 #sys, initialState, X0, T = loadBouncingBall()

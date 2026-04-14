@@ -1,5 +1,6 @@
 [deps]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+CDDLib = "3391f64e-dcde-5f30-b752-e11513730f60"
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 Expokit = "a1e7a1ef-7a5d-5822-a38c-be74e1bb89f4"

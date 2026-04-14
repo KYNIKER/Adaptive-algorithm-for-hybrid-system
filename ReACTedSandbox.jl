@@ -1,4 +1,4 @@
-using Plots, LazySets, LinearAlgebra, BenchmarkTools, CSV, DataFrames, Expokit #, ReachabilityAnalysis
+using Plots, LazySets, LinearAlgebra, BenchmarkTools, CSV, DataFrames, Expokit, CDDLib #, ReachabilityAnalysis
 
 include("Utilities.jl")
 include("ReACTed.jl")
@@ -12,14 +12,14 @@ include("models/spacecraft.jl")
 
 #using Cthulhu, ProfileView
 
-saveResult = true
+saveResult = false
 
 δ⁺ = 10^-3 * 2
 δ⁺ = 0.03
-δ⁻ = δ⁺ / 2^2
+δ⁻ = δ⁺ / 2^0
 
-sys, initialState, X0, T = loadPlatoon()
-#sys, initialState, X0, T = loadBouncingBall()
+#sys, initialState, X0, T = loadPlatoon()
+sys, initialState, X0, T = loadBouncingBall()
 #sys, initialState, X0, T = loadPowertrain(θ=3, homog = true)
 # sys, initialState, X0, T = loadSpacecraft()
 # sys, initialState, X0, T = loadSpacecraft(abort_time = 120.)
@@ -32,11 +32,12 @@ res = []
 
 res = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, 5, 5, saveResult)
 
-plotProjectedFlowpipe(res, 0, 1, joinpath("results/", "SandboxDim2.png"))
+plotProjectedFlowpipe(res, 1, 2, joinpath("results/", "SandboxDim2.png"))
 
-plotProjectedFlowpipe(res, 0, 4, joinpath("results/", "SandboxDim24.png"))
+# plotProjectedFlowpipe(res, 0, 4, joinpath("results/", "SandboxDim24.png"))
 
-plotProjectedFlowpipe(res, 0, 7, joinpath("results/", "SandboxDim27.png"))
+# plotProjectedFlowpipe(res, 0, 7, joinpath("results/", "SandboxDim27.png"))
+res = []
 # plotProjectedFlowpipe(res, 0, 1, joinpath("results/", "SandboxDim1.png"))
 #plotProjectedFlowpipe(res, 0, 3, joinpath("results/", "SandboxDimVx.png"))
 # plotProjectedFlowpipe(res, 0, 4, joinpath("results/", "SandboxDimVy.png"))

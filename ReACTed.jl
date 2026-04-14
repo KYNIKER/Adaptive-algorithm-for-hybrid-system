@@ -107,7 +107,7 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0, constraint, δ⁻
 
                 if !isdisjoint(intersectedSet, guards)
 
-                    intersectedSet = Z ∩ guards # zonotopeStripIntersection(intersectedSet, guards)
+                    intersectedSet = intersectedSet ∩ guards # zonotopeStripIntersection(intersectedSet, guards)
 
 
                     #println("Guard intersectedSet: ", intersectedSet)
@@ -255,8 +255,11 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
     changedTimeStep = true
     phiDict = PhiDict
 
-    constraintProjVectors = map(x -> x.a, constraint)
-    constraintProjBounds = ρ.(constraintProjVectors, constraint)
+    # constraintProjVectors = map(x -> x.a, constraint)
+    # constraintProjBounds = ρ.(constraintProjVectors, constraint)
+    constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint)
+    guardProjVectors, guardProjBounds = getHalfSpaceProjections(guard)
+    invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(loc.invarient)
 
     time::Float64 = minimum(interval)
     endtime::Float64 = maximum(interval)
@@ -264,8 +267,8 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
     currentTimeStep = copy(initialTimeStep)
 
     V = copy(inputDiscritezationDict[initialTimeStep])
-    Vs = concretize(ReachabilityAnalysis.Exponentiation.Φ₁(loc.A, initialTime, ReachabilityAnalysis.Exponentiation.BaseExp) * inputDiscritezationDict[0])
-    lastVs = copy(Vs)
+    Vs = LinearMap(ReachabilityAnalysis.Exponentiation.Φ₁(loc.A, initialTime, ReachabilityAnalysis.Exponentiation.BaseExp), inputDiscritezationDict[0])
+    #lastVs = copy(Vs)
     Sρ = zeros(Float64, length(constraint))
     newR = copy(discritezationDict[initialTimeStep])
     i = 1
@@ -280,12 +283,13 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
     newRR = copy(newR)
 
     overapproximateIntersectingSetArray = []
-    preclustering = minkowski_sum(linear_map(Φ, discritezationDict[m]), Vs)
+    #preclustering = (Φ * discritezationDict[m]) ⊕ Vs
     preclustering = nothing
     attemptsRecorder = []
 
     while time < endtime
         #println("Touching at time $time with newRR: ", zonotopePrintDim(newRR , 5))
+        println("Time $time, calculating intersect")
 
         attempts = 1
         approveFlag = false
@@ -301,22 +305,24 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
                 end
                 #bigCH = foldr((x, y) -> overapproximate(CH(x, y), Zonotope), overapproximateIntersectingSetArray; init=concretize(newRR))
                 #intersectingSet = overapproximate(bigCH, Zonotope)
-                if intersects(concretize(minkowski_sum(newRR, Vs)), guard)
+                #if !isempty((newRR ⊕ Vs) ∩ guard)
+                #if all(((ρ(x, newRR ⊕ Vs)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) # Subset
+                println(concretize(newRR ⊕ Vs))
+                @show typeof(newRR)
+                @show typeof(Vs)
+                @show typeof(newRR ⊕ Vs)
+                if !isdisjoint(newRR ⊕ Vs, guard)
                     println("Intersecting guard, but we are going to hit an invarient")
 
                     if isnothing(preclustering)
-                        preclustering = concretize(minkowski_sum(newRR, Vs))
+                        preclustering = newRR ⊕ Vs
                     else
-                        preclustering = overapproximate(CH(preclustering, concretize(minkowski_sum(newRR, Vs))), Zonotope)
+                        preclustering = CH(preclustering, newRR ⊕ Vs)
                     end
-                    return (reduce_order(preclustering, 5), Sρ, time)
                 end
 
-                if isnothing(preclustering)
-                    return (nothing, Sρ, time)
-                else
-                    return (reduce_order(preclustering, 5), Sρ, time)
-                end
+                return preclustering, Sρ, time
+
 
                 #println("Touches Vs: ", accInput)
                 #println(norm(intersectingSet), " ", norm(newRR))
@@ -326,11 +332,11 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
                 newR = copy(discritezationDict[currentTimeStep])
                 V = copy(inputDiscritezationDict[currentTimeStep])
                 ϕt = phiDict[currentTimeStep]
-                newRR = linear_map(Φ, newR)
-                V = linear_map(Φ, V)
+                newRR = LinearMap(Φ, newR)
+                V = LinearMap(Φ, V)
             else
-                newRR = linear_map(ϕt, newRR)
-                V = linear_map(ϕt, V)
+                newRR = LinearMap(ϕt, newRR)
+                V = LinearMap(ϕt, V)
             end
 
             changedTimeStep = false
@@ -339,17 +345,20 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
             # println("Constraint check: ", all((ρ(x, newRR) + ρ(x, Vs)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) )    
             # println("Guard check: ", intersects(concretize(minkowski_sum(newRR, Vs)), guard))
             # println("Invarient check: ", (isnothing(loc.invarient) || isSubSet(concretize(minkowski_sum(newRR, Vs)), loc.invarient)))
+            # tempSet = Minkowski_sum(newRR, Vs)
 
-            if all((ρ(x, newRR) + ρ(x, Vs)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && intersects(concretize(minkowski_sum(newRR, Vs)), guard) && (isnothing(loc.invarient) || isSubSet(concretize(minkowski_sum(newRR, Vs)), loc.invarient)) #mapreduce(x -> intersects(newRR, x), &, guard)
+            if all((ρ(x, newRR) + ρ(x, Vs)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
+                all((ρ(x, newRR) + ρ(x, Vs)) <= y for (x, y) in zip(guardProjVectors, guardProjBounds)) && # IsSubSet
+                all((ρ(x, newRR) + ρ(x, Vs)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # IsSubSet
                 #if mapreduce(x -> intersects(newRR, x), &, guard)
-                push!(overapproximateIntersectingSetArray, concretize(minkowski_sum(newRR, Vs)))
+                push!(overapproximateIntersectingSetArray, newRR ⊕ Vs)
                 if isnothing(preclustering)
-                    preclustering = concretize(minkowski_sum(newRR, Vs))
+                    preclustering = MinkowskiSum(newRR, Vs)
                 else
-                    preclustering = overapproximate(CH(preclustering, concretize(minkowski_sum(newRR, Vs))), Zonotope)
+                    preclustering = CH(preclustering, newRR ⊕ Vs)
                 end
-                lastVs = copy(Vs)
-                Vs = concretize(ReachabilityAnalysis.Exponentiation.Φ₁(loc.A, time + currentTimeStep - minimum(interval), ReachabilityAnalysis.Exponentiation.BaseExp) * inputDiscritezationDict[0])
+                #lastVs = copy(Vs)
+                Vs = LinearMap(ReachabilityAnalysis.Exponentiation.Φ₁(loc.A, time + currentTimeStep - minimum(interval), ReachabilityAnalysis.Exponentiation.BaseExp), inputDiscritezationDict[0])
                 approveFlag = true
                 #Sρ += inhom
                 mul!(tempM, Φ, ϕt)
@@ -520,8 +529,12 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
     changedTimeStep = true
     phiDict = PhiDict
     A = copy(loc.A)
-    constraintProjVectors = map(x -> x.a, constraint)
-    constraintProjBounds = ρ.(constraintProjVectors, constraint)
+    # constraintProjVectors = map(x -> x.a, constraint)
+    # constraintProjBounds = ρ.(constraintProjVectors, constraint)
+    constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint)
+    guardProjVectors, guardProjBounds = getHalfSpaceProjections(guards)
+    invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(loc.invarient)
+
 
     time::Float64 = minimum(interval)
     endtime::Float64 = maximum(interval)
@@ -539,8 +552,9 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
     ϕt = similar(tempM)
 
     V = copy(inputDiscritezationDict[initialTimeStep])
-    Vs = Zonotope(zeros(size(loc.A, 2)), [zeros(size(loc.A, 2))])
-    lastVs = copy(Vs)
+    Vs = Zonotope(zeros(size(loc.A, 2)), [zeros(size(loc.A, 2))])            
+          
+    #lastVs = copy(Vs)
     Sρ = zeros(Float64, length(constraint))
     newR = discritezationDict[initialTimeStep]
     i = 1
@@ -548,6 +562,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
     newRR = copy(newR)
     U = inputDiscritezationDict[0]
     while time < endtime
+        println("Time iss: $time")
         attempts = 1
         approveFlag = false
 
@@ -555,7 +570,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
             # Handle if we can no longer reduce the reachset (we keep hitting something)
             if currentTimeStep < m
                 # If we hit a constraint
-                newRR = concretize(newRR)
+                #newRR = concretize(newRR)
                 if any((input + ρ(x, newRR)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
 
                     handleHitConstraint(time, loc.id)
@@ -568,21 +583,27 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
 
                 V = copy(inputDiscritezationDict[currentTimeStep])
                 ϕt = phiDict[currentTimeStep]
-                newRR = linear_map(Φ, newR)
-                V = linear_map(Φ, V)
+                newRR = LinearMap(Φ, newR)
+                V = LinearMap(Φ, V)
             else
-                newRR = linear_map(ϕt, newRR)
-                V = linear_map(ϕt, V)
+                newRR = LinearMap(ϕt, newRR)
+                V = LinearMap(ϕt, V)
             end
 
             changedTimeStep = false
 
-            tempSet = concretize(minkowski_sum(newRR, Vs))
+            tempSet = MinkowskiSum(newRR, Vs)
             #hom = map(x -> ρ(x, tempSet), constraintProjVectors)
 
-            if all(((ρ(x, tempSet)) <= y) for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && 
-                !intersects(tempSet, guards) && 
-                (isnothing(loc.invarient) || intersects(tempSet, loc.invarient))
+            # println("Constraint: ", all(((ρ(x, tempSet)) <= y) for (x, y) in zip(constraintProjVectors, constraintProjBounds)))
+            # println("Guard: ", any(((ρ(x, tempSet)) > y) for (x, y) in zip(guardProjVectors, guardProjBounds)))
+            # println("Invarient: ", all(((ρ(x, tempSet)) <= y) for (x, y) in zip(invarientProjVectors, invarientProjBounds)))
+
+
+            if all(((ρ(x, tempSet)) <= y) for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # Subset
+                any(((ρ(x, tempSet)) > y) for (x, y) in zip(guardProjVectors, guardProjBounds))  && # Disjoint
+                all(((ρ(x, tempSet)) <= y) for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Subset
+                #(isnothing(loc.invarient) || intersects(tempSet, loc.invarient))
                 #if mapreduce(x -> intersects(newRR, x), &, guard)
                 #push!(overapproximateIntersectingSetArray, newRR)
                 if saveResult
@@ -591,8 +612,8 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
                     end
                     push!(lastNewR, (tempSet, [time, time + currentTimeStep]))
                 end
-                lastVs = copy(Vs)
-                Vs = concretize(ReachabilityAnalysis.Exponentiation.Φ₁(A, time - minimum(interval), ReachabilityAnalysis.Exponentiation.BaseExp) * U)
+                #lastVs = copy(Vs)
+                Vs = ReachabilityAnalysis.Exponentiation.Φ₁(A, time - minimum(interval), ReachabilityAnalysis.Exponentiation.BaseExp) * U
                 
                 approveFlag = true
                 Sρ = map(x -> ρ(x, Vs), constraintProjVectors)

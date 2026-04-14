@@ -1,6 +1,6 @@
 using LazySets, ReachabilityAnalysis, LinearAlgebra, Polyhedra, Optim
 
-export HybridSystem, HybridSystemV2, Location, Edge, overapproximateIntervalReachset, intersects, splitZonotope, getBoxIntersection
+export HybridSystem, HybridSystemV2, Location, Edge, overapproximateIntervalReachset, intersects, splitZonotope, getBoxIntersection, getHalfSpaceProjections
 
 struct Edge
     targetLoc::Int
@@ -20,7 +20,8 @@ struct Location
     u # Unsure 
     c::Union{Nothing,Vector{Float64}}
     edges::Vector{Edge}
-    constraints::Vector{Union{HPolyhedron,LazySets.HalfSpace}}
+    constraints::Vector{LazySets.HalfSpace}
+    # constraints::Vector{Union{HPolyhedron,LazySets.HalfSpace}}
 end
 
 
@@ -29,7 +30,8 @@ Base.show(io::Core.IO, l::Location) = print(io, "Location: ", l.id, "\n invarian
 
 mutable struct HybridSystemV2
     locations::Vector{Location}
-    globalConstraints::Vector{Union{HPolyhedron,LazySets.HalfSpace}}
+    globalConstraints::Vector{LazySets.HalfSpace}
+    #globalConstraints::Vector{Union{HPolyhedron,LazySets.HalfSpace}}
     #initialLoc::Int
     #initialState # Fill this in later
 end
@@ -46,7 +48,15 @@ struct HybridSystem
     Init
 end
 
+function getHalfSpaceProjections(H::HPolyhedron)
+    getHalfSpaceProjections(H.constraints) # Convert to halfspace list
+end
 
+function getHalfSpaceProjections(halfspaces::Vector{<:LazySets.HalfSpace}) # Any subtype of halfspace
+    projVectors = map(x -> x.a, halfspaces)
+    projBounds = ρ.(projVectors, halfspaces)
+    return projVectors, projBounds
+end
 
 function sparseHPolyhedronToDense(H_sparse::HPolyhedron)
     H_dense = HPolyhedron([LazySets.HalfSpace(Vector(c.a), c.b) for c in H_sparse.constraints])
@@ -575,9 +585,12 @@ function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination, alpha=1)
                 G = genmat(r)
                 c = r.center
 
-                projectedG = projectionMatrix * G
-                projectGDim1s = mapreduce(x -> sign(x[dim1]) * x, +, eachcol(projectedG))
-                projectGDim2s = mapreduce(x -> sign(x[dim2]) * x, +, eachcol(projectedG))
+                # projectedG = projectionMatrix * G
+                # projectGDim1s = mapreduce(x -> sign(x[dim1]) * x, +, eachcol(projectedG))
+                # projectGDim2s = mapreduce(x -> sign(x[dim2]) * x, +, eachcol(projectedG))
+                _, genAmount = size(G)
+                projectGDim1s = sum(abs(G[dim1, i]) for i in 1:genAmount)
+                projectGDim2s = sum(abs(G[dim2, i]) for i in 1:genAmount)
 
                 maxcor1s = c + projectGDim1s
                 mincor1s = c - projectGDim1s

@@ -569,7 +569,7 @@ function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination, alpha=1)
     cpallete = palette(:roma, length(flowpipe))
     i = 1
     k = 0
-    
+
     if dim1 != 0
         dimSize = size(genmat(flowpipe[1][1][1][1]), 1)
         projectionMatrix = zeros(Float64, dimSize, dimSize)
@@ -651,5 +651,99 @@ function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination, alpha=1)
     end
     savefig(fig, destination)
 end
+
+function plotProjectedFlowpipeLazy(flowpipe, dim1, dim2, destination, alpha=1)
+    fig = Plots.plot(xlabel="dim: " * string(dim1), ylabel="dim: " * string(dim2), ε=1e-6)
+    cpallete = palette(:roma, length(flowpipe))
+    i = 1
+    k = 0
+
+    if dim1 != 0
+        dimSize = size(flowpipe[1][1], 1)
+        #=
+        projectionMatrix = zeros(Float64, dimSize, dimSize)
+        projectionMatrix[dim1, dim1] = 1.0
+        projectionMatrix[dim2, dim2] = 1.0
+        =#
+
+        for (x, y) in flowpipe
+
+            println(y)
+            sen = true
+            for (r, t) in x
+                #=
+                G = genmat(r)
+                c = r.center
+
+                projectedG = projectionMatrix * G
+                projectGDim1s = mapreduce(x -> sign(x[dim1]) * x, +, eachcol(projectedG))
+                projectGDim2s = mapreduce(x -> sign(x[dim2]) * x, +, eachcol(projectedG))
+
+                maxcor1s = c + projectGDim1s
+                mincor1s = c - projectGDim1s
+                maxcor2s = c + projectGDim2s
+                mincor2s = c - projectGDim2s
+
+                projectGDim1 = reduce(+, reduce(+, G, dims=dim1))
+                projectGDim2 = reduce(+, reduce(+, G, dims=dim2))
+                maxcor1 = c[dim1] + projectGDim1
+                mincor1 = c[dim1] - projectGDim1
+                maxcor2 = c[dim2] + projectGDim2
+                mincor2 = c[dim2] - projectGDim2
+                =#
+                #Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="", alpha=0.1)
+                #Plots.plot!(Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], maxcor1s[dim2], maxcor2s[dim2], mincor2s[dim2]]), c=cpallete[i], lab="") # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
+                d1 = r[dim1]
+                d2 = r[dim2]
+                if sen
+                    Plots.plot!(Shape([(d1[1], d1[1]), (d2[1], d2[1]), (d1[2], d1[2]), (d2[2], d2[2])]), c=cpallete[i], lab="S" * string(i), linealpha=0) # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
+                    sen = false
+                else
+                    Plots.plot!(Shape([(d1[1], d1[1]), (d2[1], d2[1]), (d1[2], d1[2]), (d2[2], d2[2])]), c=cpallete[i], lab="", linealpha=0) # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
+                end
+                #plot!(r, c=cpallete[i], alpha=0.2)
+            end
+            #Plots.plot!(c=cpallete[i], lab=string(i))
+            i += 1
+
+        end
+    else
+        for (x, y) in flowpipe
+            sen = true
+
+            println(y)
+            for (r, t) in x
+                #=
+                G = abs.(genmat(r))
+                c = r.center
+                #projectGDim1 = reduce(+, reduce(+, G, dims=dim1))
+                _, genAmount = size(G)
+                projectGDim2 = sum(abs(G[dim2, i]) for i in 1:genAmount)
+                #projectGDim2 = reduce(+, reduce(+, G, dims=dim2))
+                #maxcor1 = c[dim1] + projectGDim1
+                #mincor1 = c[dim1] - projectGDim1
+                maxcor2 = c[dim2] + projectGDim2
+                mincor2 = c[dim2] - projectGDim2
+                =#
+                d = r[dim2]
+                if sen
+                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], d[2], d[2]]), c=cpallete[i], leg=false, linealpha=0)
+                    sen = false
+                else
+                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], d[2], d[2]]), c=cpallete[i], leg=false, linealpha=0)
+                end
+                #Plots.plot!(Shape([mincor1, maxcor1, maxcor1, mincor1], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
+
+                #plot!(r, c=cpallete[i], alpha=0.2)
+            end
+            #plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="", alpha=0.8)
+            i += 1
+
+        end
+    end
+    display(fig)
+    savefig(fig, destination)
+end
+
 
 Base.:+(z1::Zonotope, z2::Zonotope) = Zonotope(z1.center + z2.center, z1.generators + z2.generators)

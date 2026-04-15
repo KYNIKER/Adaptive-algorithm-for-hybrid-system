@@ -652,7 +652,7 @@ function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination, alpha=1)
     savefig(fig, destination)
 end
 
-function plotProjectedFlowpipeLazy(flowpipe, dim1, dim2, destination, alpha=1)
+function plotProjectedFlowpipeLazy(flowpipe, dim1, dim2, ndim, destination, alpha=1)
     fig = Plots.plot(xlabel="dim: " * string(dim1), ylabel="dim: " * string(dim2), ε=1e-6)
     cpallete = palette(:roma, length(flowpipe))
     i = 1
@@ -693,8 +693,8 @@ function plotProjectedFlowpipeLazy(flowpipe, dim1, dim2, destination, alpha=1)
                 =#
                 #Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="", alpha=0.1)
                 #Plots.plot!(Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], maxcor1s[dim2], maxcor2s[dim2], mincor2s[dim2]]), c=cpallete[i], lab="") # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
-                d1 = r[dim1]
-                d2 = r[dim2]
+                d1 = [ρ(sparsevec([dim1], [-1.0], ndim), r), ρ(sparsevec([dim1], [1.0], ndim), r)]
+                d2 = [ρ(sparsevec([dim2], [-1.0], ndim), r), ρ(sparsevec([dim2], [1.0], ndim), r)]
                 if sen
                     Plots.plot!(Shape([(d1[1], d1[1]), (d2[1], d2[1]), (d1[2], d1[2]), (d2[2], d2[2])]), c=cpallete[i], lab="S" * string(i), linealpha=0) # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
                     sen = false
@@ -725,7 +725,8 @@ function plotProjectedFlowpipeLazy(flowpipe, dim1, dim2, destination, alpha=1)
                 maxcor2 = c[dim2] + projectGDim2
                 mincor2 = c[dim2] - projectGDim2
                 =#
-                d = r[dim2]
+                d = [-ρ(sparsevec([dim2], [-1.0], ndim), r), ρ(sparsevec([dim2], [1.0], ndim), r)] #r[dim2]
+                println(d)
                 if sen
                     Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], d[2], d[2]]), c=cpallete[i], leg=false, linealpha=0)
                     sen = false

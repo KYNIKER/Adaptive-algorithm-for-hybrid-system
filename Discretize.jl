@@ -12,7 +12,7 @@ function ReACTDiscretize(loc, X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Float6
         phiDict = PhiDict(A, δ⁻, δ⁺, alg)
     end
 
-    U = isnothing(loc.B) ? (isnothing(loc.u) ? Zonotope(zeros(XDim), [zeros(XDim)]) : loc.u) : concretize(loc.B * loc.u)
+    U = isnothing(loc.B) ? (isnothing(loc.u) ? Zonotope(zeros(XDim), zeros(XDim, 1)) : loc.u) : concretize(loc.B * loc.u)
     if !isnothing(loc.c)
         U = Zonotope(U.center + loc.c, genmat(U))
     end
@@ -86,7 +86,7 @@ function ReACTDiscretizePlus(loc, X0, δ⁻::Float64, δ⁺::Float64, alg::Reach
     end
 
     #U = isnothing(loc.B) ? (isnothing(loc.u) ? Zonotope(zeros(XDim), [zeros(XDim)]) : loc.u) : concretize(loc.B * loc.u)
-    U = isnothing(loc.B) ? (isnothing(loc.u) ? Zonotope(zeros(XDim), [zeros(XDim)]) : loc.u) : LinearMap(loc.B, loc.u)
+    U = isnothing(loc.B) ? (isnothing(loc.u) ? Zonotope(zeros(XDim), zeros(XDim, 1)) : loc.u) : LinearMap(loc.B, loc.u)
     if !isnothing(loc.c)
         U = Zonotope(U.center + loc.c, genmat(U))
     end

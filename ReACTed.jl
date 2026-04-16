@@ -140,7 +140,7 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0, constraint, δ⁻
                     #temp = convert(VPolytope, intersectedSet)
                     #intersectedSet = convert(Zonotope, overapproximate(concretize(intersectedSet), Hyperrectangle))
 
-                    jumpSet = MinkowskiSum(LinearMap(edge.jumpMatrix, intersectedSet), Zonotope(edge.jumpVector, [zero(edge.jumpVector)]))
+                    jumpSet = MinkowskiSum(LinearMap(edge.jumpMatrix, intersectedSet), Zonotope(edge.jumpVector, zeros(size(loc.A, 1), 1)))
                     #jumpSet = minkowski_sum(linear_map(edge.jumpMatrix, concretize(intersectedSet)), Zonotope(edge.jumpVector, [zero(edge.jumpVector)]))
                     #jumpSet = LazySets.translate(linear_map(edge.jumpMatrix, concretize(intersectedSet)), edge.jumpVector)
                     #println(jumpSet)
@@ -567,7 +567,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
     ϕt = similar(tempM)
 
     V = copy(inputDiscritezationDict[initialTimeStep])
-    Vs = Zonotope(zeros(size(loc.A, 2)), [zeros(size(loc.A, 2))])            
+    Vs = Zonotope(zeros(size(loc.A, 2)), zeros(size(loc.A, 2), 1))            
           
     #lastVs = copy(Vs)
     Sρ = zeros(Float64, length(constraint))

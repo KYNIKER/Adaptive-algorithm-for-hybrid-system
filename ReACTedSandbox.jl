@@ -12,10 +12,10 @@ include("models/spacecraft.jl")
 
 #using Cthulhu, ProfileView
 
-saveResult = false
+saveResult = true
 
 δ⁺ = 10^-3 * 2
-δ⁺ = 0.03
+δ⁺ = 0.02
 δ⁻ = δ⁺ / 2^0
 
 #sys, initialState, X0, T = loadPlatoon()
@@ -23,7 +23,7 @@ sys, initialState, X0, T = loadBouncingBall()
 #sys, initialState, X0, T = loadPowertrain(θ=3, homog = true)
 # sys, initialState, X0, T = loadSpacecraft()
 # sys, initialState, X0, T = loadSpacecraft(abort_time = 120.)
-
+T = 3.5
 
 n = length(X0.center)
 
@@ -32,7 +32,7 @@ res = []
 
 res = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, 5, 5, saveResult)
 
-plotProjectedFlowpipe(res, 1, 2, joinpath("results/", "SandboxDim2.png"))
+plotProjectedFlowpipeLazy(res, 0, 1, n, joinpath("results/", "SandboxDim2.png"))
 
 # plotProjectedFlowpipe(res, 0, 4, joinpath("results/", "SandboxDim24.png"))
 
@@ -41,8 +41,8 @@ res = []
 # plotProjectedFlowpipe(res, 0, 1, joinpath("results/", "SandboxDim1.png"))
 #plotProjectedFlowpipe(res, 0, 3, joinpath("results/", "SandboxDimVx.png"))
 # plotProjectedFlowpipe(res, 0, 4, joinpath("results/", "SandboxDimVy.png"))
-x  = 1  # x position (negative!)
-y  = 2  # y position (negative!)
+x = 1  # x position (negative!)
+y = 2  # y position (negative!)
 vx = 3  # x velocity
 vy = 4  # y velocity
 velocity = 0.055 * 60.0     # meters per minute

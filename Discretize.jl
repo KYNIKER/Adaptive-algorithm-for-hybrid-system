@@ -80,7 +80,7 @@ function ReACTDiscretizePlus(loc, X0, δ⁻::Float64, δ⁺::Float64, alg::Reach
     #  inputDiscritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
     inputDiscritezationDict = Dict()
     A = loc.A
-    XDim = size(A, 1) 
+    XDim = size(A, 1)
     if isnothing(phiDict)
         phiDict = PhiDict(A, δ⁻, δ⁺, alg)
     end
@@ -107,7 +107,7 @@ function ReACTDiscretizePlus(loc, X0, δ⁻::Float64, δ⁺::Float64, alg::Reach
     #println("Here")
     dU = LinearMap(δ⁻, U)#linear_map(dia, U)
     E_ψ = SymmetricIntervalHull(LinearMap(P2A_abs, SymmetricIntervalHull(LinearMap(A, U))))
-    E_ψ = SymmetricIntervalHull(LinearMap(P2A_abs, SymmetricIntervalHull(A * U)))
+    #E_ψ = SymmetricIntervalHull(LinearMap(P2A_abs, SymmetricIntervalHull(A * U)))
     P = MinkowskiSum(dU, E_ψ) #
     lt = MinkowskiSum(LinearMap(phiDict[d], X0), dU)  #minkowski_sum(convert(Zonotope, phiDict[d] * X0), dU)
     E⁺ = SymmetricIntervalHull(LinearMap(P2A_abs, SymmetricIntervalHull(LinearMap(A * A, X0))))
@@ -119,7 +119,7 @@ function ReACTDiscretizePlus(loc, X0, δ⁻::Float64, δ⁺::Float64, alg::Reach
     # if (size(genmat(disc),2)==0)
     #     disc = X0
     # end
-        
+
     #disc = Zonotope(disc.center - P̂, genmat(disc))
     P = LinearMap(ReachabilityAnalysis.Exponentiation.Φ₁(A, d, alg, isInvA, Φcache), U)
     #return discritezationDict, inputDiscritezationDict
@@ -136,8 +136,8 @@ function ReACTDiscretizePlus(loc, X0, δ⁻::Float64, δ⁺::Float64, alg::Reach
         #     end
         # end
         #println(P)
-        disc = CH(disc, MinkowskiSum(P, LinearMap(phiDict[d], disc)))
-        P = P + LinearMap(phiDict[d], P)
+        disc = UnionSet(disc, MinkowskiSum(P, LinearMap(phiDict[d], disc)))
+        P = P ⊕ LinearMap(phiDict[d], P)
         d = d * 2
     end
     # if maxOrder > 0
@@ -149,7 +149,7 @@ function ReACTDiscretizePlus(loc, X0, δ⁻::Float64, δ⁺::Float64, alg::Reach
     #     end
     # end
     discritezationDict[δ⁺] = disc
-    inputDiscritezationDict[δ⁺] = P
+    inputDiscritezationDict[δ⁺] = concretize(P)
 
     return discritezationDict, inputDiscritezationDict
 end

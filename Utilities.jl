@@ -746,5 +746,69 @@ function plotProjectedFlowpipeLazy(flowpipe, dim1, dim2, ndim, destination, alph
     savefig(fig, destination)
 end
 
+function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime)
+    # We know that δ⁻ % currentTime == 0
+    if δ⁻ % currentTime != 0
+        println("We have managed to take a step that is not a multiple of δ⁻")
+    end
+
+    outputInput = nothing
+
+    precomputedLargestStep = δ⁺ / δ⁻
+    totalSteps = currentTime / δ⁻ # Steps we need to take
+
+    # Convert to bits 
+    listToInclude = digits(totalSteps, base = 2) # Get bit map
+
+    largestInput = inputDict[δ⁺]
+    ϕ = phiDict[δ⁺]
+    tempM = similar(ϕ)
+
+    precomputed = true
+    
+    for stepSize in eachindex(listToInclude)
+        if precomputed
+            if listToInclude[stepSize] == 1 # If we have to add
+
+                if isnothing(outputInput)
+                    outputInput = inputDict[stepSize * δ⁻]
+                else
+                    outputInput = outputInput ⊕ inputDict[stepSize * δ⁻]
+                end
+            end
+
+            # Check if next step is also precomputed
+            if !(stepSize <= precomputedLargestStep)
+                precomputed = false
+            end
+        else
+            # If not precomputed
+            LinearMap!(tempM, ϕ, ϕ)
+            copy!(ϕ, tempM)
+
+            largestInput = largestInput ⊕ LinearMap(ϕ, largestInput)
+            if listToInclude[stepSize] == 1 # If we have to add
+                if isnothing(outputInput)
+                    outputInput = largestInput
+                else
+                    outputInput = outputInput ⊕ largestInput
+                end
+            end
+        end
+    end
+    return outputInput
+end
+
+            
+
+
+    
+
+    
+
+
+    
+
+
 
 Base.:+(z1::Zonotope, z2::Zonotope) = Zonotope(z1.center + z2.center, z1.generators + z2.generators)

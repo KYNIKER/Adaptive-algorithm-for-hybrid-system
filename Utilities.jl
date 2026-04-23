@@ -799,6 +799,11 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime)
     return outputInput
 end
 
+function projectReachSet(dirs, reachSet)
+    projectedReachSet = [(map(x -> ρ(x, set), dirs), timings) for (set, timings) in reachSet]
+    return projectedReachSet
+end
+
             
 
 

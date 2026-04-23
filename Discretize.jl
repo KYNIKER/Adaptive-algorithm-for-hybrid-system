@@ -121,7 +121,7 @@ function ReACTDiscretizePlus(loc, X0, δ⁻::Float64, δ⁺::Float64, alg::Reach
     # end
 
     #disc = Zonotope(disc.center - P̂, genmat(disc))
-    P = LinearMap(ReachabilityAnalysis.Exponentiation.Φ₁(A, d, alg, isInvA, Φcache), U)
+    #P = LinearMap(ReachabilityAnalysis.Exponentiation.Φ₁(A, d, alg, isInvA, Φcache), U)
     #return discritezationDict, inputDiscritezationDict
     #inputDiscritezationDict[d] = P
     while d < δ⁺

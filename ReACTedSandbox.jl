@@ -12,10 +12,10 @@ include("models/spacecraft.jl")
 
 #using Cthulhu, ProfileView
 
-saveResult = true
+dirs = [1] # Which direction to plot. Empty means no plotting
 
 δ⁺ = 10^-3 * 2
-δ⁺ = 0.02
+δ⁺ = 0.1
 δ⁻ = δ⁺ / 2^0
 
 #sys, initialState, X0, T = loadPlatoon()
@@ -30,9 +30,10 @@ n = length(X0.center)
 #@ProfileView.profview ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, 5, 5, saveResult)
 res = []
 
-res = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, 5, 5, saveResult)
+res = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), dirs, sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, 5, 5)
 
 plotProjectedFlowpipeLazy(res, 0, 1, n, joinpath("results/", "SandboxDim2.png"))
+
 
 # plotProjectedFlowpipe(res, 0, 4, joinpath("results/", "SandboxDim24.png"))
 

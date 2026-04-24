@@ -755,8 +755,9 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime)
     outputInput = nothing
 
     precomputedLargestStep = δ⁺ / δ⁻
-    totalSteps = currentTime / δ⁻ # Steps we need to take
+    totalSteps = Int(round(currentTime / δ⁻)) # Steps we need to take
 
+    @show totalSteps
     # Convert to bits 
     listToInclude = digits(totalSteps, base = 2) # Get bit map
 
@@ -778,13 +779,14 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime)
             end
 
             # Check if next step is also precomputed
-            if !(stepSize <= precomputedLargestStep)
+            if !(stepSize < precomputedLargestStep)
                 precomputed = false
             end
         else
             # If not precomputed
-            LinearMap!(tempM, ϕ, ϕ)
-            copy!(ϕ, tempM)
+            ϕ = ϕ * ϕ
+            # LinearMap!(tempM, ϕ, ϕ)
+            # copy!(ϕ, tempM)
 
             largestInput = largestInput ⊕ LinearMap(ϕ, largestInput)
             if listToInclude[stepSize] == 1 # If we have to add

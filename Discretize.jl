@@ -88,6 +88,7 @@ function ReACTDiscretizePlus(loc, X0, δ⁻::Float64, δ⁺::Float64, alg::Reach
     #U = isnothing(loc.B) ? (isnothing(loc.u) ? Zonotope(zeros(XDim), [zeros(XDim)]) : loc.u) : concretize(loc.B * loc.u)
     U = isnothing(loc.B) ? (isnothing(loc.u) ? Zonotope(zeros(XDim), zeros(XDim, 1)) : loc.u) : LinearMap(loc.B, loc.u)
     if !isnothing(loc.c)
+        U = concretize(U)
         U = Zonotope(U.center + loc.c, genmat(U))
     end
 

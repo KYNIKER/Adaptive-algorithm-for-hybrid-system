@@ -42,7 +42,7 @@ function loadBouncingBallNoEdges()
 
     guard = HPolyhedron([
         LazySets.HalfSpace(sparsevec([1], [1.], 2), 0.0), # x <= 0
-        LazySets.HalfSpace(sparsevec([1], [-1.], 2), 0.5),  # x >= 0
+        LazySets.HalfSpace(sparsevec([1], [-1.], 2), 0.0),  # x >= 0
         LazySets.HalfSpace(sparsevec([2], [1.], 2), 0.0)  # y <= 0
     ])
 

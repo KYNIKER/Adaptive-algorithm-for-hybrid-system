@@ -15,7 +15,7 @@ include("models/spacecraft.jl")
 dirs = [1] # Which direction to plot. Empty means no plotting
 
 δ⁺ = 10^-3 * 2
-δ⁺ = 0.1
+δ⁺ = 0.04
 δ⁻ = δ⁺ / 2^0
 
 #sys, initialState, X0, T = loadPlatoon()

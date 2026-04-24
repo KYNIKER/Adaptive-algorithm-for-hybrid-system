@@ -2,6 +2,7 @@ using LazySets, LinearAlgebra, ReachabilityAnalysis
 include("Discretize.jl")
 include("Utilities.jl")
 
+
 const VERBOSE = false
 
 function zonotopePrintDim(Z::Zonotope, dim)
@@ -183,7 +184,7 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0, dirs, constraint,
                     println("Finished intersections")
 
 
-                    branchedRun = auxReACTed(hybridSystem, hybridSystem.locations[edge.targetLoc], [reachtime, endtime], ConvexHull(jumpSet), constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, tΦ, saveResult)
+                    branchedRun = auxReACTed(hybridSystem, hybridSystem.locations[edge.targetLoc], [reachtime, endtime], ConvexHull(jumpSet), dirs, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, tΦ, saveResult)
 
                     if saveResult
                         reachset = vcat(reachset, branchedRun)
@@ -301,6 +302,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
     V = copy(inputDiscritezationDict[initialTimeStep])
 
     Vs = nestedInputDiscCalculate(inputDiscritezationDict, PhiDict, δ⁺, δ⁻, initialTime)
+
     #lastVs = copy(Vs)
     Sρ = zeros(Float64, length(constraint))
     newR = discritezationDict[initialTimeStep]
@@ -308,7 +310,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
 
 
     if ismissing(Φ)
-        Φ::Matrix{Float64} = exp(initialTime .* loc.A)
+        Φ::Matrix{Float64} = exp(initialTime⁺ .* loc.A)
     end
 
     tempM = diagm(ones(Float64, size(loc.A, 2)))
@@ -345,7 +347,20 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
                 # @show typeof(newRR)
                 # @show typeof(Vs)
                 # @show typeof(newRR ⊕ Vs)
-                if !isdisjoint(newRR ⊕ Vs, guard; algorithm="sufficient")
+
+                # @show newRR ⊕ Vs
+                # @show guard
+                # println(any(((ρ(-x, newRR ⊕ Vs)) > y) for (x, y) in zip(guardProjVectors, guardProjBounds)))
+                @show guardProjBounds
+                @show invarientProjBounds
+                @show [ρ(-x, newRR ⊕ Vs) for x in guardProjVectors]
+                @show [ρ(-x, Vs) for x in guardProjVectors]
+                @show [ρ(-x, newRR) for x in guardProjVectors]
+                @show [ρ(x, newRR ⊕ Vs) for x in invarientProjVectors]
+
+
+                if all(((ρ(-x, newRR ⊕ Vs)) > y) for (x, y) in zip(guardProjVectors, guardProjBounds))
+                #if !isdisjoint(newRR ⊕ Vs, guard; algorithm="sufficient")
                     println("Intersecting guard, but we are going to hit an invarient")
 
                     if isnothing(preclustering)
@@ -385,7 +400,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
             tempSet = newRR ⊕ Vs
 
             if all((ρ(x, newRR) + ρ(x, Vs)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
-               any(((ρ(x, tempSet)) > y) for (x, y) in zip(guardProjVectors, guardProjBounds)) &&
+               all(((ρ(-x, tempSet)) > y) for (x, y) in zip(guardProjVectors, guardProjBounds)) &&
                #!isdisjoint(tempSet, guard; algorithm="sufficient") && # intersects
                all((ρ(x, newRR) + ρ(x, Vs)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # IsSubSet
                 #if mapreduce(x -> intersects(newRR, x), &, guard)
@@ -650,7 +665,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
             end
 
             # constraintProjVectors = map(x -> pϕt * x, oldConstraintProjVectors)
-            # guardProjVectors = map(x -> pϕt * x, oldConstraintProjVectors)
+            # guardProjVectors = map(x -> pϕt * x, oldGuardProjVectors)
             # invarientProjVectors = map(x -> pϕt * x, oldInvarientProjVectors)
 
 
@@ -658,11 +673,6 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
 
             # tempSet = MinkowskiSum(newRR, Vs)
             #hom = map(x -> ρ(x, tempSet), constraintProjVectors)
-
-            # println("Constraint: ", all(((ρ(x, tempSet)) <= y) for (x, y) in zip(constraintProjVectors, constraintProjBounds)))
-            # println("Guard: ", any(((ρ(x, tempSet)) > y) for (x, y) in zip(guardProjVectors, guardProjBounds)))
-            # println("Invarient: ", all(((ρ(x, tempSet)) <= y) for (x, y) in zip(invarientProjVectors, invarientProjBounds)))
-            #println(!isdisjoint(tempSet, loc.invarient; algorithm="sufficient"))
 
 
             #=if all(((ρ(x, tempSet)) <= y) for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # Subset
@@ -673,22 +683,21 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
                 #!isdisjoint(tempSet, loc.invarient; algorithm="sufficient")
             =#
             println(all((input + ρ(x, newRR)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)))
-            #tem = map(x -> ρ(x, newRR), guardProjVectors)
-            #println(tem)
-            println(all((input + ρ(sign(y) * x, newRR)) < y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)))
-            @show Gρ
-            @show guardProjVectors
-            @show guardProjBounds
-           # @show newRR
-
-            println([ρ(sign(y) * x, concretize(newRR))] for (x, y) in zip(guardProjVectors, guardProjBounds))
-                
+            println(any((input + ρ(x, newRR)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)))
             
+                #tem = map(x -> ρ(x, newRR), guardProjVectors)
+            #println(tem)
+            # println(all((input + ρ(sign(y) * x, newRR)) < y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)))
+
+            @show [ρ(-x, newR) for x in guardProjVectors] + Gρ
+            # @show Gρ   
+            @show [ρ(x, newR) for x in invarientProjVectors] + Iρ
+
             #println(any((input + ρ(-x, newRR)) > y for (input, x, y) in zip(Sρ, invarientProjVectors, invarientProjBounds)))
             #println(all((input + ρ(x, newRR)) <= y for (input, x, y) in zip(Sρ, invarientProjVectors, invarientProjBounds)))
             if all((input + ρ(x, newR)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) &&
-               (all(sign(y) >= 0 ? (input + ρ(x, newR)) <= y : -((input + ρ(-x, newR)) < y) for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds))) &&
-               all((input + ρ(x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
+                any((input + ρ(-x, newR)) <= y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) &&
+                all((input + ρ(x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
                 #(any((input + ρ(-x, newRR)) > y for (input, x, y) in zip(-Sρ, invarientProjVectors, invarientProjBounds)) && all((input + ρ(x, newRR)) <= y for (input, x, y) in zip(Sρ, invarientProjVectors, invarientProjBounds)))
                 #all(((ρ(x, tempSet)) <= y) for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Subset
                 #(isnothing(loc.invarient) || intersects(tempSet, loc.invarient))
@@ -708,7 +717,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
                 Iρ = map(x -> ρ(x, Vs), invarientProjVectors)
                 dirProjVectors = map(x -> pϕt * x, oldDirProjVectors)
                 constraintProjVectors = map(x -> pϕt * x, oldConstraintProjVectors)
-                guardProjVectors = map(x -> pϕt * x, oldConstraintProjVectors)
+                guardProjVectors = map(x -> pϕt * x, oldGuardProjVectors)
                 invarientProjVectors = map(x -> pϕt * x, oldInvarientProjVectors)
 
                 oldDirProjVectors = dirProjVectors

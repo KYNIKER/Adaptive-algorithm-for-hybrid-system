@@ -23,7 +23,7 @@ sys, initialState, X0, T = loadBouncingBall()
 #sys, initialState, X0, T = loadPowertrain(θ=3, homog = true)
 # sys, initialState, X0, T = loadSpacecraft()
 # sys, initialState, X0, T = loadSpacecraft(abort_time = 120.)
-T = 3.5
+T = 1.
 
 n = length(X0.center)
 
@@ -32,7 +32,7 @@ res = []
 
 res = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), dirs, sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, 5, 5)
 
-plotProjectedFlowpipeLazy(res, 0, 1, n, joinpath("results/", "SandboxDim2.png"))
+plotProjectedFlowpipeLazy(res, dirs, n, joinpath("results/", "SandboxDim2.png"))
 
 
 # plotProjectedFlowpipe(res, 0, 4, joinpath("results/", "SandboxDim24.png"))

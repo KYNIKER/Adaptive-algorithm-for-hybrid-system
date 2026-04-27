@@ -22,8 +22,8 @@ dirs = [1] # Which direction to plot. Empty means no plotting
 sys, initialState, X0, T = loadBouncingBall()
 #sys, initialState, X0, T = loadPowertrain(θ=3, homog = true)
 # sys, initialState, X0, T = loadSpacecraft()
-# sys, initialState, X0, T = loadSpacecraft(abort_time = 120.)
-T = 1.
+sys, initialState, X0, T = loadSpacecraft(abort_time = 120.)
+#T = 1.
 
 n = length(X0.center)
 

@@ -744,16 +744,11 @@ end
 
 function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime)
     # We know that δ⁻ % currentTime == 0
-    if δ⁻ % currentTime != 0
-        println("We have managed to take a step that is not a multiple of δ⁻")
-    end
-
     outputInput = nothing
 
     precomputedLargestStep = δ⁺ / δ⁻
-    totalSteps = Int(round(currentTime / δ⁻)) # Steps we need to take
+    totalSteps = Int(round(currentTime / δ⁻)) # Steps we need to take. We round cause floats make small errors
 
-    @show totalSteps
     # Convert to bits 
     listToInclude = digits(totalSteps, base = 2) # Get bit map
 

@@ -6,11 +6,21 @@ using LazySets
 include("../Utilities.jl")
 
 
-function loadGearBox()
+function loadGearBox(GRBX = 1)
+
+    # Two modes to select from
     X0 = Hyperrectangle(low=[0, 0, -0.0168, 0.0029, 0, 1],
         high=[0, 0, -0.0166, 0.0031, 0, 1])
+    if GRBX == 2
+        X0 = Hyperrectangle(low=[0, 0, -0.01675, 0.00285, 0, 1],
+            high=[0, 0, -0.01665, 0.00315, 0, 1])
+    elseif GRBX != 1
+        throw("Invalid input for gearbox. Must choose either 1 og 2. Choose $GRBX")
+    end
+
     X0 = convert(Zonotope, X0)
     X0 = Zonotope(X0.center, X0.generators)
+
 
     # variables
     vx = 1  # x velocity

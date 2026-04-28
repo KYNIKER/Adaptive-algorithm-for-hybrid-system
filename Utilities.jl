@@ -746,7 +746,7 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime)
     # We know that δ⁻ % currentTime == 0
     outputInput = nothing
 
-    precomputedLargestStep = δ⁺ / δ⁻
+    precomputedLargestStep = log2(δ⁺ / δ⁻)
     totalSteps = Int(round(currentTime / δ⁻)) # Steps we need to take. We round cause floats make small errors
 
     # Convert to bits 

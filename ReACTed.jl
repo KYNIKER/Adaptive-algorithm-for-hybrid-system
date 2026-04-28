@@ -38,7 +38,7 @@ function ReACTed(hybridSystem::HybridSystemV2, initialLoc, interval, X0, U, dirs
 
     @show dirsVectors
 
-    res = auxReACTed(hybridSystem, hybridSystem.locations[loc], interval, X0, dirsVectors, constraint, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder, missing, saveResult)
+    res = auxReACTed(hybridSystem, hybridSystem.locations[loc], interval, X0, dirsVectors, constraint, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder, missing, nothing, nothing, saveResult)
 
     reachset = vcat(reachset, res)
 
@@ -47,12 +47,12 @@ end
 
 
 # AucReacted is called recursively each time we have a new starting location (after a transition)
-function auxReACTed(hybridSystem, loc::Location, interval, X0, dirs, constraint, δ⁻::Float64, δ⁺::Float64, PhiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, Φ=missing, discretizationDict = missing, inputDiscritezationDict = missing, saveResult::Bool=true) where {N}
+function auxReACTed(hybridSystem, loc::Location, interval, X0, dirs, constraint, δ⁻::Float64, δ⁺::Float64, PhiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, Φ=missing, discretizationDict = nothing, inputDiscritezationDict = nothing, saveResult::Bool=true) where {N}
     locChange = false
     jumpDiscDict = Dict()
     jumpInputDict = Dict()
 
-    if ismissing(discretizationDict) && ismissing(inputDiscritezationDict)
+    if isa(discretizationDict, Nothing) && isa(inputDiscritezationDict, Nothing)
         discretizationDict, inputDiscritezationDict = ReACTDiscretizePlus(loc, X0, δ⁻, δ⁺, alg, maxOrder, reduceOrder, PhiDict[loc.id])
         locChange = true
     end
@@ -136,8 +136,8 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0, dirs, constraint,
                         #y, _ = tempReachset[1]
                         println("Finished intersections")
                     
-                    
-                        branchedRun = auxReACTed(hybridSystem, hybridSystem.locations[edge.targetLoc], [reachtime, endtime], ConvexHull(jumpSet), dirs, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, tΦ, missing, missing, saveResult)
+                        println("Going this way")
+                        branchedRun = auxReACTed(hybridSystem, hybridSystem.locations[edge.targetLoc], [reachtime, endtime], ConvexHull(jumpSet), dirs, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, tΦ, nothing, nothing, saveResult)
                     
                         if saveResult
                             reachset = vcat(reachset, branchedRun)

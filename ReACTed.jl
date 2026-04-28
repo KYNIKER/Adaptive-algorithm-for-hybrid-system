@@ -585,7 +585,6 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
     newR = discritezationDict[initialTimeStep]
     i = 1
 
-    newRR = newR
     U = inputDiscritezationDict[0]
     while time < endtime
         println("Time iss: $time")
@@ -599,7 +598,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
             if currentTimeStep < m
                 # If we hit a constraint
                 #newRR = concretize(newRR)
-                if any((input + ρ(x, newRR)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
+                if any((input + ρ(x, newR)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
 
                     handleHitConstraint(time, loc.id)
                 end
@@ -760,7 +759,6 @@ function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, constraint, dirs, 
     newR = discritezationDict[initialTimeStep]
     i = 1
 
-    newRR = newR
     U = inputDiscritezationDict[0]
     while time < endtime
         println("Time iss: $time")
@@ -772,7 +770,7 @@ function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, constraint, dirs, 
             # Handle if we can no longer reduce the reachset (we keep hitting something)
             if currentTimeStep < m
                 # If we hit a constraint
-                if any((input + ρ(x, newRR)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
+                if any((input + ρ(x, newR)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
 
                     handleHitConstraint(time, loc.id)
                 end

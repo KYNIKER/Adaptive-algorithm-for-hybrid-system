@@ -8,7 +8,7 @@ include("models/bouncingBall.jl")
 include("models/powerTrain.jl")
 include("models/spacecraft.jl")
 
-const RUN_FIXED = true
+const RUN_FIXED = false
 const RUN_ADAPTIVE = false
 
 function RunAdaptive(name, δ⁻, δ⁺, load_func)
@@ -60,6 +60,8 @@ loadFunctions = [loadBouncingBall, loadGearBox, loadPlatoon, loadPowertrain, () 
 # funcs = [loadBouncingBall, loadGearBox, () -> loadGearBox(2), loadPlatoon, loadPowertrain, loadSpacecraft, ()-> loadSpacecraft(abort_time=120.), ()-> loadSpacecraft(abort_time=240.)]
 
 
+
+
 if RUN_FIXED
     for (name, δ, loadFunction) in zip(names, minδ, loadFunctions)
         RunFixed(name * "_Fixed", δ, loadFunction)
@@ -72,3 +74,5 @@ if RUN_ADAPTIVE
         RunAdaptive(name * "_Adaptive", δ⁻, δ⁺, loadFunction)
     end
 end
+
+RunAdaptive("GracieTest", 0.03, 0.03*2^3, loadPlatoon)

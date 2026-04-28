@@ -127,9 +127,7 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0, dirs, constraint,
 
                         if !isa(hybridSystem.locations[edge.targetLoc].invarient, Nothing) && !isdisjoint(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)
                             jumpSet = zonotopeStripIntersection(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)
-                        end
-
-                        @show jumpSet   
+                        end 
                     
                         #
                         #   Here we could optimize it such that in the case where guards ⊆ timeIntersectedSet we calculate both [supMins, endtime] and [infMaxs, endtime] with guards
@@ -558,7 +556,6 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
     newR = discritezationDict[initialTimeStep]
     i = 1
 
-    newRR = newR
     U = inputDiscritezationDict[0]
     while time < endtime
         println("Time iss: $time")
@@ -572,8 +569,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
             if currentTimeStep < m
                 # If we hit a constraint
                 #newRR = concretize(newRR)
-                if any((input + ρ(x, newRR)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
-
+                if any((input + ρ(x, newR)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))     
                     handleHitConstraint(time, loc.id)
                 end
                 return (dirVals, time, Φ)
@@ -590,7 +586,6 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
 
             changedTimeStep = false
  
-
             # #println(any((input + ρ(-x, newRR)) > y for (input, x, y) in zip(Sρ, invarientProjVectors, invarientProjBounds)))
             #println(all((input + ρ(x, newRR)) <= y for (input, x, y) in zip(Sρ, invarientProjVectors, invarientProjBounds)))
             if all((input + ρ(x, newR)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) &&
@@ -710,7 +705,6 @@ function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, constraint, dirs, 
     newR = discritezationDict[initialTimeStep]
     i = 1
 
-    newRR = newR
     U = inputDiscritezationDict[0]
     while time < endtime
         println("Time iss: $time")
@@ -722,7 +716,7 @@ function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, constraint, dirs, 
             # Handle if we can no longer reduce the reachset (we keep hitting something)
             if currentTimeStep < m
                 # If we hit a constraint
-                if any((input + ρ(x, newRR)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
+                if any((input + ρ(x, newR)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
 
                     handleHitConstraint(time, loc.id)
                 end

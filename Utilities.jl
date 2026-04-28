@@ -687,8 +687,8 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1)
             i += 1
         end
     elseif amountOfDims == 2
-        dim1 = amountOfDims[1]
-        dim2 = amountOfDims[2]
+        dim1 = dims[1]
+        dim2 = dims[2]
         fig = Plots.plot(xlabel="dim: " * string(dim1), ylabel="dim: " * string(dim2), ε=1e-6)
         cpallete = palette(:roma, length(flowpipe))
         i = 1
@@ -717,16 +717,20 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1)
                 maxcor2 = c[dim2] + projectGDim2
                 mincor2 = c[dim2] - projectGDim2
                 =#
-                @show r
                 #Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="", alpha=0.1)
                 #Plots.plot!(Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], maxcor1s[dim2], maxcor2s[dim2], mincor2s[dim2]]), c=cpallete[i], lab="") # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
-                d1 = [ρ(sparsevec([dim1], [-1.0], ndim), r), ρ(sparsevec([dim1], [1.0], ndim), r)]
-                d2 = [ρ(sparsevec([dim2], [-1.0], ndim), r), ρ(sparsevec([dim2], [1.0], ndim), r)]
+                d1 = [r[1], -r[2]]#[ρ(sparsevec([dim1], [-1.0], ndim), r), ρ(sparsevec([dim1], [1.0], ndim), r)]
+                d2 = [r[3], -r[4]]#[ρ(sparsevec([dim2], [-1.0], ndim), r), ρ(sparsevec([dim2], [1.0], ndim), r)]
+
                 if sen
-                    Plots.plot!(Shape([(d1[1], d1[1]), (d2[1], d2[1]), (d1[2], d1[2]), (d2[2], d2[2])]), c=cpallete[i], lab="S" * string(i), linealpha=0) # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
+                    Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=cpallete[i], leg=false, linealpha=0)
+                    
+                    #Plots.plot!(Shape([(d1[1], d1[1]), (d2[1], d2[1]), (d1[2], d1[2]), (d2[2], d2[2])]), c=cpallete[i], lab="S" * string(i), linealpha=0) # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
                     sen = false
                 else
-                    Plots.plot!(Shape([(d1[1], d1[1]), (d2[1], d2[1]), (d1[2], d1[2]), (d2[2], d2[2])]), c=cpallete[i], lab="", linealpha=0) # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
+                    Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=cpallete[i], leg=false, linealpha=0)
+                    
+                    #Plots.plot!(Shape([(d1[1], d1[1]), (d2[1], d2[1]), (d1[2], d1[2]), (d2[2], d2[2])]), c=cpallete[i], lab="", linealpha=0) # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
                 end
                 #plot!(r, c=cpallete[i], alpha=0.2)
             end
@@ -746,7 +750,7 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime)
     # We know that δ⁻ % currentTime == 0
     outputInput = nothing
 
-    precomputedLargestStep = δ⁺ / δ⁻
+    precomputedLargestStep = log2(δ⁺ / δ⁻)
     totalSteps = Int(round(currentTime / δ⁻)) # Steps we need to take. We round cause floats make small errors
 
     # Convert to bits 
@@ -757,22 +761,23 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime)
     tempM = similar(ϕ)
 
     precomputed = true
-    
+    i = 0 # Iterator for precomputed
     for stepSize in eachindex(listToInclude)
         if precomputed
             if listToInclude[stepSize] == 1 # If we have to add
 
                 if isnothing(outputInput)
-                    outputInput = inputDict[stepSize * δ⁻]
+                    outputInput = inputDict[2^i * δ⁻]
                 else
-                    outputInput = outputInput ⊕ inputDict[stepSize * δ⁻]
+                    outputInput = outputInput ⊕ inputDict[2^i * δ⁻]
                 end
             end
 
             # Check if next step is also precomputed
-            if !(stepSize < precomputedLargestStep)
+            if !(i < precomputedLargestStep)
                 precomputed = false
             end
+            i += 1
         else
             # If not precomputed
             ϕ = ϕ * ϕ

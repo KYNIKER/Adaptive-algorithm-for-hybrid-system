@@ -52,12 +52,12 @@ end
 
 names = ["bouncingBall", "gearbox", "platoon", "powerTrain", "spaceCraft"]
 minδ = [0.05, 0.008, 0.03, 0.002, 0.04]
-loadFunctions = [loadBouncingBall, loadGearBox, loadPlatoon, loadPowertrain, (x -> loadSpacecraft(abort_time=120))]
+loadFunctions = [loadBouncingBall, loadGearBox, loadPlatoon, loadPowertrain, () -> loadSpacecraft(abort_time=120.)]
 
 # Long Versions
 # names = ["bouncingBall", "gearbox-01", "gearbox-02", "platoon", "powerTrain", "spaceCraft-0", "spaceCraft-120", "spaceCraft-240"]
 # minδ = [0.05, 0.008, 0.008, 0.03, 0.002, 0.04, 0.04, 0.01]
-# funcs = [loadBouncingBall, loadGearBox, (x -> loadGearBox(2)), loadPlatoon, loadPowertrain, loadSpacecraft, (x-> loadSpacecraft(abort_time=120)), (x-> loadSpacecraft(abort_time=240))]
+# funcs = [loadBouncingBall, loadGearBox, () -> loadGearBox(2), loadPlatoon, loadPowertrain, loadSpacecraft, ()-> loadSpacecraft(abort_time=120.), ()-> loadSpacecraft(abort_time=240.)]
 
 
 if RUN_FIXED

@@ -127,7 +127,7 @@ function ReACTDiscretizePlus(loc, X0, δ⁻::Float64, δ⁺::Float64, alg::Reach
     #inputDiscritezationDict[d] = P
     while d < δ⁺
         discritezationDict[d] = disc
-        inputDiscritezationDict[d] = P
+        inputDiscritezationDict[d] = concretize(P)
         # if maxOrder > 0
         #     if LazySets.order(P) > maxOrder
         #         P = reduce_order(P, reduceOrder)
@@ -211,10 +211,11 @@ function PhiDict(A, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Ex
 
             phiDict[d] = copy(ϕ)
 
-            # mul!(tempM, ϕ, ϕ)
-            # copy!(ϕ, tempM)
-            LinearMap!(tempM, ϕ, ϕ)
+            mul!(tempM, ϕ, ϕ)
             copy!(ϕ, tempM)
+            #ϕ = LinearMap(ϕ, ϕ)
+            # LinearMap!(tempM, ϕ, ϕ)
+            # copy!(ϕ, tempM)
             d = d * 2
         end
         phiDict[δ⁺] = copy(ϕ)

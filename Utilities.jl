@@ -635,10 +635,10 @@ function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination, alpha=1)
                 maxcor2 = c[dim2] + projectGDim2
                 mincor2 = c[dim2] - projectGDim2
                 if sen
-                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], leg=false, linealpha=0)
+                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], linealpha=0)
                     sen = false
                 else
-                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], leg=false, linealpha=0)
+                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], linealpha=0)
                 end
                 #Plots.plot!(Shape([mincor1, maxcor1, maxcor1, mincor1], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
 
@@ -653,12 +653,12 @@ function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination, alpha=1)
 end
 
 function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1)
-    
+
     amountOfDims = length(dims)
     if amountOfDims == 1
 
         dim2 = amountOfDims[1]
-        
+
         fig = Plots.plot(xlabel="time", ylabel="dim: " * string(dim2), ε=1e-6)
         cpallete = palette(:roma, length(flowpipe))
         i = 1
@@ -674,10 +674,10 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1)
 
                 #d = [-ρ(sparsevec([dim2], [-1.0], ndim), r), ρ(sparsevec([dim2], [1.0], ndim), r)] #r[dim2]
                 if sen
-                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], leg=false, lab="S" * string(i), linealpha=0)
+                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], lab="S" * string(i), linealpha=0)
                     sen = false
                 else
-                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], leg=false, lab="", linealpha=0)
+                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], lab="", linealpha=0)
                 end
                 #Plots.plot!(Shape([mincor1, maxcor1, maxcor1, mincor1], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
 
@@ -750,7 +750,7 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime)
     totalSteps = Int(round(currentTime / δ⁻)) # Steps we need to take. We round cause floats make small errors
 
     # Convert to bits 
-    listToInclude = digits(totalSteps, base = 2) # Get bit map
+    listToInclude = digits(totalSteps, base=2) # Get bit map
 
     largestInput = inputDict[δ⁺]
     ϕ = phiDict[δ⁺]
@@ -763,9 +763,9 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime)
             if listToInclude[stepSize] == 1 # If we have to add
 
                 if isnothing(outputInput)
-                    outputInput = inputDict[2^i * δ⁻]
+                    outputInput = inputDict[2^i*δ⁻]
                 else
-                    outputInput = outputInput ⊕ inputDict[2^i * δ⁻]
+                    outputInput = outputInput ⊕ inputDict[2^i*δ⁻]
                 end
             end
 
@@ -798,15 +798,15 @@ function projectReachSet(dirs, reachSet)
     return projectedReachSet
 end
 
-            
 
 
-    
-
-    
 
 
-    
+
+
+
+
+
 
 
 

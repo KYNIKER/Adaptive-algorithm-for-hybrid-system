@@ -14,7 +14,7 @@ include("models/spacecraft.jl")
 
 dirs = [1] # Which direction to plot. Empty means no plotting
 
-δ⁺ = 10^-3 * 2
+#δ⁺ = 10^-3 * 2
 δ⁺ = 0.04
 δ⁻ = δ⁺ / 2^0
 
@@ -22,8 +22,8 @@ dirs = [1] # Which direction to plot. Empty means no plotting
 sys, initialState, X0, T = loadBouncingBall()
 #sys, initialState, X0, T = loadPowertrain(θ=3, homog = true)
 # sys, initialState, X0, T = loadSpacecraft()
-sys, initialState, X0, T = loadSpacecraft(abort_time = 120.)
-#T = 1.
+#sys, initialState, X0, T = loadSpacecraft(abort_time = 120.)
+T = 3.0
 
 n = length(X0.center)
 

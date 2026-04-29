@@ -222,7 +222,6 @@ function PhiDict(A, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Ex
             d = d * 2
         end
         phiDict[δ⁺] = copy(ϕ)
-        @show phiDict
         return phiDict
     end
 end

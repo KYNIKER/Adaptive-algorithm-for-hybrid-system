@@ -58,6 +58,10 @@ function getHalfSpaceProjections(halfspaces::Vector{<:LazySets.HalfSpace}) # Any
     return projVectors, projBounds
 end
 
+function getHalfSpaceProjections(H::Nothing)
+    return ([], []) # return empty lists
+end
+
 function sparseHPolyhedronToDense(H_sparse::HPolyhedron)
     H_dense = HPolyhedron([LazySets.HalfSpace(Vector(c.a), c.b) for c in H_sparse.constraints])
     return H_dense

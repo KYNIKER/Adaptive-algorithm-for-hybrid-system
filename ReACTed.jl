@@ -558,12 +558,12 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
 
     U = inputDiscritezationDict[0]
     while time < endtime
-        println("Time iss: $time")
+        #println("Time iss: $time")
         attempts = 1
         approveFlag = false
 
         while !approveFlag
-            println("Stuck?")
+            #println("Stuck?")
 
             # Handle if we can no longer reduce the reachset (we keep hitting something)
             if currentTimeStep < m
@@ -707,7 +707,7 @@ function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, constraint, dirs, 
 
     U = inputDiscritezationDict[0]
     while time < endtime
-        println("Time iss: $time")
+       # println("Time iss: $time")
         attempts = 1
         approveFlag = false
 
@@ -795,7 +795,7 @@ end
 
 # This can be replaced with throwing an error. Currently we continue and just print
 function handleHitConstraint(time, locationId)
-    #throw(error("ERROR!!! We have hit a constraint at loc: $(locationId) time: $time"))
+    throw(error("ERROR!!! We have hit a constraint at loc: $(locationId) time: $time"))
     println("\nERROR!!!\n 
             ERROR!!!\n\n
             We have hit a constraint at loc: $locationId time: $time\n\n

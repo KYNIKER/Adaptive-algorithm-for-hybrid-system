@@ -1,4 +1,4 @@
-using Plots, LazySets, LinearAlgebra, BenchmarkTools, CSV, DataFrames, Expokit, CDDLib #, ReachabilityAnalysis
+using Plots, LazySets, LinearAlgebra, BenchmarkTools, CSV, DataFrames, Expokit, CDDLib, Profile, PProf#, ProfileView #, ReachabilityAnalysis
 
 include("Utilities.jl")
 include("ReACTed.jl")
@@ -12,18 +12,18 @@ include("models/spacecraft.jl")
 
 #using Cthulhu, ProfileView
 
-dirs = [1] # Which direction to plot. Empty means no plotting
+dirs = [1, 2] # Which direction to plot. Empty means no plotting
 
 #δ⁺ = 10^-3 * 2
 δ⁺ = 0.04
-δ⁻ = δ⁺ / 2^0
+δ⁻ = δ⁺ / 2^1
 
 #sys, initialState, X0, T = loadPlatoon()
 sys, initialState, X0, T = loadBouncingBall()
 #sys, initialState, X0, T = loadPowertrain(θ=3, homog = true)
 # sys, initialState, X0, T = loadSpacecraft()
 #sys, initialState, X0, T = loadSpacecraft(abort_time = 120.)
-T = 3.0
+T = 2.5
 
 n = length(X0.center)
 

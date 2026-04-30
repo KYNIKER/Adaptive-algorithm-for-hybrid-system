@@ -62,9 +62,10 @@ function auxReACTed(hybridSystem, dim, loc::Location, interval, X0, dirs, constr
 
 
     for key in keys(discretizationDict)
+        println(key)
         overapproximatedDiscretizationDict[key] = overapproximate(discretizationDict[key], BoxDirections(dim))
     end
-
+    #t = overapproximate(X0, BoxDirections(dim))
 
     time::Float64 = minimum(interval)
     endtime::Float64 = maximum(interval)
@@ -139,7 +140,7 @@ function auxReACTed(hybridSystem, dim, loc::Location, interval, X0, dirs, constr
                 if !isdisjoint(intersectedSet, guards; algorithm="sufficient")
                     if loc.id != edge.targetLoc
                         jumpSet = reset_map(intersectedSet)
-                        if !isa(hybridSystem.locations[edge.targetLoc].invarient, Nothing) && !isdisjoint(jumpSet, hybridSystem.locations[edge.targetLoc].invarient; algorithm="sufficient")
+                        if !isa(hybridSystem.locations[edge.targetLoc].invarient, Nothing)# && !isdisjoint(jumpSet, hybridSystem.locations[edge.targetLoc].invarient; algorithm="sufficient")
                             jumpSet = Intersection(hybridSystem.locations[edge.targetLoc].invarient, jumpSet)
                         end
                         jumpSet = overapproximate(jumpSet, BoxDirections(dim))
@@ -166,6 +167,7 @@ function auxReACTed(hybridSystem, dim, loc::Location, interval, X0, dirs, constr
                         branchNumber = 1
                         println("loop $branchNumber $λ $timeIntersected")
                         #local reset_map(X) = edge.jumpMatrix * X + edge.jumpVector
+                        phi = PhiDict[loc.id]
                         while branchNumber <= λ
 
                             jumpΦ = tΦ
@@ -182,17 +184,33 @@ function auxReACTed(hybridSystem, dim, loc::Location, interval, X0, dirs, constr
                                 end
                             end
                             =#
-                            jumpSet = reset_map(LinearMap(jumpΦ, intersectedSet))
+                            jumpSet = reset_map(intersectedSet)
                             if !isa(hybridSystem.locations[edge.targetLoc].invarient, Nothing)# && !isdisjoint(jumpSet, hybridSystem.locations[edge.targetLoc].invarient; algorithm="sufficient")
                                 jumpSet = Intersection(hybridSystem.locations[edge.targetLoc].invarient, jumpSet)
                             end
                             #jumpSet = overapproximate(jumpSet, BoxDirections(dim))
-
+                            Vs = nestedInputDiscCalculate(inputDiscritezationDict, phi, δ⁺, δ⁻, reachtime)
+                            println(Vs)
                             for key in keys(discretizationDict)
                                 #tDiscDictVal = reset_map(Intersection(Intersection(LinearMap(jumpΦ, discretizationDict[key]), guards), loc.invarient))
-                                tDiscDictVal = reset_map(LinearMap(jumpΦ, discretizationDict[key]))#reset_map(MinkowskiSum(LinearMap(jumpΦ, discretizationDict[key]), intersectedInput))
+                                tDiscDictVal = MinkowskiSum(LinearMap(jumpΦ, discretizationDict[key]), Vs)#reset_map(MinkowskiSum(LinearMap(jumpΦ, discretizationDict[key]), intersectedInput))
                                 #tDiscDictVal = overapproximate(tDiscDictVal, BoxDirections(dim))
-                                jumpDiscDict[key] = Intersection(hybridSystem.locations[edge.targetLoc].invarient, tDiscDictVal)
+                                if !isa(guards, Nothing)
+
+                                    tDiscDictVal = Intersection(guards, tDiscDictVal)
+                                end
+                                if !isa(loc.invarient, Nothing)
+
+                                    #tDiscDictVal = Intersection(loc.invarient, tDiscDictVal)
+                                end
+                                tDiscDictVal = reset_map(tDiscDictVal)
+                                if !isa(hybridSystem.locations[edge.targetLoc].invarient, Nothing)
+                                    #jumpDiscDict[key] = Intersection(hybridSystem.locations[edge.targetLoc].invarient, tDiscDictVal)
+                                    jumpDiscDict[key] = tDiscDictVal
+
+                                else
+                                    jumpDiscDict[key] = tDiscDictVal
+                                end
                                 #jumpOverapproximatedDiscDict[key] = Intersection(hybridSystem.locations[edge.targetLoc].invarient, reset_map(LinearMap(jumpΦ, overapproximatedDiscretizationDict[key])))
 
                             end
@@ -496,7 +514,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
     dirVals = [] # This is where the plotting happens
 
 
-    Φ::Matrix{Float64} = exp(0 .* loc.A)
+    Φ::Matrix{Float64} = diagm(ones(Float64, size(loc.A, 2)))
 
     tempM = diagm(ones(Float64, size(loc.A, 2)))
     ϕt = similar(tempM)
@@ -582,6 +600,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
                 mul!(tempM, Φ, ϕt)
                 copy!(Φ, tempM)
             elseif triedRevise == false
+
                 unrevisedSet = discritezationDict[currentTimeStep]
                 lazyUnrevisedSet = lazyDiscritezationDict[currentTimeStep]
                 newConstraints = []
@@ -591,6 +610,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
                 revisedConstraints::Vector{LazySets.HalfSpace} = vcat(unrevisedSet.constraints, newConstraints)
                 discritezationDict[currentTimeStep] = HPolytope(revisedConstraints)
                 changedTimeStep = true
+
                 triedRevise = true
             else
                 #newR = copy(newR)

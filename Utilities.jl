@@ -765,7 +765,7 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime)
                 if isnothing(outputInput)
                     outputInput = inputDict[2^i*δ⁻]
                 else
-                    outputInput = LinearMap(phiDict[2^i*δ⁻], outputInput) ⊕ inputDict[2^i*δ⁻]
+                    outputInput = minkowski_sum(linear_map(phiDict[2^i*δ⁻], outputInput), inputDict[2^i*δ⁻])
                 end
             end
 
@@ -776,18 +776,18 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime)
             i += 1
         else
             # If not precomputed
-            largestInput = largestInput ⊕ LinearMap(ϕ, largestInput)
+            largestInput = minkowski_sum(largestInput, linear_map(ϕ, largestInput))
             ϕ = ϕ * ϕ
             if includeFlag == 1 # If we have to add
                 if isnothing(outputInput)
                     outputInput = largestInput
                 else
-                    outputInput = LinearMap(ϕ, outputInput) ⊕ largestInput
+                    outputInput = minkowski_sum(linear_map(ϕ, outputInput), largestInput)
                 end
             end
         end
     end
-    return outputInput
+    return reduce_order(outputInput, 5)
 end
 
 function projectReachSet(dirs, reachSet)

@@ -758,14 +758,14 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime)
 
     precomputed = true
     i = 0
-    for stepSize in eachindex(listToInclude)
+    for includeFlag in listToInclude
         if precomputed
-            if listToInclude[stepSize] == 1 # If we have to add
+            if includeFlag == 1 # If we have to add
 
                 if isnothing(outputInput)
                     outputInput = inputDict[2^i*δ⁻]
                 else
-                    outputInput = outputInput ⊕ inputDict[2^i*δ⁻]
+                    outputInput = LinearMap(phiDict[2^i*δ⁻], outputInput) ⊕ inputDict[2^i*δ⁻]
                 end
             end
 
@@ -776,16 +776,13 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime)
             i += 1
         else
             # If not precomputed
-            ϕ = ϕ * ϕ
-            # LinearMap!(tempM, ϕ, ϕ)
-            # copy!(ϕ, tempM)
-
             largestInput = largestInput ⊕ LinearMap(ϕ, largestInput)
-            if listToInclude[stepSize] == 1 # If we have to add
+            ϕ = ϕ * ϕ
+            if includeFlag == 1 # If we have to add
                 if isnothing(outputInput)
                     outputInput = largestInput
                 else
-                    outputInput = outputInput ⊕ largestInput
+                    outputInput = LinearMap(ϕ, outputInput) ⊕ largestInput
                 end
             end
         end

@@ -751,29 +751,37 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1)
 end
 
 function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime)
+    reduceOrder = 5
+    maxOrder = 5
+
     # We know that δ⁻ % currentTime == 0
     outputInput = nothing
 
     precomputedLargestStep = log2(δ⁺ / δ⁻)
-    totalSteps = Int(round(currentTime / δ⁻)) # Steps we need to take. We round cause floats make small errors
+    totalSteps = Int(round(currentTime / δ⁻))  # Steps we need to take. We round cause floats make small errors
+
 
     # Convert to bits 
     listToInclude = digits(totalSteps, base = 2) # Get bit map
 
-    largestInput = inputDict[δ⁺]
+    @show listToInclude
+    @show totalSteps
+
+    largestInput = copy(inputDict[δ⁺])
     ϕ = phiDict[δ⁺]
     tempM = similar(ϕ)
 
     precomputed = true
     i = 0 # Iterator for precomputed
-    for stepSize in eachindex(listToInclude)
+    for includeFlag in (listToInclude)
+        println("Step $i, with includeFlag $includeFlag, precomputed? $precomputed")
         if precomputed
-            if listToInclude[stepSize] == 1 # If we have to add
+            if includeFlag == 1 # If we have to add
 
                 if isnothing(outputInput)
-                    outputInput = inputDict[2^i * δ⁻]
+                    outputInput = copy(inputDict[2^i * δ⁻])
                 else
-                    outputInput = outputInput ⊕ inputDict[2^i * δ⁻]
+                    outputInput = minkowski_sum(linear_map(phiDict[2^i * δ⁻], outputInput), inputDict[2^i * δ⁻])
                 end
             end
 
@@ -781,23 +789,30 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime)
             if !(i < precomputedLargestStep)
                 precomputed = false
             end
-            i += 1
         else
-            # If not precomputed
+            largestInput = minkowski_sum(largestInput, LazySets.linear_map(ϕ, largestInput))
             ϕ = ϕ * ϕ
-            # LinearMap!(tempM, ϕ, ϕ)
-            # copy!(ϕ, tempM)
-
-            largestInput = largestInput ⊕ LinearMap(ϕ, largestInput)
-            if listToInclude[stepSize] == 1 # If we have to add
+            if includeFlag == 1 # If we have to add
                 if isnothing(outputInput)
                     outputInput = largestInput
                 else
-                    outputInput = outputInput ⊕ largestInput
+                    outputInput = minkowski_sum(linear_map(ϕ, outputInput), largestInput)
                 end
             end
+            # if maxOrder > 0
+            #     if LazySets.order(largestInput) > maxOrder
+            #         largestInput = reduce_order(largestInput, reduceOrder)
+            #     end
+            # end
         end
+        i += 1
     end
+
+    # if maxOrder > 0
+    #     if LazySets.order(outputInput) > maxOrder
+    #         outputInput = reduce_order(outputInput, reduceOrder)
+    #     end
+    # end
     return outputInput
 end
 

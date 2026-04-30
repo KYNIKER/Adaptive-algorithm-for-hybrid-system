@@ -16,7 +16,11 @@ function RunAdaptive(name, δ⁻, δ⁺, load_func)
     n = length(X0.center)
     LazySets.load_expokit()
     println("Running benchmark for: ", name)
-    BenchmarkTools.DEFAULT_PARAMETERS.samples = 10
+    BenchmarkTools.DEFAULT_PARAMETERS.samples = 50
+
+    # Warmup
+    _ = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), [], sys.globalConstraints, δ⁻, δ⁺ , ReachabilityAnalysis.Exponentiation.BaseExp, 5, 5)
+
 
     b = @benchmarkable _ = ReACTed($sys, $initialState, [0., $T], $X0, $Zonotope(zeros(Float64, $n), $zeros(Float64, $n, 1)), [], $sys.globalConstraints, $δ⁻, $δ⁺ , ReachabilityAnalysis.Exponentiation.BaseExp, 5, 5)
 
@@ -75,4 +79,13 @@ if RUN_ADAPTIVE
     end
 end
 
-RunAdaptive("GracieTest", 0.03, 0.03*2^3, loadPlatoon)
+myLoading = () -> loadSpacecraft(abort_time=120.)
+myLoading = loadPlatoon
+
+minDelta = 0.03
+
+RunFixed("NewGracieTest", minDelta, myLoading)
+RunAdaptive("NewGracieTest", minDelta, minDelta*2^3, myLoading)
+RunAdaptive("NewGracieTest", minDelta, minDelta*2^5, myLoading)
+# RunAdaptive("NewGracieTest", minDelta, minDelta*2^7, myLoading)
+# RunAdaptive("NewGracieTest", minDelta, minDelta*2^9, myLoading)

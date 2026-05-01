@@ -600,7 +600,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
                 mul!(tempM, Φ, ϕt)
                 copy!(Φ, tempM)
             elseif triedRevise == false
-
+                #=
                 unrevisedSet = discritezationDict[currentTimeStep]
                 lazyUnrevisedSet = lazyDiscritezationDict[currentTimeStep]
                 newConstraints = []
@@ -610,7 +610,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
                 revisedConstraints::Vector{LazySets.HalfSpace} = vcat(unrevisedSet.constraints, newConstraints)
                 discritezationDict[currentTimeStep] = HPolytope(revisedConstraints)
                 changedTimeStep = true
-
+                =#
                 triedRevise = true
             else
                 #newR = copy(newR)

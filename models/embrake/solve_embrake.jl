@@ -4,7 +4,7 @@ include("../../Utilities.jl")
 include("../../ReACTed.jl")
 include("embrake.jl")
 
-function solve_embrake(δ⁺ = 2*10^-7, δ⁻ = 2*10^-7, maxOrder = 5, reduceOrder = 5, saveResult = true)
+function solve_embrake(δ⁺ = 2*10^-7, δ⁻ = 2*10^-7, maxOrder = 5, reduceOrder = 5, dirs = [], saveResult = true)
     time = 0
 
     x0 = 0.05
@@ -19,14 +19,14 @@ function solve_embrake(δ⁺ = 2*10^-7, δ⁻ = 2*10^-7, maxOrder = 5, reduceOrd
 
     # Get the phi dict system 
     flowPhiDict = Dict(map(x -> x.id => PhiDict(x.A, δ⁻, δ⁺, alg), sys.locations))
-    res = run(sys, loc, time, Tsample, ζ, T, X0, sys.globalConstraints, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder, missing, saveResult)
+    res = run(sys, loc, time, Tsample, ζ, T, X0, sys.globalConstraints, dirs, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder, missing, saveResult)
 
     reachset = vcat(reachset, res)
 
     return res
 end
 
-function run(hybridSystem, loc::Location, time, Tsample, ζ, T, X0::Zonotope{N,Vector{N},Matrix{N}}, constraint, δ⁻::Float64, δ⁺::Float64, PhiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, Φ=missing, saveResult::Bool=true) where {N}
+function run(hybridSystem, loc::Location, time, Tsample, ζ, T, X0::Zonotope{N,Vector{N},Matrix{N}}, constraint, dirs, δ⁻::Float64, δ⁺::Float64, PhiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, Φ=missing, saveResult::Bool=true) where {N}
     guardTime = Tsample - ζ
     invariantTime = Tsample + ζ
     
@@ -35,7 +35,7 @@ function run(hybridSystem, loc::Location, time, Tsample, ζ, T, X0::Zonotope{N,V
     setOfConstraints = vcat(loc.constraints, constraint)
     edge = loc.edges[1]
     guards = edge.guard
-    tempReachset, tempInput, reachtime, tΦ = ReACTGuards(loc, δ⁻, δ⁺, [time, time+guardTime], nothing, setOfConstraints, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, missing, saveResult)
+    tempReachset, reachtime, tΦ = ReACTGuards(loc, δ⁻, δ⁺, [time, time+guardTime], nothing, setOfConstraints, dirs, 2, PhiDict[loc.id], discretizationDict, discretizationDict, inputDiscritezationDict, saveResult)
 
     if reachtime < T 
         if saveResult
@@ -43,7 +43,7 @@ function run(hybridSystem, loc::Location, time, Tsample, ζ, T, X0::Zonotope{N,V
         end
         intersectingSet, intersectedInput, timeNotIntersected = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, time+invariantTime], (reachtime - time),
                                                                             guards, setOfConstraints, 2, PhiDict[loc.id], 
-                                                                            discretizationDict, inputDiscritezationDict, tΦ, nothing)
+                                                                            discretizationDict, discretizationDict, inputDiscritezationDict, tΦ, nothing)
         timeIntersected = timeNotIntersected - reachtime
 
         time = time + invariantTime # TODO : Find the correct time to add here

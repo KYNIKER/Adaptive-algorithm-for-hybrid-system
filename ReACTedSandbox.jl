@@ -1,4 +1,6 @@
 using Plots, LazySets, LinearAlgebra, BenchmarkTools, CSV, DataFrames, Expokit, CDDLib, Profile, PProf#, ProfileView #, ReachabilityAnalysis
+using ReachabilityAnalysis.ReachabilityBase.Timing: print_timed
+
 
 include("Utilities.jl")
 include("ReACTed.jl")
@@ -9,28 +11,30 @@ include("models/bouncingBall.jl")
 include("models/simpleModel.jl")
 include("models/powerTrain.jl")
 include("models/spacecraft.jl")
+include("models/embrake/solve_embrake.jl")
 
 #using Cthulhu, ProfileView
 
-dirs = [1, 2] # Which direction to plot. Empty means no plotting
+dirs = [1] # Which direction to plot. Empty means no plotting
 
-#δ⁺ = 10^-3 * 2
-δ⁺ = 0.04
-δ⁻ = δ⁺ / 2^1
+δ⁺ = 10^-6 * 2
+#δ⁺ = 0.04
+#δ⁻ = δ⁺ / 2^1
 
 #sys, initialState, X0, T = loadPlatoon()
-sys, initialState, X0, T = loadBouncingBall()
+#sys, initialState, X0, T = loadBouncingBall()
 #sys, initialState, X0, T = loadPowertrain(θ=3, homog = true)
 # sys, initialState, X0, T = loadSpacecraft()
 #sys, initialState, X0, T = loadSpacecraft(abort_time = 120.)
-T = 2.5
+#T = 2.5
 
-n = length(X0.center)
+#n = length(X0.center)
 
 #@ProfileView.profview ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, 5, 5, saveResult)
 res = []
 
-res = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), dirs, sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, 5, 5)
+res = @timed solve_embrake(δ⁺, δ⁺, 5, 5, dirs, true)
+#res = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), dirs, sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, 5, 5)
 
 plotProjectedFlowpipeLazy(res, dirs, n, joinpath("results/", "SandboxDim2.png"))
 

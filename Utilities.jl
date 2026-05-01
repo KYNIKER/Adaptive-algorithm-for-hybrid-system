@@ -751,7 +751,6 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime)
 
     # Convert to bits 
     listToInclude = digits(totalSteps, base=2) # Get bit map
-
     largestInput = inputDict[δ⁺]
     ϕ = phiDict[δ⁺]
     tempM = similar(ϕ)
@@ -787,7 +786,11 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime)
             end
         end
     end
-    return reduce_order(outputInput, 5)
+    if isnothing(outputInput)
+        return outputInput
+    else
+        return reduce_order(outputInput, 5)
+    end
 end
 
 function projectReachSet(dirs, reachSet)

@@ -114,7 +114,7 @@ function ReACTDiscretizePlus(loc, X0, δ⁻::Float64, δ⁺::Float64, alg::Reach
     E⁺ = SymmetricIntervalHull(LinearMap(P2A_abs, SymmetricIntervalHull(LinearMap(A * A, X0))))
     rt = MinkowskiSum(E_ψ, E⁺)
     f = MinkowskiSum(lt, rt)
-    disc = CH(X0, f) # overapproximate(CH(X0, minkowski_sum(f, PZ)), Zonotope) #
+    disc = UnionSet(CH(X0, f), LazySets.EmptySet(XDim)) # overapproximate(CH(X0, minkowski_sum(f, PZ)), Zonotope) #
 
     # TODO maybe we can reuse this somehow?
     # if (size(genmat(disc),2)==0)

@@ -795,9 +795,51 @@ function projectReachSet(dirs, reachSet)
     return projectedReachSet
 end
 
+function revise(approximation, lazyRepresentation, directions, bounds)
+    newConstraints::Vector{LazySets.HalfSpace} = []
+    for (idx, direction) in pairs(directions)
+        if ρ(direction, lazyRepresentation) < bounds[idx]
+            push!(newConstraints, LazySets.HalfSpace(direction, ρ(direction, lazyRepresentation)))
+        end
+    end
+    newConstraints = vcat(approximation.constraints, newConstraints)
+    return HPolytope(newConstraints)
+end
 
+function revise(input, approximation, lazyRepresentation, directions, bounds)
+    newConstraints::Vector{LazySets.HalfSpace} = []
+    for (idx, direction) in pairs(directions)
+        distance = ρ(direction, lazyRepresentation) + ρ(direction, input)
+        if distance < bounds[idx]
+            push!(newConstraints, LazySets.HalfSpace(direction, distance))
+        end
+    end
+    newConstraints = vcat(approximation.constraints, newConstraints)
+    return HPolytope(newConstraints)
+end
 
+function constrain(approximation, lazyRepresentation, directions, bounds)
+    newConstraints::Vector{LazySets.HalfSpace} = []
+    for (idx, direction) in pairs(directions)
+        if ρ(direction, lazyRepresentation) > bounds[idx]
+            push!(newConstraints, LazySets.HalfSpace(direction, ρ(direction, lazyRepresentation)))
+        end
+    end
+    newConstraints = vcat(approximation.constraints, newConstraints)
+    return HPolytope(newConstraints)
+end
 
+function constrain(input, approximation, lazyRepresentation, directions, bounds)
+    newConstraints::Vector{LazySets.HalfSpace} = []
+    for (idx, direction) in pairs(directions)
+        distance = ρ(direction, lazyRepresentation) + ρ(direction, input)
+        if distance > bounds[idx]
+            push!(newConstraints, LazySets.HalfSpace(direction, bounds[idx]))
+        end
+    end
+    newConstraints = vcat(approximation.constraints, newConstraints)
+    return HPolytope(newConstraints)
+end
 
 
 

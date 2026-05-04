@@ -661,7 +661,7 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1)
     amountOfDims = length(dims)
     if amountOfDims == 1
 
-        dim2 = amountOfDims[1]
+        dim2 = dims[1]
         
         fig = Plots.plot(xlabel="time", ylabel="dim: " * string(dim2), ε=1e-6)
         cpallete = palette(:roma, length(flowpipe))
@@ -764,9 +764,6 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime)
     # Convert to bits 
     listToInclude = digits(totalSteps, base = 2) # Get bit map
 
-    @show listToInclude
-    @show totalSteps
-
     largestInput = copy(inputDict[δ⁺])
     ϕ = phiDict[δ⁺]
     tempM = similar(ϕ)
@@ -774,7 +771,6 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime)
     precomputed = true
     i = 0 # Iterator for precomputed
     for includeFlag in (listToInclude)
-        println("Step $i, with includeFlag $includeFlag, precomputed? $precomputed")
         if precomputed
             if includeFlag == 1 # If we have to add
 

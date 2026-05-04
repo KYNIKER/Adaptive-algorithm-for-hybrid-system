@@ -16,7 +16,7 @@ function loadembrake(x0, Tsample, ζ)
     i = 113.1167
 
 
-    # state variables: [I, x, xe, xc, T]
+    # state variables: [I, x, xe, xc]
     A = Matrix([-(R+K^2/drot)/L 0 KP/L KI/L;
                 K/i/drot        0 0    0;
                 0               0 0    0;
@@ -46,6 +46,6 @@ function loadembrake(x0, Tsample, ζ)
 
     H = HybridSystemV2(locations, [property])
 
-    T = 0.1
+    T = 0.02
     return H, 1, X0, T
 end

@@ -15,7 +15,7 @@ include("models/embrake/solve_embrake.jl")
 
 #using Cthulhu, ProfileView
 
-dirs = [1] # Which direction to plot. Empty means no plotting
+dirs = [2] # Which direction to plot. Empty means no plotting
 
 δ⁺ = 10^-6 * 2
 #δ⁺ = 0.04
@@ -33,10 +33,10 @@ dirs = [1] # Which direction to plot. Empty means no plotting
 #@ProfileView.profview ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, 5, 5, saveResult)
 res = []
 
-res = @timed solve_embrake(δ⁺, δ⁺, 5, 5, dirs, true)
+res = solve_embrake(δ⁺, δ⁺, 5, 5, dirs, true)
 #res = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), dirs, sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, 5, 5)
 
-plotProjectedFlowpipeLazy(res, dirs, n, joinpath("results/", "SandboxDim2.png"))
+plotProjectedFlowpipeLazy(res, dirs, 4, joinpath("results/", "SandboxDim2.png"))
 
 
 # plotProjectedFlowpipe(res, 0, 4, joinpath("results/", "SandboxDim24.png"))

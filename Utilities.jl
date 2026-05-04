@@ -667,17 +667,18 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1)
         for (x, y) in flowpipe
             sen = true
 
-            println(y)
+            #println(x)
             for (d, t) in x
                 #@show d
 
 
                 #d = [-ρ(sparsevec([dim2], [-1.0], ndim), r), ρ(sparsevec([dim2], [1.0], ndim), r)] #r[dim2]
                 if sen
-                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], lab="S" * string(i), linealpha=0)
+                    #Plots.plot!(Singleton(d), c=cpallete[i], lab="S" * string(i), linealpha=0, leg=false)
+                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], lab="S" * string(i), linealpha=1, leg=false)
                     sen = false
                 else
-                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], lab="", linealpha=0)
+                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], lab="", linealpha=1, leg=false)
                 end
                 #Plots.plot!(Shape([mincor1, maxcor1, maxcor1, mincor1], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
 

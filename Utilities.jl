@@ -806,6 +806,20 @@ function revise(approximation, lazyRepresentation, directions, bounds)
     return HPolytope(newConstraints)
 end
 
+function revise(approximation, lazyRepresentation::Zonotope)
+    newConstraints::Vector{LazySets.HalfSpace} = []
+    directions = generators(lazyRepresentation)
+    sumdir = reduce(+, directions)
+    bounds = map(x -> ρ(sumdir - x, lazyRepresentation), directions)
+    for (idx, direction) in pairs(directions)
+        if ρ(direction, approximation) > bounds[idx]
+            push!(newConstraints, LazySets.HalfSpace(direction, bounds[idx]))
+        end
+    end
+    newConstraints = vcat(approximation.constraints, newConstraints)
+    return HPolytope(newConstraints)
+end
+
 function revise(input::LazySet, approximation, lazyRepresentation, directions, bounds)
     newConstraints::Vector{LazySets.HalfSpace} = []
     for (idx, direction) in pairs(directions)
@@ -850,13 +864,13 @@ function constrain(input::LazySet, approximation, lazyRepresentation, directions
     for (idx, direction) in pairs(directions)
         Hdistance, Idisctance = ρ(direction, lazyRepresentation), ρ(direction, input)
         distance = Hdistance + Idisctance
-        push!(newConstraints, LazySets.HalfSpace(direction, bounds[idx]))
 
-        if distance > bounds[idx]
+        #push!(newConstraints, LazySets.HalfSpace(direction, bounds[idx]))
+        if distance > bounds[idx]#(sign(bounds[idx]) == 1 ? distance > bounds[idx] : distance < bounds[idx])
             #println("$(bounds[idx])   $Hdistance $Idisctance")
-            #push!(newConstraints, LazySets.HalfSpace(direction, bounds[idx]))
+            push!(newConstraints, LazySets.HalfSpace(direction, bounds[idx])) #(sign(bounds[idx]) == 1 ? bounds[idx] : distance)
         else
-            #push!(newConstraints, LazySets.HalfSpace(direction, distance))
+            push!(newConstraints, LazySets.HalfSpace(direction, distance))
 
         end
     end
@@ -865,8 +879,9 @@ function constrain(input::LazySet, approximation, lazyRepresentation, directions
     for constraint in constraints(approximation)
         Idistance = ρ(constraint.a, input)
         tconstraint = LazySets.HalfSpace(constraint.a, constraint.b + Idistance)
-        if !isempty(HPolytope(vcat(newConstraints, [constraint])))
-            push!(newConstraints, constraint)
+        if !isempty(HPolytope(vcat(newConstraints, [tconstraint])))
+            push!(newConstraints, tconstraint)
+            #println("$constraint    $Idistance $(constraint.b)")
 
         else
             println(constraint)
@@ -874,6 +889,7 @@ function constrain(input::LazySet, approximation, lazyRepresentation, directions
     end
     #newConstraints = vcat(constraints(approximation), newConstraints)
     res = HPolytope(newConstraints)
+    #res = remove_redundant_constraints!(res)
     #println(isempty(res))
     return res
 end

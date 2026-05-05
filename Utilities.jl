@@ -652,7 +652,7 @@ function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination, alpha=1)
     savefig(fig, destination)
 end
 
-function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1)
+function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1; xlim=nothing, ylim=nothing, verbose=false, legend=false)
 
     amountOfDims = length(dims)
     if amountOfDims == 1
@@ -666,18 +666,21 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1)
 
         for (x, y) in flowpipe
             sen = true
+            if verbose
+                println(y)
 
-            println(y)
+            end
+
             for (d, t) in x
                 #@show d
 
 
                 #d = [-ρ(sparsevec([dim2], [-1.0], ndim), r), ρ(sparsevec([dim2], [1.0], ndim), r)] #r[dim2]
                 if sen
-                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], lab="S" * string(i), linealpha=0)
+                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], leg=legend, lab="S" * string(i), linealpha=0)
                     sen = false
                 else
-                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], lab="", linealpha=0)
+                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], leg=legend, lab="", linealpha=0)
                 end
                 #Plots.plot!(Shape([mincor1, maxcor1, maxcor1, mincor1], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
 
@@ -694,7 +697,10 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1)
         i = 1
         k = 0
         for (x, y) in flowpipe
-            println(y)
+            if verbose
+                println(y)
+
+            end
             sen = true
             for (r, t) in x
                 #=
@@ -723,10 +729,10 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1)
                 d1 = [r[1], -r[2]]#[ρ(sparsevec([dim1], [-1.0], ndim), r), ρ(sparsevec([dim1], [1.0], ndim), r)]
                 d2 = [r[3], -r[4]]#[ρ(sparsevec([dim2], [-1.0], ndim), r), ρ(sparsevec([dim2], [1.0], ndim), r)]
                 if sen
-                    Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=cpallete[i], leg=false, lab="S" * string(i), linealpha=0)
+                    Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=cpallete[i], leg=legend, lab="S" * string(i), linealpha=0)
                     sen = false
                 else
-                    Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=cpallete[i], leg=false, lab="", linealpha=0)
+                    Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=cpallete[i], leg=legend, lab="", linealpha=0)
                 end
                 #plot!(r, c=cpallete[i], alpha=0.2)
             end
@@ -737,7 +743,12 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1)
         println("Cannot plot with amount of dims $amountOfDims")
         return
     end
-
+    if !isnothing(xlim)
+        xlims!(fig, xlim)
+    end
+    if !isnothing(ylim)
+        ylims!(fig, ylim)
+    end
     display(fig)
     savefig(fig, destination)
 end
@@ -861,6 +872,7 @@ end
 
 function constrain(input::LazySet, approximation, lazyRepresentation, directions, bounds)
     newConstraints::Vector{LazySets.HalfSpace} = []
+    #println("First loop")
     for (idx, direction) in pairs(directions)
         Hdistance, Idisctance = ρ(direction, lazyRepresentation), ρ(direction, input)
         distance = Hdistance + Idisctance
@@ -876,21 +888,37 @@ function constrain(input::LazySet, approximation, lazyRepresentation, directions
     end
     #println(newConstraints)
     #println(isempty(HPolytope(vcat(newConstraints, constraints(approximation)[end]))))
-    for constraint in constraints(approximation)
+    #tres = HPolytope(newConstraints)
+    constaintlist = constraints_list(approximation)
+    #println(constaintlist)
+    #println("Second loop")
+
+    for constraint in constaintlist
+        #println("Idist?")
+
         Idistance = ρ(constraint.a, input)
+        #println("Idist!")
+
         tconstraint = LazySets.HalfSpace(constraint.a, constraint.b + Idistance)
         if !isempty(HPolytope(vcat(newConstraints, [tconstraint])))
             push!(newConstraints, tconstraint)
             #println("$constraint    $Idistance $(constraint.b)")
 
         else
-            println(constraint)
+            #println("$constraint and $tconstraint")
+            if isempty(approximation)
+
+                #println(true)
+            end
+            #println("where $(ρ(constraint.a, approximation)) and $(ρ(-1. * constraint.a, approximation))") # $(ρ(constraint.a, tres)) and 
         end
     end
     #newConstraints = vcat(constraints(approximation), newConstraints)
     res = HPolytope(newConstraints)
     #res = remove_redundant_constraints!(res)
     #println(isempty(res))
+    #println("Second loop!")
+
     return res
 end
 

@@ -779,10 +779,7 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1)
     savefig(fig, destination)
 end
 
-function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime)
-    reduceOrder = 5
-    maxOrder = 5
-
+function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime, reduceOrder = 5, maxOrder = 5)
     # We know that δ⁻ % currentTime == 0
     outputInput = nothing
 
@@ -824,11 +821,11 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime)
                     outputInput = minkowski_sum(linear_map(ϕ, outputInput), largestInput)
                 end
             end
-            # if maxOrder > 0
-            #     if LazySets.order(largestInput) > maxOrder
-            #         largestInput = reduce_order(largestInput, reduceOrder)
-            #     end
-            # end
+            if maxOrder > 0
+                if LazySets.order(largestInput) > maxOrder
+                    largestInput = reduce_order(largestInput, reduceOrder)
+                end
+            end
         end
         i += 1
     end

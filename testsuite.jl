@@ -11,6 +11,9 @@ include("models/spacecraft.jl")
 const RUN_FIXED = false
 const RUN_ADAPTIVE = false
 
+const MAX_ORDER = 5
+const REDUCE_ORDER = 5
+
 function RunAdaptive(name, δ⁻, δ⁺, load_func)
     sys, initialState, X0, T = load_func()
     n = length(X0.center)
@@ -19,10 +22,10 @@ function RunAdaptive(name, δ⁻, δ⁺, load_func)
     BenchmarkTools.DEFAULT_PARAMETERS.samples = 50
 
     # Warmup
-    _ = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), [], sys.globalConstraints, δ⁻, δ⁺ , ReachabilityAnalysis.Exponentiation.BaseExp, 5, 5)
+    _ = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), [], sys.globalConstraints, δ⁻, δ⁺ , ReachabilityAnalysis.Exponentiation.BaseExp, MAX_ORDER, REDUCE_ORDER)
 
 
-    b = @benchmarkable _ = ReACTed($sys, $initialState, [0., $T], $X0, $Zonotope(zeros(Float64, $n), $zeros(Float64, $n, 1)), [], $sys.globalConstraints, $δ⁻, $δ⁺ , ReachabilityAnalysis.Exponentiation.BaseExp, 5, 5)
+    b = @benchmarkable _ = ReACTed($sys, $initialState, [0., $T], $X0, $Zonotope(zeros(Float64, $n), $zeros(Float64, $n, 1)), [], $sys.globalConstraints, $δ⁻, $δ⁺ , ReachabilityAnalysis.Exponentiation.BaseExp, $MAX_ORDER, $REDUCE_ORDER)
 
     y = run(b; verbose=true)
     println("Run completed.")
@@ -80,9 +83,9 @@ if RUN_ADAPTIVE
 end
 
 myLoading = () -> loadSpacecraft(abort_time=120.)
-myLoading = loadPlatoon
+#myLoading = loadPlatoon
 
-minDelta = 0.03
+minDelta = 0.04
 
 RunFixed("NewGracieTest", minDelta, myLoading)
 RunAdaptive("NewGracieTest", minDelta, minDelta*2^3, myLoading)

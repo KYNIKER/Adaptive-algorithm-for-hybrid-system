@@ -55,7 +55,7 @@ end
 
 
 # AucReacted is called recursively each time we have a new starting location (after a transition)
-function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, dirs, constraint, δ⁻::Float64, δ⁺::Float64, PhiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, Φ=missing, discretizationDict=nothing, inputDiscritezationDict=nothing, nonIntersectedDict=nothing, saveResult::Bool=true; clustering=false)
+function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, dirs, constraint, δ⁻::Float64, δ⁺::Float64, PhiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, Φ=missing, discretizationDict=nothing, inputDiscritezationDict=nothing, polyhedralSet=nothing, saveResult::Bool=true; clustering=false)
     locChange = false
     jumpDiscDict = Dict()
     #jumpOverapproximatedDiscDict = Dict()
@@ -65,12 +65,27 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
         discretizationDict, inputDiscritezationDict = ReACTDiscretizePlus(loc, X0, δ⁻, δ⁺, alg, maxOrder, reduceOrder, PhiDict[loc.id])
         locChange = true
     end
+
     overapproximatedDiscretizationDict = Dict()
+
+    intersectedSetIsNothing = isnothing(polyhedralSet)
+    intersectedDict = Dict()
+    if intersectedSetIsNothing
+        #intersectedDict = deepcopy(discretizationDict)
+    else 
+        #@show polyhedralSet
+        intersectedDict, _ = ReACTDiscretizePlus(loc, polyhedralSet, δ⁻, δ⁺, alg, maxOrder, reduceOrder, PhiDict[loc.id])
+    end
 
 
     for key in keys(discretizationDict)
-        #println(key)
-        overapproximatedDiscretizationDict[key] = concretize(overapproximate(discretizationDict[key], BoxDirections(dim)))
+        tempval = overapproximate(discretizationDict[key], BoxDirections(dim))
+        if !intersectedSetIsNothing
+            
+            tempval = intersection(tempval, intersectedDict[key])
+        end
+
+        overapproximatedDiscretizationDict[key] = tempval
     end
     #t = overapproximate(X0, BoxDirections(dim))
 
@@ -83,6 +98,7 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
     # For each edge we simulate the system
     for edge in loc.edges
         reset_map(X) = MinkowskiSum(LinearMap(edge.jumpMatrix, X), Singleton(edge.jumpVector)) #edge.jumpMatrix * X + edge.jumpVector
+        Reset_Map(X) = bloatPolytope(Singleton(edge.jumpVector), linear_map(edge.jumpMatrix, X)) 
         if VERBOSE
             println("Handling edge at time $time from $(loc.id) -> $(edge.targetLoc)")
         end
@@ -111,7 +127,7 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
                 push!(reachset, (tempReachset, string(time) * " - " * string(reachtime) * ": " * string(loc.id) * "->" * string(edge.targetLoc)))
             end
             #println("Before touches")
-            intersectingSet, intersectedInput, timeNotIntersected = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, endtime], (reachtime - time), guards, setOfConstraints, 2, PhiDict[loc.id], overapproximatedDiscretizationDict, discretizationDict, inputDiscritezationDict, tΦ, nothing)
+            intersectingSet, timeNotIntersected = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, endtime], (reachtime - time), guards, setOfConstraints, 2, PhiDict[loc.id], overapproximatedDiscretizationDict, discretizationDict, inputDiscritezationDict, tΦ, nothing)
             #println("After touches")
             
             if VERBOSE
@@ -127,15 +143,16 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
             if clustering
 
             else
-                for (touchingSet,_, startTime) in intersectingSet
+                for (intersectedSet, nonIntersectedSet, startTime) in intersectingSet
                     if saveResult
-                        push!(reachset, ([(map(x -> ρ(x, touchingSet), dirs), [reachtime, startTime])], "Guard intersection: " * string(reachtime) * " - " * string(timeNotIntersected) * ": " * string(loc.id) * "->" * string(loc.id)))
+                        push!(reachset, ([(map(x -> ρ(x, intersectedSet), dirs), [reachtime, startTime])], "Guard intersection: " * string(reachtime) * " - " * string(timeNotIntersected) * ": " * string(loc.id) * "->" * string(loc.id)))
                     end
                     #return reachset
 
-                    jumpSet = reset_map(touchingSet)
+                    jumpSet = reset_map(nonIntersectedSet)
                     if !LazySets.isempty(jumpSet)
-                        push!(waitlist, (edge.targetLoc, jumpSet, [startTime, endtime], missing, nothing, nothing, nothing))
+                        @show Reset_Map(intersectedSet)
+                        push!(waitlist, (edge.targetLoc, jumpSet, [startTime, endtime], missing, nothing, nothing, Reset_Map(intersectedSet)))
 
                     end
                 end
@@ -379,11 +396,12 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
                         preclustering = UnionSet(preclustering, newRR ⊕ Vs)
                     end
                     if isempty(overapproximateIntersectingSetArray)
-                        push!(overapproximateIntersectingSetArray, [constrain(Vs, newRR, LinearMap(Φ, lazyDiscritezationDict[δ⁻]), vcat(guardProjVectors, invarientProjVectors), vcat(guardProjBounds, invarientProjBounds)), time])
+                    
+                        push!(overapproximateIntersectingSetArray, [constrain(Vs, newRR, LinearMap(Φ, lazyDiscritezationDict[δ⁻]), vcat(guardProjVectors, invarientProjVectors), vcat(guardProjBounds, invarientProjBounds)),MinkowskiSum(Vs, LinearMap(Φ, lazyDiscritezationDict[δ⁻])), time])
                     end
                 end
                 #println("i: $i")
-                return overapproximateIntersectingSetArray, Vs, time
+                return (overapproximateIntersectingSetArray,  time)
 
 
                 #println("Touches Vs: ", accInput)
@@ -432,7 +450,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
                 if !isempty(newSet)
                     push!(overapproximateIntersectingSetArray, [newSet, MinkowskiSum(Vs, LinearMap(Φ, lazyDiscritezationDict[δ⁻])), time])
                 else
-                    return overapproximateIntersectingSetArray, Vs, time
+                    return (overapproximateIntersectingSetArray, time)
                 end
             
                 
@@ -470,9 +488,9 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
                     discritezationDict[currentTimeStep] = tSet
                 elseif VERBOSE
                     println(i)
-                    return (overapproximateIntersectingSetArray, Vs, time)
+                    return (overapproximateIntersectingSetArray, time)
                 else
-                    return (overapproximateIntersectingSetArray, Vs, time)
+                    return (overapproximateIntersectingSetArray, time)
                 end
                 
                 triedRevise = true
@@ -513,7 +531,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
         end
     end
 
-    return (overapproximateIntersectingSetArray, Vs, time)
+    return (overapproximateIntersectingSetArray, time)
 end
 
 
@@ -652,7 +670,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
             elseif triedRevise == false
                 
                 changedTimeStep = true
-                tSet =revise(discritezationDict[currentTimeStep], lazyDiscritezationDict[currentTimeStep], vcat(constraintProjVectors, -1 * guardProjVectors, invarientProjVectors), vcat(constraintProjBounds, -1 * guardProjBounds, invarientProjBounds)) # - vcat(Sρ, Gρ, Iρ)
+                tSet = revise(discritezationDict[currentTimeStep], lazyDiscritezationDict[currentTimeStep], vcat(constraintProjVectors, -1 * guardProjVectors, invarientProjVectors), vcat(constraintProjBounds, -1 * guardProjBounds, invarientProjBounds)) # - vcat(Sρ, Gρ, Iρ)
                 if !isempty(tSet)
                     
                     discritezationDict[currentTimeStep] = tSet
@@ -848,7 +866,7 @@ end
 
 # This can be replaced with throwing an error. Currently we continue and just print
 function handleHitConstraint(time, locationId)
-    #throw(error("ERROR!!! We have hit a constraint at loc: $(locationId) time: $time"))
+    throw(error("ERROR!!! We have hit a constraint at loc: $(locationId) time: $time"))
     println("\nERROR!!!\n 
             ERROR!!!\n\n
             We have hit a constraint at loc: $locationId time: $time\n\n

@@ -1,6 +1,6 @@
 export ReACTDiscretize, PhiDict
 using LinearAlgebra, LazySets, ReachabilityAnalysis
-
+include("Utilities.jl")
 isinvertible(x) = applicable(inv, x) && isone(inv(Matrix(x)) * x)
 
 function ReACTDiscretize(loc, X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing) where {N}
@@ -155,6 +155,96 @@ function ReACTDiscretizePlus(loc, X0, δ⁻::Float64, δ⁺::Float64, alg::Reach
     return discritezationDict, inputDiscritezationDict
 end
 
+
+function ReACTDiscretizePlus(loc, X0::HPolytope, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing)
+    #XDim, _ = size(genmat(X0))
+    #directions = CustomDirections(map(x -> x.a, constraints_list(X0)))
+    #@show directions
+    #  discritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
+    discritezationDict = Dict()
+    #  inputDiscritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
+    inputDiscritezationDict = Dict()
+    A = loc.A
+    XDim = size(A, 1)
+    if isnothing(phiDict)
+        phiDict = PhiDict(A, δ⁻, δ⁺, alg)
+    end
+
+    #U = isnothing(loc.B) ? (isnothing(loc.u) ? Zonotope(zeros(XDim), [zeros(XDim)]) : loc.u) : concretize(loc.B * loc.u)
+    U = isnothing(loc.B) ? (isnothing(loc.u) ? Zonotope(zeros(XDim), zeros(XDim, 1)) : loc.u) : LinearMap(loc.B, loc.u)
+    if !isnothing(loc.c)
+        U = concretize(U)
+        U = Zonotope(U.center + loc.c, genmat(U))
+    end
+    #U = overapproximate(U, BoxDirections(XDim))
+    d = δ⁻
+    dia::Matrix{Float64} = diagm(δ⁻ * ones(XDim))
+    isInvA = false #isinvertible(A)
+    Φ = copy(phiDict[d])
+    A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(A)
+    Φcache = sum(A) == abs(sum(A)) ? Φ : nothing
+    P2A_abs = ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, isInvA, Φcache)
+    #pis = ReachabilityAnalysis.Exponentiation.Φ₁(A, δ⁻, alg, isInvA, Φcache)
+
+    #X0 = Zonotope([1., 0., -1.], [[0.0, 0.0, 0.0]])
+
+    inputDiscritezationDict[0] = U
+    #if !(zeros(XDim) ∈ U) #Origin is *not* in input
+    #println("Here")
+    dU = linear_map(dia, U)#linear_map(dia, U)
+    E_ψ = symmetric_interval_hull(linear_map(P2A_abs, symmetric_interval_hull(linear_map(A, U))))
+    #E_ψ = SymmetricIntervalHull(LinearMap(P2A_abs, SymmetricIntervalHull(A * U)))
+    P = minkowski_sum(dU, E_ψ) #
+    lt = linear_map(phiDict[d], X0) #minkowski_sum(linear_map(phiDict[d], X0), P)  #minkowski_sum(convert(Zonotope, phiDict[d] * X0), dU)
+    tl = linear_map(A^2, X0)
+    te = symmetric_interval_hull(tl)
+    E⁺ = overapproximate(symmetric_interval_hull(linear_map(P2A_abs, te)), BoxDirections(XDim))
+    #rt = minkowski_sum(E_ψ, E⁺)
+    f = MinkowskiSum(lt, E⁺)
+    #boundingDirections = vcat(constraints_list(X0), constraints_list(lt), constraints_list(E⁺))
+    #abstractBoundingDirections = map(x -> x.a, boundingDirections)
+    #@show typeof(abstractBoundingDirections)
+    disc = overapproximatedCH(X0, f) #CH(X0, f)
+    #disc = overapproximate(disc, abstractBoundingDirections) # overapproximate(CH(X0, minkowski_sum(f, PZ)), Zonotope) #
+
+    # TODO maybe we can reuse this somehow?
+    # if (size(genmat(disc),2)==0)
+    #     disc = X0
+    # end
+
+    #disc = Zonotope(disc.center - P̂, genmat(disc))
+    #P = LinearMap(ReachabilityAnalysis.Exponentiation.Φ₁(A, d, alg, isInvA, Φcache), U)
+    #return discritezationDict, inputDiscritezationDict
+    #inputDiscritezationDict[d] = P
+    while d < δ⁺
+        discritezationDict[d] = disc
+        inputDiscritezationDict[d] = concretize(P)
+        # if maxOrder > 0
+        #     if LazySets.order(P) > maxOrder
+        #         P = reduce_order(P, reduceOrder)
+        #     end
+        #     if LazySets.order(disc) > maxOrder
+        #         disc = reduce_order(disc, reduceOrder)
+        #     end
+        # end
+        #println(P)
+        disc = CH(disc, minkowski_sum(P, linear_map(phiDict[d], disc)))
+        P = minkowski_sum(P, linear_map(phiDict[d], P))
+        d = d * 2
+    end
+    # if maxOrder > 0
+    #     if LazySets.order(P) > maxOrder
+    #         P = reduce_order(P, reduceOrder)
+    #     end
+    #     if LazySets.order(disc) > maxOrder
+    #         disc = reduce_order(disc, reduceOrder)
+    #     end
+    # end
+    discritezationDict[δ⁺] = disc
+    inputDiscritezationDict[δ⁺] = concretize(P)
+
+    return discritezationDict, inputDiscritezationDict
+end
 
 #=function ReACTDiscretize(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Nothing, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing) where {N}
     XDim, _ = size(genmat(X0))

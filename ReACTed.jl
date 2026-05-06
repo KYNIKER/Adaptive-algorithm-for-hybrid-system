@@ -79,6 +79,7 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
 
 
     for key in keys(discretizationDict)
+        #@show isempty(discretizationDict[key])
         tempval = overapproximate(discretizationDict[key], BoxDirections(dim))
         if !intersectedSetIsNothing
             
@@ -97,8 +98,8 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
 
     # For each edge we simulate the system
     for edge in loc.edges
-        reset_map(X) = MinkowskiSum(LinearMap(edge.jumpMatrix, X), Singleton(edge.jumpVector)) #edge.jumpMatrix * X + edge.jumpVector
-        Reset_Map(X) = bloatPolytope(Singleton(edge.jumpVector), linear_map(edge.jumpMatrix, X)) 
+        reset_map(X) = MinkowskiSum(LazySets.LinearMap(edge.jumpMatrix, X), Singleton(edge.jumpVector)) #edge.jumpMatrix * X + edge.jumpVector
+        Reset_Map(X) = bloatPolytope(Singleton(edge.jumpVector),edge.jumpMatrix, X) 
         if VERBOSE
             println("Handling edge at time $time from $(loc.id) -> $(edge.targetLoc)")
         end
@@ -144,15 +145,25 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
 
             else
                 for (intersectedSet, nonIntersectedSet, startTime) in intersectingSet
-                    if saveResult
-                        push!(reachset, ([(map(x -> ρ(x, intersectedSet), dirs), [reachtime, startTime])], "Guard intersection: " * string(reachtime) * " - " * string(timeNotIntersected) * ": " * string(loc.id) * "->" * string(loc.id)))
-                    end
                     #return reachset
-
-                    jumpSet = reset_map(nonIntersectedSet)
-                    if !LazySets.isempty(jumpSet)
-                        @show Reset_Map(intersectedSet)
-                        push!(waitlist, (edge.targetLoc, jumpSet, [startTime, endtime], missing, nothing, nothing, Reset_Map(intersectedSet)))
+                    
+                    if !LazySets.isempty(intersectedSet)
+                        if saveResult
+                            push!(reachset, ([(map(x -> ρ(x, intersectedSet), dirs), [reachtime, startTime])], "Guard intersection: " * string(reachtime) * " - " * string(timeNotIntersected) * ": " * string(loc.id) * "->" * string(loc.id)))
+                        end
+                        jumpSetLazy = reset_map(nonIntersectedSet) #
+                        #@show minimum(map(x -> norm(x.a) ,constraints_list(intersectedSet)))
+                        #@show minimum(map(x -> abs(x.b) ,constraints_list(intersectedSet)))
+                        #@show typeof(intersectedSet)
+                        #jumpSetIntersected = linear_map(edge.jumpMatrix, intersectedSet)
+                        jumpSetIntersected = Reset_Map(intersectedSet) #intersection(Reset_Map(intersectedSet), hybridSystem.locations[edge.targetLoc].invarient)
+                        #jumpSetLazy = Intersection( hybridSystem.locations[edge.targetLoc].invarient, jumpSetLazy) #reset_map(nonIntersectedSet) #
+                        if !isnothing(hybridSystem.locations[edge.targetLoc].invarient)
+                            jumpSetIntersected = intersection(jumpSetIntersected, hybridSystem.locations[edge.targetLoc].invarient)
+                            
+                        end
+                        
+                        push!(waitlist, (edge.targetLoc, jumpSetLazy, [startTime, endtime], missing, nothing, nothing, jumpSetIntersected))
 
                     end
                 end
@@ -866,7 +877,7 @@ end
 
 # This can be replaced with throwing an error. Currently we continue and just print
 function handleHitConstraint(time, locationId)
-    throw(error("ERROR!!! We have hit a constraint at loc: $(locationId) time: $time"))
+    #throw(error("ERROR!!! We have hit a constraint at loc: $(locationId) time: $time"))
     println("\nERROR!!!\n 
             ERROR!!!\n\n
             We have hit a constraint at loc: $locationId time: $time\n\n

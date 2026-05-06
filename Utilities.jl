@@ -953,12 +953,20 @@ function constrain(input::Vector{}, approximation, directions)
     return HPolytope(newConstraints)
 end
 
-function bloatPolytope(input::LazySet, P::HPolytope)
+function bloatPolytope(input::LazySet, M, P::HPolytope)
     newConstraints::Vector{LazySets.HalfSpace} = []
     hspaces = constraints_list(P)
-    for (idx, hspace) in pairs(hspaces)
-        Idistance = ρ(hspace.a, input)
-        push!(newConstraints, LazySets.HalfSpace(hspace.a, hspace.b + Idistance))
+
+    for hspace in hspaces
+        Ma = M * hspace.a
+        Idistance = ρ(Ma, input)
+        println("$(Ma),   $(hspace.b + Idistance)")
+        if !all(x -> x == 0, M * hspace.a)
+            push!(newConstraints, LazySets.HalfSpace(M * hspace.a, hspace.b + Idistance))
+        else
+            push!(newConstraints, LazySets.HalfSpace(hspace.a, ρ(hspace.a, input)))
+
+        end
 
     end
     return HPolytope(newConstraints)

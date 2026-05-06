@@ -454,12 +454,25 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HyperplaneModule.Hyp
     c = Z.center
     b = H.a
     d = H.b
-    λ = (G * transpose(G) * b) / (transpose(b) * G * transpose(G) * b + σ^2)
+    # GG = G * transpose(G)
+    # GGb = GG * b
+    GGb = G * (transpose(G) * b)
+    dotProduct = dot(transpose(b), GGb) + σ^2
+    # λ = GGB / (transpose(b) * GGb + σ^2)
+    # λ = (G * transpose(G) * b) / (transpose(b) * G * transpose(G) * b + σ^2)
+    λ = GGb / dotProduct
     ĉ = c + λ * (d - transpose(b) * c)
     upper = ((I - λ * transpose(b)) * G)
     lower = (σ * λ)
     Ĝ::Matrix{eltype(G)} = hcat(upper, lower)
     return Zonotope(ĉ, Ĝ)
+end
+
+# Takes two vectors. May be sparrse
+function iscollinear(a, b; atol = 1e-10)
+    # If the value is zero (Or very close to zero, then they are linearly dependent)
+    # Squaring rather than doing norm because norm would take longer to calc 
+    return abs(dot(a, b)^2 - dot(a, a)*dot(b, b)) ≤ atol
 end
 
 function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HPolyhedron)
@@ -468,19 +481,34 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
     res = copy(Z)
     if rank(HSG) < size(HSG, 1)
         #println("Collinear")
-        collinear = []
-        remidx = stack([false for x in HalfSpaces])
+        #collinear = []
+        collinear = Vector{LazySets.HalfSpaceModule.HalfSpace{Float64, Vector{Float64}}}()
+        #remidx = stack([false for x in HalfSpaces])
+        remidx = falses(length(HalfSpaces))
         for hs in HalfSpaces
-            if any(i -> rank([i.a hs.a]) <= 1 && (i !== hs), HalfSpaces) #any(i -> abs(dot(i.a, hs.a)) == norm(i.a) * norm(hs.a) && (i !== hs), HalfSpaces)
+            flag = false
+            for (index2, i) in enumerate(HalfSpaces)
+                if i !== hs && iscollinear(hs.a, i.a)
+                    found = true
+                    remidx[index2] = true
+                end
+            end
+            if flag
                 push!(collinear, hs)
-                remidx = remidx .|| any(i -> rank([i.a hs.a]) <= 1 && (i !== hs), HalfSpaces, dims=2)
             end
         end
+
+        #         if any(i -> rank([i.a hs.a]) <= 1 && (i !== hs), HalfSpaces) #any(i -> abs(dot(i.a, hs.a)) == norm(i.a) * norm(hs.a) && (i !== hs), HalfSpaces)
+        #         push!(collinear, hs)
+        #         remidx = remidx .|| any(i -> rank([i.a hs.a]) <= 1 && (i !== hs), HalfSpaces, dims=2)
+        #     end
+        # end
 
         HalfSpaces = deleteat!(HalfSpaces, remidx)
 
 
-
+        # @show collinear
+        # @show typeof(collinear)
 
         for hs in HalfSpaces
             a = hs.a
@@ -499,7 +527,8 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
             end
         end
         while !isempty(collinear)
-            temphs = []
+            #temphs = []
+            temphs = Vector{LazySets.HalfSpaceModule.HalfSpace{Float64, Vector{Float64}}}()
             push!(temphs, pop!(collinear))
             cols = any(i -> rank([i.a temphs[1].a]) <= 1, collinear, dims=2)
             for i in eachindex(cols)

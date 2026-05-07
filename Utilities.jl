@@ -817,6 +817,17 @@ function revise(approximation, lazyRepresentation, directions, bounds)
     newConstraints = vcat(approximation.constraints, newConstraints)
     return HPolytope(newConstraints)
 end
+function revise(approximation, lazyRepresentation, directions)
+    newConstraints::Vector{LazySets.HalfSpace} = []
+    for (idx, direction) in pairs(directions)
+        distance = ρ(direction, lazyRepresentation)
+
+        push!(newConstraints, LazySets.HalfSpace(direction, distance))
+
+    end
+    newConstraints = vcat(approximation.constraints, newConstraints)
+    return HPolytope(newConstraints)
+end
 
 function revise(approximation, lazyRepresentation::Zonotope)
     newConstraints::Vector{LazySets.HalfSpace} = []
@@ -938,7 +949,21 @@ function constrain(input::Vector{}, approximation, lazyRepresentation, direction
 
         end
     end
-    newConstraints = vcat(approximation.constraints, newConstraints)
+    #=
+    as = map(x -> x.a, constraints_list(approximation))
+    for (idx, direction) in pairs(as)
+        Hdistance = ρ(direction, lazyRepresentation)
+        distance = Hdistance + input[idx]
+        push!(newConstraints, LazySets.HalfSpace(direction, bounds[idx]))
+        if distance > bounds[idx]
+            #println("$(bounds[idx])   $Hdistance $Idisctance")
+        else
+            #push!(newConstraints, LazySets.HalfSpace(direction, distance))
+
+        end
+    end
+    =#
+    #newConstraints = vcat(approximation.constraints, newConstraints)
     return HPolytope(newConstraints)
 end
 
@@ -953,23 +978,108 @@ function constrain(input::Vector{}, approximation, directions)
     return HPolytope(newConstraints)
 end
 
-function bloatPolytope(input::LazySet, M, P::HPolytope)
+function bloatPolytope(input::Singleton, M, P::HPolytope)
+    newP = nothing
     newConstraints::Vector{LazySets.HalfSpace} = []
-    hspaces = constraints_list(P)
+    if isinvertible(M)
+        println("HECK YEA")
+        inverseTransposeM = inv(transpose(M))
+        hspaces = constraints_list(P)
 
-    for hspace in hspaces
-        Ma = M * hspace.a
-        Idistance = ρ(Ma, input)
-        println("$(Ma),   $(hspace.b + Idistance)")
-        if !all(x -> x == 0, M * hspace.a)
-            push!(newConstraints, LazySets.HalfSpace(M * hspace.a, hspace.b + Idistance))
-        else
-            push!(newConstraints, LazySets.HalfSpace(hspace.a, ρ(hspace.a, input)))
+        for hspace in hspaces
+            Ma = inverseTransposeM * hspace.a
+            b = hspace.b
 
+            push!(newConstraints, LazySets.HalfSpace(Ma, b + ρ(Ma, input)))
         end
 
+        newP = HPolytope(newConstraints)
+    else
+        println("HECK NO..")
+        if applicable(x -> linear_map(M, x), P)
+            tempP = nothing
+            try
+                tempP = linear_map(M, P)
+            catch
+                oldConstraints = constraints_list(P)
+                tempConstraints::Vector{LazySets.HalfSpace} = []
+                ax = map(x -> x.a, oldConstraints)
+                for (idx, a) in pairs(ax)
+                    if M * a != zero(a)
+                        push!(tempConstraints, LazySets.HalfSpace(a, oldConstraints[idx].b))
+                    else
+                        push!(tempConstraints, LazySets.HalfSpace(a, 0.0))
+
+                    end
+                end
+
+                tempP = linear_map(M, HPolytope(tempConstraints))
+            end
+            hspaces = constraints_list(tempP)
+            for hspace in hspaces
+                a = hspace.a
+                b = hspace.b
+
+                push!(newConstraints, LazySets.HalfSpace(a, b + ρ(a, input)))
+            end
+            newP = HPolytope(newConstraints)
+        else
+            inputV = element(input)
+            vertices = vertices_list(P)
+            Mv = map(x -> (M * x), vertices)
+            #iMv = element(input) .+ Mv
+            println("Before convex_hull!..")
+            #tempP = VPolytope(convex_hull!(Mv))
+            tempP = VPolytope(Mv)
+            tempP = minkowski_sum(tempP, input)
+            println("Before tohrep...")
+            newP = tohrep(tempP)
+            println("HPolytope done")
+        end
     end
-    return HPolytope(newConstraints)
+    @show isempty(newP)
+    return newP
+end
+
+function mapPolytope(M, P::HPolytope)
+    if applicable(x -> linear_map(M, x), P)
+        tempP = nothing
+        try
+            tempP = linear_map(M, P)
+        catch
+            oldConstraints = constraints_list(P)
+            tempConstraints::Vector{LazySets.HalfSpace} = []
+
+            ax = map(x -> x.a, oldConstraints)
+            for (idx, a) in pairs(ax)
+                if M * a != zero(a)
+                    push!(tempConstraints, LazySets.HalfSpace(a, oldConstraints[idx].b))
+                else
+                    push!(tempConstraints, LazySets.HalfSpace(a, 0.0))
+
+                end
+            end
+
+            tempP = linear_map(M, HPolytope(tempConstraints))
+        end
+        return tempP
+    elseif isinvertible(M)
+        println("HECKIDY")
+        inverseTransposeM = inv(transpose(M))
+        hspaces = constraints_list(P)
+        newConstraints::Vector{LazySets.HalfSpace} = []
+        for hspace in hspaces
+            a = hspace.a
+            b = hspace.b
+
+            push!(newConstraints, LazySets.HalfSpace(inverseTransposeM * a, b))
+        end
+        return HPolytope(newConstraints)
+    else
+        vertices = vertices_list(P)
+        Mv = map(x -> M * x, vertices)
+        return tohrep(VPolytope(convex_hull!(Mv)))
+    end
 end
 
 function overapproximatedCH(H1::HPolytope, H2::HPolytope)
@@ -987,8 +1097,12 @@ end
 function overapproximatedCH(H1::HPolytope, H2::LazySet)
     newConstraints::Vector{LazySets.HalfSpace} = []
     directions = map(x -> x.a, constraints_list(H1))
+    println("New CH")
     for direction in directions
-        distance = max(ρ(direction, H1), ρ(direction, H2))
+        @show direction
+        d1 = ρ(direction, H1)
+        d2 = ρ(direction, H2)
+        distance = max(d1, d2)
         push!(newConstraints, LazySets.HalfSpace(direction, distance))
     end
     #remove_redundant_constraints!(newConstraints)
@@ -1006,7 +1120,8 @@ function overapproximatedCH(H1::HPolyhedron, H2::LazySet)
     return HPolytope(newConstraints)
 end
 
-
+isinvertible(x::Matrix) = is_nonsingular(x) && applicable(inv, x)
+is_nonsingular(A) = !issuccess(lu(A, check=false)) ? false : true
 
 
 #Base.:+(z1::Zonotope, z2::Zonotope) = Zonotope(z1.center + z2.center, z1.generators + z2.generators)

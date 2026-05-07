@@ -14,15 +14,15 @@ function loadBouncingBall()
 
     guard = HPolyhedron([
         LazySets.HalfSpace(sparsevec([1], [1.], 3), 0.0), # x <= 0
-        #LazySets.HalfSpace(sparsevec([1], [-1.], 3), 0.0),  # x >= 0
+        LazySets.HalfSpace(sparsevec([1], [-1.], 3), 0.0),  # x >= 0
         LazySets.HalfSpace(sparsevec([2], [1.], 3), 0.0)  # y <= 0
     ])
 
-    jumpMatrix = [1.0 0.0 0.; 0.0 -0.75 0.; 0.0 0.0 1.0]
+    jumpMatrix = [0.0 0.0 0.; 0.0 -0.75 0.; 0.0 0.0 1.0]
 
     edges::Vector{Edge} = [Edge(1, guard, jumpMatrix, zeros(3))]
 
-    locations = [Location(1, HPolyhedron([LazySets.HalfSpace(sparsevec([1], [-1.], 3), -0.0)]), A, I(3), u, nothing, edges, [])]
+    locations = [Location(1, HPolyhedron([LazySets.HalfSpace(sparsevec([1], [-1.], 3), 0.0)]), A, I(3), u, nothing, edges, [])]
 
     H = HybridSystemV2(locations, [])
 

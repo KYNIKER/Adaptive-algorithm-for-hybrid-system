@@ -1,7 +1,7 @@
 export ReACTDiscretize, PhiDict
 using LinearAlgebra, LazySets, ReachabilityAnalysis
 include("Utilities.jl")
-isinvertible(x) = applicable(inv, x) && isone(inv(Matrix(x)) * x)
+
 
 function ReACTDiscretize(loc, X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing) where {N}
     XDim, _ = size(genmat(X0))
@@ -195,8 +195,8 @@ function ReACTDiscretizePlus(loc, X0::HPolytope, δ⁻::Float64, δ⁺::Float64,
     E_ψ = symmetric_interval_hull(linear_map(P2A_abs, symmetric_interval_hull(linear_map(A, U))))
     #E_ψ = SymmetricIntervalHull(LinearMap(P2A_abs, SymmetricIntervalHull(A * U)))
     P = minkowski_sum(dU, E_ψ) #
-    lt = linear_map(phiDict[d], X0) #minkowski_sum(linear_map(phiDict[d], X0), P)  #minkowski_sum(convert(Zonotope, phiDict[d] * X0), dU)
-    tl = linear_map(A^2, X0)
+    lt = mapPolytope(phiDict[d], X0) #minkowski_sum(linear_map(phiDict[d], X0), P)  #minkowski_sum(convert(Zonotope, phiDict[d] * X0), dU)
+    tl = mapPolytope(A^2, X0)
     te = symmetric_interval_hull(tl)
     E⁺ = overapproximate(symmetric_interval_hull(linear_map(P2A_abs, te)), BoxDirections(XDim))
     #rt = minkowski_sum(E_ψ, E⁺)

@@ -557,7 +557,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
 
     triedRevise = false
     while time < endtime
-        #println("Time is: $time")
+        println("Time is: $time")
         attempts = 1
         approveFlag = false
 

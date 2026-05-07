@@ -156,6 +156,62 @@ function ReACTDiscretizePlus(loc, X0, δ⁻::Float64, δ⁺::Float64, alg::Reach
 end
 
 
+function ReACTDiscretizePlusNoLazy(loc, X0, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing)
+    discritezationDict = Dict()
+    inputDiscritezationDict = Dict()
+
+    A = loc.A
+    XDim = size(A, 1)
+
+    if isnothing(phiDict)
+        phiDict = PhiDict(A, δ⁻, δ⁺, alg)
+    end
+
+
+    U = isnothing(loc.B) ? (isnothing(loc.u) ? Zonotope(zeros(XDim), zeros(XDim, 1)) : loc.u) : linear_map(loc.B, loc.u)
+    if !isnothing(loc.c)
+        U = concretize(U)
+        U = Zonotope(U.center + loc.c, genmat(U))
+    end
+
+    d = δ⁻
+    isInvA = false #isinvertible(A)
+    Φ = copy(phiDict[d])
+    A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(A)
+    Φcache = sum(A) == abs(sum(A)) ? Φ : nothing
+    P2A_abs = ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, isInvA, Φcache)
+
+    inputDiscritezationDict[0] = U
+
+    #dU = δ⁻*U # linear_map(δ⁻, U)
+    E_ψ = symmetric_interval_hull(linear_map(P2A_abs, symmetric_interval_hull(linear_map(A, U))))
+    #P = minkowski_sum(dU, E_ψ) #
+    lt = linear_map(phiDict[d], X0)  
+    E⁺ = symmetric_interval_hull(linear_map(P2A_abs, symmetric_interval_hull(linear_map(A * A, X0))))
+    rt = minkowski_sum(E_ψ, E⁺)
+    f = minkowski_sum(lt, rt)
+    disc = overapproximate(CH(X0, f), Zonotope) #
+
+    # TODO maybe we can reuse this somehow?
+    # if (size(genmat(disc),2)==0)
+    #     disc = X0
+    # end
+
+    while d < δ⁺
+        discritezationDict[d] = disc
+        inputDiscritezationDict[d] = concretize(P)
+
+        disc = UnionSet(disc, minkowski_sum(P, linear_map(phiDict[d], disc)))
+        P = minkowski_sum(P , linear_map(phiDict[d], P))
+        d = d * 2
+    end
+
+    discritezationDict[δ⁺] = disc
+    inputDiscritezationDict[δ⁺] = U
+
+    return discritezationDict, inputDiscritezationDict
+end
+
 #=function ReACTDiscretize(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Nothing, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing) where {N}
     XDim, _ = size(genmat(X0))
     discritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()

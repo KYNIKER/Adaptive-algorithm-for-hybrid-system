@@ -32,15 +32,10 @@ function solve_embrake(δ⁺ = 2*10^-7, δ⁻ = 2*10^-7, maxOrder = 5, reduceOrd
     # Get the phi dict system 
     flowPhiDict = Dict(map(x -> x.id => PhiDict(x.A, δ⁻, δ⁺, alg), sys.locations))
     phiDict = flowPhiDict[loc.id]
-    discretizationDict, inputDiscretizationDict = ReACTDiscretizePlus(loc, X0, δ⁻, δ⁺, alg, maxOrder, reduceOrder, phiDict)
+    discretizationDict, inputDiscretizationDict = ReACTDiscretizePlusNoLazy(loc, X0, δ⁻, δ⁺, alg, maxOrder, reduceOrder, phiDict)
 
-    overapproximatedDiscretizationDict = Dict()
 
-    for key in keys(discretizationDict)
-        overapproximatedDiscretizationDict[key] = convert(Zonotope, overapproximate(discretizationDict[key], BoxDirections(n)))
-    end
-
-    res = run(sys, loc, time, Tsample, ζ, x0, T, overapproximatedDiscretizationDict, inputDiscretizationDict, sys.globalConstraints, dirsVectors, δ⁻, δ⁺, phiDict, alg, maxOrder, reduceOrder, missing, saveResult)
+    res = run(sys, loc, time, Tsample, ζ, x0, T, discretizationDict, inputDiscretizationDict, sys.globalConstraints, dirsVectors, δ⁻, δ⁺, phiDict, alg, maxOrder, reduceOrder, missing, saveResult)
 
     reachset = vcat(reachset, res)
 
@@ -56,7 +51,7 @@ function run(hybridSystem, loc::Location, time, Tsample, ζ, x0, T, discretizati
     edge = loc.edges[1]
 
     #JumpSupport(X, dir) = ρ(transpose(edge.jumpMatrix)*dir, X) + ρ(dir, edge.jumpVector) # TODO: This is not correct
-    JumpZonotope(X) = minkowski_sum(linear_map(edge.jumpMatrix, X), edge.jumpVector)
+    JumpZonotope(X) = minkowski_sum(linear_map(edge.jumpMatrix, X), Singleton(edge.jumpVector))
 
     tempReachset, reachtime, tΦ = ReACTGuards(loc, δ⁻, δ⁺, [time, time+guardTime], nothing, setOfConstraints, dirs, 2, PhiDict, discretizationDict, discretizationDict, inputDiscretizationDict, saveResult)
 
@@ -67,31 +62,34 @@ function run(hybridSystem, loc::Location, time, Tsample, ζ, x0, T, discretizati
         #_, _, timeNotIntersected = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, time+invariantTime], (reachtime - time),
         #                                                                    nothing, setOfConstraints, 2, PhiDict, 
         #                                                                    discretizationDict, discretizationDict, inputDiscretizationDict, tΦ, nothing)
-        timeIntersected = reachtime - time+invariantTime
-        
+        timeIntersected =  invariantTime - guardTime
+        time = reachtime
+
         λ = ceil(timeIntersected/(δ⁺))
         i = 0
-
         jumpΦ = tΦ
         while i < λ
+            branchedRun = []
             d = δ⁻
             jumpDiscDict = Dict()
             while d <= δ⁺
                 tempPhi = jumpΦ*PhiDict[d]
                 #tempJump = JumpSupport(discretizationDict[d], tempPhi*dir)
                 tempJump = JumpZonotope(linear_map(tempPhi, discretizationDict[d]))
-                println("x = ", ρ(dirs[1], tempJump))
-                #if (ρ(dirs[1], tempJump) > x0)
-                #    return println("Could not verify")
-                #else
-                jumpDiscDict[d] = tempJump
-                #end
+                #println("x = ", ρ(dirs[1], tempJump))
+                if (ρ(dirs[1], tempJump) > x0)
+                    return println("Could not verify")
+                else
+                    jumpDiscDict[d] = tempJump
+                end
                 d = 2*d
             end
             jumpΦ = jumpΦ* PhiDict[δ⁺]
-            branchedRun = run(hybridSystem, loc, time, Tsample, ζ, x0, T, jumpDiscDict, inputDiscretizationDict, hybridSystem.globalConstraints, dirs, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, missing, saveResult)
-            i = i+1
             time = time + δ⁺
+            if time < T
+                branchedRun = run(hybridSystem, loc, time, Tsample, ζ, x0, T, jumpDiscDict, inputDiscretizationDict, hybridSystem.globalConstraints, dirs, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, missing, saveResult)
+            end
+            i = i+1
             if saveResult
                 reachset = vcat(reachset, branchedRun)
             end 

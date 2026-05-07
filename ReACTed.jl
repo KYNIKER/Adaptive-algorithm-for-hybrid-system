@@ -160,7 +160,7 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
                 for (intersectedSet, nonIntersectedSet, startTime) in intersectingSet
                     #return reachset
                     
-                    #intersectedSet = revise(intersectedSet, nonIntersectedSet, collect(BoxDirections(dim)))
+                    intersectedSet = revise(intersectedSet, nonIntersectedSet, collect(BoxDirections(dim)))
                     @show LazySets.isempty(intersectedSet)
                     if !LazySets.isempty(intersectedSet)
                         if saveResult
@@ -178,7 +178,7 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
                             jumpSetIntersected = intersection(jumpSetIntersected, hybridSystem.locations[edge.targetLoc].invarient)
                             
                         end
-                        jumpSetIntersected = revise(jumpSetIntersected, jumpSetLazy, collect(BoxDirections(dim)))
+                        #jumpSetIntersected = revise(jumpSetIntersected, jumpSetLazy, collect(BoxDirections(dim)))
                         @show LazySets.isempty(jumpSetIntersected)
                         push!(waitlist, (edge.targetLoc, jumpSetLazy, [startTime, endtime], missing, nothing, nothing, jumpSetIntersected))
 

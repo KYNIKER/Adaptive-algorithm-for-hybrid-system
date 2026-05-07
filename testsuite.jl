@@ -15,17 +15,28 @@ const MAX_ORDER = 5
 const REDUCE_ORDER = 5
 
 function RunAdaptive(name, δ⁻, δ⁺, load_func)
+    clustering = true
+    timeConstraintList = []
+    if occursin("gearbox", lowercase(name))
+        println("Deteced Gearbox")
+        clustering = false
+        timeConstraintList = [(1, 0.2)]
+    end
+
     sys, initialState, X0, T = load_func()
     n = length(X0.center)
     LazySets.load_expokit()
     println("Running benchmark for: ", name)
     BenchmarkTools.DEFAULT_PARAMETERS.samples = 50
 
+    # Clear Memory
+    GC.gc()
+
     # Warmup
-    _ = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), [], sys.globalConstraints, δ⁻, δ⁺ , ReachabilityAnalysis.Exponentiation.BaseExp, MAX_ORDER, REDUCE_ORDER)
+    _ = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), [], sys.globalConstraints, δ⁻, δ⁺ , ReachabilityAnalysis.Exponentiation.BaseExp, MAX_ORDER, REDUCE_ORDER, clustering, timeConstraintList)
 
-
-    b = @benchmarkable _ = ReACTed($sys, $initialState, [0., $T], $X0, $Zonotope(zeros(Float64, $n), $zeros(Float64, $n, 1)), [], $sys.globalConstraints, $δ⁻, $δ⁺ , ReachabilityAnalysis.Exponentiation.BaseExp, $MAX_ORDER, $REDUCE_ORDER)
+    # Actual Test
+    b = @benchmarkable _ = ReACTed($sys, $initialState, [0., $T], $X0, $Zonotope(zeros(Float64, $n), $zeros(Float64, $n, 1)), [], $sys.globalConstraints, $δ⁻, $δ⁺ , ReachabilityAnalysis.Exponentiation.BaseExp, $MAX_ORDER, $REDUCE_ORDER, $clustering, $timeConstraintList)
 
     y = run(b; verbose=true)
     println("Run completed.")
@@ -84,11 +95,14 @@ end
 
 myLoading = () -> loadSpacecraft(abort_time=120.)
 #myLoading = loadPlatoon
+myLoading = loadGearBox
 
-minDelta = 0.04
+minDelta = 0.0008
 
-RunFixed("NewGracieTest", minDelta, myLoading)
-RunAdaptive("NewGracieTest", minDelta, minDelta*2^3, myLoading)
-RunAdaptive("NewGracieTest", minDelta, minDelta*2^5, myLoading)
+nameOfTest = "Gracie_Gearbox"
+
+RunFixed(nameOfTest, minDelta, myLoading)
+RunAdaptive(nameOfTest, minDelta, minDelta*2^3, myLoading)
+RunAdaptive(nameOfTest, minDelta, minDelta*2^5, myLoading)
 # RunAdaptive("NewGracieTest", minDelta, minDelta*2^7, myLoading)
 # RunAdaptive("NewGracieTest", minDelta, minDelta*2^9, myLoading)

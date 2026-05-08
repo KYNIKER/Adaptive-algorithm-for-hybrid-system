@@ -165,7 +165,7 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
                     #return reachset
                     if saveResult
                         #return reachset
-                        push!(reachset, ([(map(x -> ρ(x, nonIntersectedSet), dirs), [startTime, startTime + δ⁻])], "Guard intersection: " * string(reachtime) * " - " * string(timeNotIntersected) * ": " * string(loc.id) * "->" * string(loc.id)))
+                        #push!(reachset, ([(map(x -> ρ(x, nonIntersectedSet), dirs), [startTime, startTime + δ⁻])], "Guard intersection: " * string(reachtime) * " - " * string(timeNotIntersected) * ": " * string(loc.id) * "->" * string(loc.id)))
                         #tintersectedSet = revise(intersectedSet, nonIntersectedSet, collect(BoxDirections(dim)))
                         #push!(reachset, ([(map(x -> ρ(x, tintersectedSet), dirs), [reachtime- δ⁺, reachtime + δ⁺])], "Guard intersection: " * string(reachtime) * " - " * string(timeNotIntersected) * ": " * string(loc.id) * "->" * string(loc.id)))
                         
@@ -175,7 +175,7 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
                     #continue
 
                     println("Before revise: $(LazySets.isempty(intersectedSet))")
-                    tintersectedSet = revise(intersectedSet, nonIntersectedSet) #, collect(BoxDirections(dim))
+                    tintersectedSet = revise(intersectedSet, nonIntersectedSet, collect(BoxDirections(dim))) #, collect(BoxDirections(dim))
                     println("After revise: $(LazySets.isempty(tintersectedSet))")
                     if !LazySets.isempty(tintersectedSet)
                         if saveResult
@@ -193,7 +193,7 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
                             jumpSetIntersected = LazySets.intersection(jumpSetIntersected, hybridSystem.locations[edge.targetLoc].invarient)
                             
                         end
-                        #jumpSetIntersected = revise(jumpSetIntersected, jumpSetLazy, collect(BoxDirections(dim)))
+                        jumpSetIntersected = revise(jumpSetIntersected, jumpSetLazy, collect(BoxDirections(dim)))
                         @show LazySets.isempty(jumpSetIntersected)
                         push!(waitlist, (edge.targetLoc, jumpSetLazy, [startTime, endtime], missing, nothing, nothing, jumpSetIntersected))
 

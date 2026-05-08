@@ -821,11 +821,11 @@ function revise(approximation, lazyRepresentation, directions)
     newConstraints::Vector{LazySets.HalfSpace} = []
     for (idx, direction) in pairs(directions)
         distance = ρ(direction, lazyRepresentation)
-
         push!(newConstraints, LazySets.HalfSpace(direction, distance))
 
     end
     newConstraints = vcat(approximation.constraints, newConstraints)
+    #@show newConstraints
     return HPolytope(newConstraints)
 end
 
@@ -840,6 +840,20 @@ function revise(approximation, lazyRepresentation::Zonotope)
         end
     end
     newConstraints = vcat(approximation.constraints, newConstraints)
+    return HPolytope(newConstraints)
+end
+
+# TODO - FINISH FUNCTIONS
+function revise(approximation::HPolytope, lazyRepresentation)
+    newConstraints::Vector{LazySets.HalfSpace} = []
+    directions = map(x -> x.a, constraints_list(approximation))
+    #sumdir = reduce(+, directions)
+    #bounds = map(x -> ρ(sumdir - x, lazyRepresentation), directions)
+    for direction in directions
+        ρ(direction, approximation)
+        push!(newConstraints, LazySets.HalfSpace(direction, min(ρ(direction, approximation), ρ(direction, lazyRepresentation))))
+
+    end
     return HPolytope(newConstraints)
 end
 
@@ -978,6 +992,8 @@ function constrain(input::Vector{}, approximation, directions)
     return HPolytope(newConstraints)
 end
 
+
+# TODO - Manage constraints that become inconsistent.
 function bloatPolytope(input::Singleton, M, P::HPolytope)
     newP = nothing
     newConstraints::Vector{LazySets.HalfSpace} = []
@@ -1008,7 +1024,7 @@ function bloatPolytope(input::Singleton, M, P::HPolytope)
                     if M * a != zero(a)
                         push!(tempConstraints, LazySets.HalfSpace(a, oldConstraints[idx].b))
                     else
-                        push!(tempConstraints, LazySets.HalfSpace(a, 0.0))
+                        #push!(tempConstraints, LazySets.HalfSpace(a, 0.0))
 
                     end
                 end
@@ -1041,31 +1057,11 @@ function bloatPolytope(input::Singleton, M, P::HPolytope)
     return newP
 end
 
-function mapPolytope(M, P::HPolytope)
-    if applicable(x -> linear_map(M, x), P)
-        tempP = nothing
-        try
-            tempP = linear_map(M, P)
-        catch
-            oldConstraints = constraints_list(P)
-            tempConstraints::Vector{LazySets.HalfSpace} = []
+function mapPolytope(M::Matrix, P::HPolytope)
 
-            ax = map(x -> x.a, oldConstraints)
-            for (idx, a) in pairs(ax)
-                if M * a != zero(a)
-                    push!(tempConstraints, LazySets.HalfSpace(a, oldConstraints[idx].b))
-                else
-                    push!(tempConstraints, LazySets.HalfSpace(a, 0.0))
-
-                end
-            end
-
-            tempP = linear_map(M, HPolytope(tempConstraints))
-        end
-        return tempP
-    elseif isinvertible(M)
+    if isinvertible(M)
         println("HECKIDY")
-        inverseTransposeM = inv(transpose(M))
+        inverseTransposeM = LinearAlgebra.inv(transpose(M))
         hspaces = constraints_list(P)
         newConstraints::Vector{LazySets.HalfSpace} = []
         for hspace in hspaces
@@ -1075,7 +1071,32 @@ function mapPolytope(M, P::HPolytope)
             push!(newConstraints, LazySets.HalfSpace(inverseTransposeM * a, b))
         end
         return HPolytope(newConstraints)
+    elseif applicable(x -> linear_map(M, x), P)
+        println("Able to use linear_map")
+        tempP = nothing
+        try
+            tempP = linear_map(M, P)
+        catch
+            println("linear_map failed")
+            oldConstraints = constraints_list(P)
+            tempConstraints::Vector{LazySets.HalfSpace} = []
+
+            ax = map(x -> x.a, oldConstraints)
+            for (idx, a) in pairs(ax)
+                if M * a != zero(a)
+                    push!(tempConstraints, LazySets.HalfSpace(a, oldConstraints[idx].b))
+                else
+                    #push!(tempConstraints, LazySets.HalfSpace(a, 0.0))
+
+                end
+            end
+
+            tempP = linear_map(M, HPolytope(tempConstraints))
+        end
+        #@show tempP
+        return tempP
     else
+        println("CRAZY CRAZY CRAZY")
         vertices = vertices_list(P)
         Mv = map(x -> M * x, vertices)
         return tohrep(VPolytope(convex_hull!(Mv)))
@@ -1084,7 +1105,7 @@ end
 
 function overapproximatedCH(H1::HPolytope, H2::HPolytope)
     newConstraints::Vector{LazySets.HalfSpace} = []
-    directions = vcat(constraints_list(H1), constraints_list(H2))
+    directions = vcat(constraints_list(H1), constraints_list(H2), collect(BoxDirections(LazySets.dim(H1))))
     directions = map(x -> x.a, directions)
     for direction in directions
         distance = max(ρ(direction, H1), ρ(direction, H2))
@@ -1096,10 +1117,10 @@ end
 
 function overapproximatedCH(H1::HPolytope, H2::LazySet)
     newConstraints::Vector{LazySets.HalfSpace} = []
-    directions = map(x -> x.a, constraints_list(H1))
+    directions = vcat(map(x -> x.a, constraints_list(H1)), collect(BoxDirections(LazySets.dim(H1))))
     println("New CH")
     for direction in directions
-        @show direction
+        #@show direction
         d1 = ρ(direction, H1)
         d2 = ρ(direction, H2)
         distance = max(d1, d2)
@@ -1110,8 +1131,9 @@ function overapproximatedCH(H1::HPolytope, H2::LazySet)
 end
 
 function overapproximatedCH(H1::HPolyhedron, H2::LazySet)
+    println("CRAZY CRAZY CRAZY")
     newConstraints::Vector{LazySets.HalfSpace} = []
-    directions = map(x -> x.a, constraints_list(H1))
+    directions = vcat(map(x -> x.a, constraints_list(H1)), collect(BoxDirections(LazySets.dim(H1))))
     for direction in directions
         distance = max(ρ(direction, H1), ρ(direction, H2))
         push!(newConstraints, LazySets.HalfSpace(direction, distance))
@@ -1120,7 +1142,7 @@ function overapproximatedCH(H1::HPolyhedron, H2::LazySet)
     return HPolytope(newConstraints)
 end
 
-isinvertible(x::Matrix) = is_nonsingular(x) && applicable(inv, x)
+isinvertible(x::Matrix) = is_nonsingular(x) && applicable(LinearAlgebra.inv, x)
 is_nonsingular(A) = !issuccess(lu(A, check=false)) ? false : true
 
 

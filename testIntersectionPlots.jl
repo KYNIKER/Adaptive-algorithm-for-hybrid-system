@@ -5,8 +5,9 @@ include("Utilities.jl")
 
 
 Z = Zonotope([0.0, 0.0], [1.0 2.0 -1.0; 0.0 1.0 0.4])
-#input = Singleton([3.0, 0.0])
+input = Zonotope([3.0, 0.0], [[-0.1, 0.5]])
 
+#=
 input = HPolyhedron([
     LazySets.HalfSpace(sparsevec([1], [1.], 2), 3.6),  # x <= 0.6
     LazySets.HalfSpace(sparsevec([1], [-1.], 2), -3.0),  # x <= 0.6
@@ -14,6 +15,7 @@ input = HPolyhedron([
     LazySets.HalfSpace(sparsevec([2], [-1.], 2), -0.6), # y <= 0.6
     LazySets.HalfSpace(sparsevec([1, 2], [-1., 1.], 2), -2.84), # y <= 0.6
 ])
+=#
 
 approx = overapproximate(Z, BoxDirections(2))
 inv = HPolyhedron([
@@ -31,7 +33,7 @@ inv2 = HPolyhedron([
     LazySets.HalfSpace(sparsevec([1], [-1.], 2), 1.6),  # x <= 0.6
     LazySets.HalfSpace(sparsevec([2], [1.], 2), 2.6), # y <= 0.6
     LazySets.HalfSpace(sparsevec([2], [-1.], 2), 0.6), # y <= 0.6
-    LazySets.HalfSpace(sparsevec([1, 2], -1 * [-1., 1.], 2), -0.5), # y <= 0.6
+    LazySets.HalfSpace(sparsevec([1, 2], -1 * [-1., 1.5], 2), -0.7), # y <= 0.6
 ])
 dirs2 = map(x -> x.a, constraints(inv2))
 bounds2 = map(x -> x.b, constraints(inv2))
@@ -69,9 +71,13 @@ end
 println(intersection)=#
 Plots.plot!(intersection, c=:white, lab="Intersect", alpha=0.5)
 println(ρ([-0.5, 1.0], Z + input))
-intersectionr = revise(input, intersection, Z, [[-0.5, 1.0]], [ρ([-0.5, 1.0], Z)])
+intersectionr = revise(intersection, minkowski_sum(Z, input), [[-0.5, 1.0]], [ρ([-0.5, 1.0], Z)])
+println(isempty(intersectionr))
 Plots.plot!(intersectionr, c=:black, lab="Intersect2", alpha=0.5)
 
+A::Matrix = [0.0 1.0; 0.0 0.0]
+
+Plots.plot!(mapPolytope(A, mapPolytope(A, approx)), c=:brown, lab="A * Intersect2", alpha=0.5)
 #Plots.plot!(rest, c=:blue, lab="Rest", alpha=0.5)
 xlims!(fig, (-3.0, 10.0))
 ylims!(fig, (-3.0, 3.0))

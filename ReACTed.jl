@@ -85,11 +85,11 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
     for key in keys(discretizationDict)
         #@show isempty(discretizationDict[key])
         tempval = overapproximate(discretizationDict[key], BoxDirections(dim))
-        println(norm(tempval))
+        @show norm(tempval)
         if !intersectedSetIsNothing
-            println(norm(intersectedDict[key]))
+            @show norm(intersectedDict[key])
             tempval = intersection(tempval, intersectedDict[key])
-            println(norm(tempval))
+            @show norm(tempval)
             if norm(tempval) == 0.0
                 if saveResult
                     #push!(reachset, ([(map(x -> ρ(x,intersectedDict[key] ), dirs), [time, time + δ⁺])], "Guard intersection: " * string(time) * " - " * string(time) * ": " * string(loc.id) * "->" * string(loc.id)))
@@ -100,7 +100,7 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
             end
             
         end
-        println(norm(tempval))
+        #println(norm(tempval))
 
         overapproximatedDiscretizationDict[key] = tempval
     end
@@ -175,6 +175,7 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
                     #continue
 
                     println("Before revise: $(LazySets.isempty(intersectedSet))")
+                    @show (startTime, norm(nonIntersectedSet), norm(intersectedSet))
                     tintersectedSet = revise(intersectedSet, nonIntersectedSet, collect(BoxDirections(dim))) #, collect(BoxDirections(dim))
                     println("After revise: $(LazySets.isempty(tintersectedSet))")
                     if !LazySets.isempty(tintersectedSet)
@@ -416,7 +417,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
                 #println("Before constrain")
                 
                 newSet = constrain(Vs, newRR, LinearMap(copy(Φ), lazyDiscritezationDict[currentTimeStep]), vcat(guardProjVectors, invarientProjVectors), vcat(guardProjBounds, invarientProjBounds))
-                
+                @show (norm(newRR), norm(newSet), norm(Vs), norm(MinkowskiSum(copy(Vs), LinearMap(copy(Φ), lazyDiscritezationDict[currentTimeStep]))))
                 #println("After constrain")
                 if !isempty(newSet)
                     #@show triedRevise

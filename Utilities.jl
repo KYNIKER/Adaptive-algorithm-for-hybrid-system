@@ -821,6 +821,8 @@ function revise(approximation, lazyRepresentation, directions)
     newConstraints::Vector{LazySets.HalfSpace} = []
     for (idx, direction) in pairs(directions)
         distance = ρ(direction, lazyRepresentation)
+        tdistance = ρ(direction, approximation)
+        @show (distance, tdistance, (distance == tdistance))
         push!(newConstraints, LazySets.HalfSpace(direction, distance))
 
     end
@@ -900,15 +902,16 @@ end
 
 function constrain(input::LazySet, approximation, lazyRepresentation, directions, bounds)
     newConstraints::Vector{LazySets.HalfSpace} = []
-    #println("First loop")
+    @show norm(approximation)
     for (idx, direction) in pairs(directions)
-        Hdistance, Idisctance = ρ(direction, lazyRepresentation), ρ(direction, input)
+        ndir = direction / norm(direction)
+        Hdistance, Idisctance = ρ(ndir, lazyRepresentation), ρ(ndir, input)
         distance = Hdistance + Idisctance
-
+        @show (Hdistance, Idisctance)
         #push!(newConstraints, LazySets.HalfSpace(direction, bounds[idx]))
-        if distance > bounds[idx]#(sign(bounds[idx]) == 1 ? distance > bounds[idx] : distance < bounds[idx])
+        if distance > bounds[idx] / norm(direction) #(sign(bounds[idx]) == 1 ? distance > bounds[idx] : distance < bounds[idx])
             #println("$(bounds[idx])   $Hdistance $Idisctance")
-            push!(newConstraints, LazySets.HalfSpace(direction, bounds[idx])) #(sign(bounds[idx]) == 1 ? bounds[idx] : distance)
+            push!(newConstraints, LazySets.HalfSpace(direction, bounds[idx] / norm(direction))) #(sign(bounds[idx]) == 1 ? bounds[idx] : distance)
         else
             push!(newConstraints, LazySets.HalfSpace(direction, distance))
 
@@ -920,20 +923,26 @@ function constrain(input::LazySet, approximation, lazyRepresentation, directions
     constaintlist = constraints_list(approximation)
     #println(constaintlist)
     #println("Second loop")
-
+    @show norm(input)
+    @show LazySets.API.high(input)
+    @show LazySets.API.low(input)
     for constraint in constaintlist
         #println("Idist?")
-
+        a = constraint.a
+        n = norm(a)
+        na = constraint.a / n
         Idistance = ρ(constraint.a, input)
-        #println("Idist!")
+        #println("Idist!: $(Idistance/ norm(constraint.a))   $(constraint.a)")
 
-        tconstraint = LazySets.HalfSpace(constraint.a, constraint.b + Idistance)
+        tconstraint = LazySets.HalfSpace(na, constraint.b / n + Idistance) #Idisctance
         if !isempty(HPolytope(vcat(newConstraints, [tconstraint])))
             push!(newConstraints, tconstraint)
             #println("$constraint    $Idistance $(constraint.b)")
 
         else
-            #println("$constraint and $tconstraint")
+            println("NONONONONONOO")
+            push!(newConstraints, tconstraint)
+
             if isempty(approximation)
 
                 #println(true)
@@ -942,6 +951,7 @@ function constrain(input::LazySet, approximation, lazyRepresentation, directions
         end
     end
     #newConstraints = vcat(constraints(approximation), newConstraints)
+
     res = HPolytope(newConstraints)
     #res = remove_redundant_constraints!(res)
     #println(isempty(res))

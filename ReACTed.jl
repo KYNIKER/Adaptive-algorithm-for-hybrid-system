@@ -38,7 +38,7 @@ function ReACTed(hybridSystem::HybridSystemV2, initialLoc, interval, X0, U, dirs
 
     @show dirsVectors
 
-    res = auxReACTed(hybridSystem, hybridSystem.locations[loc], interval, X0, dirsVectors, constraint, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder, missing, clustering, timeConstraintList, saveResult)
+    res = auxReACTed(hybridSystem, hybridSystem.locations[loc], nothing, interval, X0, dirsVectors, constraint, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder, missing, clustering, timeConstraintList, saveResult)
 
     reachset = vcat(reachset, res)
 
@@ -47,7 +47,7 @@ end
 
 
 # AucReacted is called recursively each time we have a new starting location (after a transition)
-function auxReACTed(hybridSystem, loc::Location, interval, X0, dirs, constraint, δ⁻::Float64, δ⁺::Float64, PhiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, Φ=missing, clustering = true, timeConstraintList = [], saveResult::Bool=true) where {N}
+function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs, constraint, δ⁻::Float64, δ⁺::Float64, PhiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, Φ=missing, clustering = true, timeConstraintList = [], saveResult::Bool=true) where {N}
     activeTimeConstraints = []
     for (id, time) in timeConstraintList
         if id == loc.id
@@ -67,7 +67,12 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0, dirs, constraint,
 
 
     # For each edge we simulate the system
-    for edge in loc.edges
+    listOfEdges = loc.edges
+    if !isa(currentEdge, Nothing) # This allows us to sometimes just wanna do a signular edge
+        listOfEdges = [currentEdge]
+    end
+
+    for edge in listOfEdges
         println("Handling edge at time $time from $(loc.id) -> $(edge.targetLoc)")
         guards = edge.guard # Technically the guard is one singular HPolyhedron, but it composes the other guards
 
@@ -178,7 +183,7 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0, dirs, constraint,
                     jumpSet = intersectedSet
                     println("Finished intersections")
                 
-                    branchedRun = auxReACTed(hybridSystem, hybridSystem.locations[edge.targetLoc], [reachtime, endtime], jumpSet, dirs, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, tΦ, clustering, timeConstraintList, saveResult)
+                    branchedRun = auxReACTed(hybridSystem, hybridSystem.locations[edge.targetLoc], nothing, [reachtime, endtime], jumpSet, dirs, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, tΦ, clustering, timeConstraintList, saveResult)
                 
                     if saveResult
                         reachset = vcat(reachset, branchedRun)
@@ -187,7 +192,7 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0, dirs, constraint,
                     for (index, jumpSet) in enumerate(jumpSetsList)
                         # Note that we only do steps of size δ⁻ in touches
                         timeStart = reachtime + (index + 1) * δ⁻
-                        branchedRun = auxReACTed(hybridSystem, hybridSystem.locations[edge.targetLoc], [timeStart, endtime], jumpSet, dirs, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, tΦ, clustering, timeConstraintList, saveResult)
+                        branchedRun = auxReACTed(hybridSystem, hybridSystem.locations[edge.targetLoc], nothing, [timeStart, endtime], jumpSet, dirs, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, tΦ, clustering, timeConstraintList, saveResult)
                 
                         if saveResult
                             reachset = vcat(reachset, branchedRun)
@@ -203,7 +208,7 @@ function auxReACTed(hybridSystem, loc::Location, interval, X0, dirs, constraint,
             # If we are not encountering an invarient, try continue
             if tryContinueFlag 
                 println("Continuing from previous run at time $timeNotIntersected")
-                branchedRun = auxReACTed(hybridSystem, loc, [timeNotIntersected, endtime], latestSet, dirs, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, tΦ, clustering, timeConstraintList, saveResult)       
+                branchedRun = auxReACTed(hybridSystem, loc, edge, [timeNotIntersected, endtime], latestSet, dirs, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, tΦ, clustering, timeConstraintList, saveResult)       
                 if saveResult
                     reachset = vcat(reachset, branchedRun)
                 end

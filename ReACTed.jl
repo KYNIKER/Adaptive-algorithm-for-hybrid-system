@@ -85,11 +85,11 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
     for key in keys(discretizationDict)
         #@show isempty(discretizationDict[key])
         tempval = overapproximate(discretizationDict[key], BoxDirections(dim))
-        @show norm(tempval)
+        #@show norm(tempval)
         if !intersectedSetIsNothing
-            @show norm(intersectedDict[key])
+            #@show norm(intersectedDict[key])
             tempval = intersection(tempval, intersectedDict[key])
-            @show norm(tempval)
+            #@show norm(tempval)
             if norm(tempval) == 0.0
                 if saveResult
                     #push!(reachset, ([(map(x -> ρ(x,intersectedDict[key] ), dirs), [time, time + δ⁺])], "Guard intersection: " * string(time) * " - " * string(time) * ": " * string(loc.id) * "->" * string(loc.id)))
@@ -159,6 +159,7 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
             else
                 @show length(intersectingSet)
                 for (intersectedSet, nonIntersectedSet, startTime) in intersectingSet
+                    @show (startTime, norm(nonIntersectedSet), norm(intersectedSet))
                     if LazySets.isempty(intersectedSet)
                         continue
                     end
@@ -175,7 +176,6 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
                     #continue
 
                     println("Before revise: $(LazySets.isempty(intersectedSet))")
-                    @show (startTime, norm(nonIntersectedSet), norm(intersectedSet))
                     tintersectedSet = revise(intersectedSet, nonIntersectedSet, collect(BoxDirections(dim))) #, collect(BoxDirections(dim))
                     println("After revise: $(LazySets.isempty(tintersectedSet))")
                     if !LazySets.isempty(tintersectedSet)
@@ -272,9 +272,9 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
     constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint) #constraintProjBounds = map(x -> x.a, constraint) #
     guardProjVectors, guardProjBounds = getHalfSpaceProjections(guard) #map(x -> x.a, guard.constraints) #
     invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(loc.invarient) #map(x -> x.a, loc.invarient.constraints) #
-    @show invarientProjVectors
-    @show guardProjVectors
-
+    @show (invarientProjVectors, invarientProjBounds)
+    @show (guardProjVectors, guardProjBounds)
+    InvariantGuardIntersect = LazySets.intersection(loc.invarient, guard)
     #oldDirProjVectors = copy(dirProjVectors)
     oldConstraintProjVectors = copy(constraintProjVectors)
     oldGuardProjVectors = copy(guardProjVectors)
@@ -322,7 +322,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
     #@show newR
     #println(unique(map(x -> x.a, constraints_list(lazyDiscritezationDict[δ⁻]))))
     
-    push!(overapproximateIntersectingSetArray, [constrain(Vs, linear_map(Φ, newR), LinearMap(copy(Φ), lazyDiscritezationDict[δ⁻]), vcat(invarientProjVectors), vcat(invarientProjBounds)), MinkowskiSum(Vs, LinearMap(copy(Φ), lazyDiscritezationDict[δ⁻])), time])
+    #push!(overapproximateIntersectingSetArray, [constrain(Vs, linear_map(Φ, newR), LinearMap(copy(Φ), lazyDiscritezationDict[δ⁻]), loc.invarient), MinkowskiSum(copy(Vs), LinearMap(copy(Φ), lazyDiscritezationDict[δ⁻])), time])
     #return (overapproximateIntersectingSetArray,  time)
     
     #println("first!")
@@ -365,7 +365,9 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
                     end
                     if isempty(overapproximateIntersectingSetArray)
                         println("Is empty_!_!")
-                        push!(overapproximateIntersectingSetArray, copy([constrain(Vs, newRR, LinearMap(copy(Φ), lazyDiscritezationDict[δ⁻]), invarientProjVectors,  invarientProjBounds),MinkowskiSum(Vs, LinearMap(copy(Φ), lazyDiscritezationDict[δ⁻])), time]))
+                        push!(overapproximateIntersectingSetArray, copy([constrain(Vs, newRR, LinearMap(copy(Φ), lazyDiscritezationDict[δ⁻]), loc.invarient),MinkowskiSum(Vs, LinearMap(copy(Φ), lazyDiscritezationDict[δ⁻])), time]))
+                        
+                        #push!(overapproximateIntersectingSetArray, copy([constrain(Vs, newRR, LinearMap(copy(Φ), lazyDiscritezationDict[δ⁻]), invarientProjVectors,  invarientProjBounds),MinkowskiSum(Vs, LinearMap(copy(Φ), lazyDiscritezationDict[δ⁻])), time]))
                         #push!(overapproximateIntersectingSetArray, copy([newSet, MinkowskiSum(Vs, LinearMap(Φ, lazyDiscritezationDict[currentTimeStep])), time])) #
                         
                     end
@@ -416,7 +418,9 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
             if sen
                 #println("Before constrain")
                 
-                newSet = constrain(Vs, newRR, LinearMap(copy(Φ), lazyDiscritezationDict[currentTimeStep]), vcat(guardProjVectors, invarientProjVectors), vcat(guardProjBounds, invarientProjBounds))
+                #newSet = constrain(Vs, newRR, LinearMap(copy(Φ), lazyDiscritezationDict[currentTimeStep]), vcat(guardProjVectors, invarientProjVectors), vcat(guardProjBounds, invarientProjBounds))
+                newSet = constrain(Vs, newRR, LinearMap(copy(Φ), lazyDiscritezationDict[currentTimeStep]), InvariantGuardIntersect)
+                
                 @show (norm(newRR), norm(newSet), norm(Vs), norm(MinkowskiSum(copy(Vs), LinearMap(copy(Φ), lazyDiscritezationDict[currentTimeStep]))))
                 #println("After constrain")
                 if !isempty(newSet)

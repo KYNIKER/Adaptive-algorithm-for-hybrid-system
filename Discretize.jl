@@ -192,8 +192,8 @@ function ReACTDiscretizePlus(loc, X0::HPolytope, δ⁻::Float64, δ⁺::Float64,
     #if !(zeros(XDim) ∈ U) #Origin is *not* in input
     #println("Here")
     dU = linear_map(dia, U)#linear_map(dia, U)
-    E_ψ = symmetric_interval_hull(linear_map(P2A_abs, symmetric_interval_hull(linear_map(A, U))))
-    #E_ψ = SymmetricIntervalHull(LinearMap(P2A_abs, SymmetricIntervalHull(A * U)))
+    #E_ψ = symmetric_interval_hull(linear_map(P2A_abs, symmetric_interval_hull(linear_map(A, U))))
+    E_ψ = SymmetricIntervalHull(LinearMap(P2A_abs, SymmetricIntervalHull(A * U)))
     P = minkowski_sum(dU, E_ψ) #
     lt = mapPolytope(phiDict[d], X0) #minkowski_sum(linear_map(phiDict[d], X0), P)  #minkowski_sum(convert(Zonotope, phiDict[d] * X0), dU)
     tl = mapPolytope(A^2, X0)

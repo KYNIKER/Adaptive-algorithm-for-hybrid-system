@@ -916,7 +916,7 @@ end
 function constrain(input::LazySet, approximation, lazyRepresentation, directions, bounds)
     println("GETS USED???")
     newConstraints::Vector{LazySets.HalfSpace} = []
-    @show norm(approximation)
+    #@show norm(approximation)
     for (idx, direction) in pairs(directions)
         n = norm(direction)
         ndir = direction / norm(direction)
@@ -956,7 +956,7 @@ function constrain(input::LazySet, approximation, lazyRepresentation, directions
     end
     #println(constaintlist)
     #println("Second loop")
-    @show norm(input)
+    #@show norm(input)
     #@show LazySets.API.high(input)
     #@show LazySets.API.low(input)
     for constraint in constraintlist
@@ -1007,20 +1007,20 @@ function constrain(input::LazySet, approximation, lazyRepresentation, invariantG
     #@show maximum(bounds1)
     #@show maximum(bounds2)
 
-    @show maximum(bounds)
+    #@show maximum(bounds)
 
     #@show minimum(bounds1)
     #@show minimum(bounds2)
-    @show minimum(bounds)
-    @show bounds1
-    @show bounds2
-    @show bounds0
+    #@show minimum(bounds)
+    #@show bounds1
+    #@show bounds2
+    #@show bounds0
     hspaces::Vector{LazySets.HalfSpace} = [LazySets.HalfSpace(x, y + z) for (x, y, z) in zip(directions, bounds, bounds0)]
 
     res = HPolytope(hspaces)
-    @show norm(res)
-    @show LazySets.API.high(res)
-    @show LazySets.API.low(res)
+    #@show norm(res)
+    #@show LazySets.API.high(res)
+    #@show LazySets.API.low(res)
 
     return res #LazySets.intersection(res, invariantGuardIntersection)
 end
@@ -1074,7 +1074,82 @@ end=#
 # TODO - Manage constraints that become inconsistent. ALSO FIX NORMALIZE
 function bloatPolytope(input::Singleton, M, P::HPolytope)
     newP = nothing
+    tempP = nothing
     newConstraints::Vector{LazySets.HalfSpace} = []
+
+    try
+        tempP = linear_map(M, P)
+
+        hspaces = map(normalize, constraints_list(tempP))
+        for hspace in hspaces
+            Ma = hspace.a
+            nM = norm(Ma)
+            #@show nM
+            b = hspace.b / nM
+
+            push!(newConstraints, LazySets.HalfSpace(Ma / nM, b + ρ(Ma / nM, input)))
+        end
+
+        newP = HPolytope(newConstraints)
+    catch
+        println("Really doe?")
+
+        @show isinvertible(M)
+        if isinvertible(M)
+            inverseTransposeM = inv(transpose(M))
+            hspaces = map(normalize, constraints_list(P))
+
+            for hspace in hspaces
+                Ma = inverseTransposeM * hspace.a
+                nM = norm(Ma)
+                b = hspace.b / nM
+
+                push!(newConstraints, LazySets.HalfSpace(Ma / nM, b + ρ(Ma / nM, input)))
+            end
+
+            newP = HPolytope(newConstraints)
+        else
+            @show (LazySets.isempty(P), M, input)
+
+            #= hspaces = map(normalize, constraints_list(P))
+            push!(hspaces, LazySets.HalfSpace(SingleEntryVector(10, 10, 1.), 0.))
+            push!(hspaces, LazySets.HalfSpace(SingleEntryVector(10, 10, -1.), 0.))
+
+
+            newP = HPolytope(hspaces)=#
+
+            throw(ErrorException("Tries to calculate linear map through vertices"))
+            inputV = element(input)
+
+            vertices = vertices_list(P)
+            Mv = map(x -> (M * x), vertices)
+            #iMv = element(input) .+ Mv
+            println("Before convex_hull!..")
+            #tempP = VPolytope(convex_hull!(Mv))
+            tempP = VPolytope(Mv)
+            tempP = minkowski_sum(tempP, input)
+            println("Before tohrep...")
+            newP = tohrep(tempP)
+            println("HPolytope done")
+
+
+        end
+        #=oldConstraints = constraints_list(P)
+        tempConstraints::Vector{LazySets.HalfSpace} = []
+        ax = map(x -> x.a, oldConstraints)
+        for (idx, a) in pairs(ax)
+            if M * a != zero(a)
+                push!(tempConstraints, LazySets.HalfSpace(a, oldConstraints[idx].b))
+            else
+                #push!(tempConstraints, LazySets.HalfSpace(a, 0.0))
+
+            end
+        end
+
+        tempP = linear_map(M, HPolytope(tempConstraints))
+        =#
+    end
+    #=
     if isinvertible(M)
         println("HECK YEA")
         inverseTransposeM = inv(transpose(M))
@@ -1133,7 +1208,8 @@ function bloatPolytope(input::Singleton, M, P::HPolytope)
             println("HPolytope done")
         end
     end
-    @show isempty(newP)
+    #@show isempty(newP)
+    =#
     return newP
 end
 

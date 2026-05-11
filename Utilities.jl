@@ -1110,6 +1110,8 @@ function bloatPolytope(input::Singleton, M, P::HPolytope)
             newP = HPolytope(newConstraints)
         else
             @show (LazySets.isempty(P), M, input)
+            @show LazySets.API.high(P)
+            @show LazySets.API.low(P)
 
             #= hspaces = map(normalize, constraints_list(P))
             push!(hspaces, LazySets.HalfSpace(SingleEntryVector(10, 10, 1.), 0.))

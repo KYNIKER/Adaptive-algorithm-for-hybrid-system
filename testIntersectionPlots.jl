@@ -20,11 +20,22 @@ input = HPolyhedron([
 approx = overapproximate(Z, BoxDirections(2))
 inv = HPolyhedron([
     LazySets.HalfSpace(sparsevec([1], [1.], 2), 4.6),  # x <= 0.6
-    LazySets.HalfSpace(sparsevec([1], [-1.], 2), 1.6),  # x <= 0.6
+    LazySets.HalfSpace(sparsevec([1], [-1.], 2), 1.2),  # x <= 0.6
     LazySets.HalfSpace(sparsevec([2], [1.], 2), 2.6), # y <= 0.6
     LazySets.HalfSpace(sparsevec([2], [-1.], 2), 0.6), # y <= 0.6
     LazySets.HalfSpace(sparsevec([1, 2], [-1., 1.], 2), 0.7), # y <= 0.6
 ])
+test = HPolytope([
+    LazySets.HalfSpace(sparsevec([1], [1.], 2), 4.6),  # x <= 0.6
+    LazySets.HalfSpace(sparsevec([1], [-1.], 2), 1.2),  # x <= 0.6
+    LazySets.HalfSpace(sparsevec([2], [1.], 2), 2.6), # y <= 0.6
+    LazySets.HalfSpace(sparsevec([2], [-1.], 2), 0.6), # y <= 0.6
+    LazySets.HalfSpace(sparsevec([1, 2], [-1., 1.], 2), 0.7), # y <= 0.6
+])
+
+test3d = HPolytope([LazySets.HalfSpace(x, 1.0) for x in collect(BoxDirections(3))])
+test10d = HPolytope([LazySets.HalfSpace(x, 1.0) for x in collect(BoxDirections(10))])
+
 dirs = map(x -> x.a, constraints(inv))
 bounds = map(x -> x.b, constraints(inv))
 
@@ -43,6 +54,13 @@ offsetDistance = map(x -> ρ(x, input), dirs)
 offsetDistance2 = map(x -> ρ(x, input), dirs2)
 
 fig = Plots.plot()
+
+vs3d, ps3d = vertexRep(test3d)
+vs10d, ps10d = vertexRep(test10d)
+
+#@show vs3d
+#@show ps3d
+
 
 Plots.plot!(input, c=:purple, lab="Input", alpha=0.6)
 Plots.plot!(Z + input, c=:cyan, lab="Zonotope with input", alpha=0.2)
@@ -74,6 +92,17 @@ println(ρ([-0.5, 1.0], Z + input))
 intersectionr = revise(intersection, minkowski_sum(Z, input), [[-0.5, 1.0]], [ρ([-0.5, 1.0], Z)])
 println(isempty(intersectionr))
 Plots.plot!(intersectionr, c=:black, lab="Intersect2", alpha=0.5)
+
+vs, ps = vertexRep(test)
+v1 = [x[1] for x in vs]
+v2 = [x[2] for x in vs]
+p1 = [y[1] for y in ps]
+p2 = [y[2] for y in ps]
+
+@show size(vs)
+
+Plots.scatter!(v1, v2, c=:orange, lab="", alpha=0.5)
+Plots.scatter!(p1, p2, c=:red, lab="", alpha=0.5)
 
 A::Matrix = [0.0 1.0; 0.0 0.0]
 

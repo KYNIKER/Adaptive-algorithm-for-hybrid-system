@@ -1225,10 +1225,10 @@ function mapPolytope(M::Matrix, P::HPolytope)
             println("linear_map failed")
             oldConstraints = constraints_list(P)
             tempConstraints::Vector{LazySets.HalfSpace} = []
-
+            inverseTransposeM = inv(transpose(M))
             ax = map(x -> x.a, oldConstraints)
             for (idx, a) in pairs(ax)
-                if M * a != zero(a)
+                if inverseTransposeM * a != zero(a)
                     push!(tempConstraints, LazySets.HalfSpace(a, oldConstraints[idx].b))
                 else
                     #push!(tempConstraints, LazySets.HalfSpace(a, 0.0))
@@ -1298,6 +1298,73 @@ function overapproximatedCH(H1::HPolyhedron, H2::LazySet)
     end
     #remove_redundant_constraints!(newConstraints)
     return HPolytope(newConstraints)
+end
+
+function vertexRep(P::HPolytope)
+    hspaces = constraints_list(P)
+    as = map(x -> vec(x.a), hspaces) #/ (norm(x.a)^2)
+    bs = map(x -> (x.b), hspaces) #/ (norm(x.a)^2)
+    #@show zip(as, bs)
+    res = map(x -> (vec(x.a) / norm(x.a)) * (x.b / norm(x.a)), hspaces) #/ (norm(x.a)^2)
+    #@show length(as[1])
+    if length(as[1]) == 2
+        T = [0.0 -1.0;
+            1.0 0.0]
+        pes = map(y -> y + T * y / norm(T * y), res)
+    else
+        n = length(as[1])
+        template = zeros(n)
+        pes = []
+        for a in as
+
+            c = count(!=(0), a)
+            tempv = copy(template)
+            apes = []
+
+            #F = svd(reshape(a / norm(a), 1, :); full=true)
+            #V = F.V
+            #@show V, a, reshape(a, 1, :)
+            #push!(apes, V[:, 2:end])
+            ns = nullspace(permutedims(a))
+            #push!(apes, ns)
+            apes = map(x -> x + a, collect(eachcol(ns)))
+
+            #=
+            if c > n - 2
+                i = findfirst(!=(0), a)
+                j = findfirst(!=(0), a[i:end])
+                tempv[i] = a[j]
+                tempv[j] = -a[i]
+                push!(apes, tempv)
+            else
+                i = findfirst(==(0), a)
+                tempv[i] = 1.0
+                push!(apes, tempv)
+            end
+
+
+
+            m = 1
+
+            while m < n - 2
+                #shit
+                m += 1
+            end
+            =#
+            push!(pes, apes)
+
+        end
+
+    end
+
+    #@show res, pes
+
+
+    return res, pes
+end
+
+function ()
+
 end
 
 isinvertible(x::Matrix) = is_nonsingular(x) && applicable(LinearAlgebra.inv, x)

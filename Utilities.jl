@@ -1307,15 +1307,19 @@ function vertexRep(P::HPolytope)
     #@show zip(as, bs)
     res = map(x -> (vec(x.a) / norm(x.a)) * (x.b / norm(x.a)), hspaces) #/ (norm(x.a)^2)
     #@show length(as[1])
+    pes = []
     if length(as[1]) == 2
         T = [0.0 -1.0;
             1.0 0.0]
-        pes = map(y -> y + T * y / norm(T * y), res)
+        for a in res
+            push!(pes, [a + T * a / norm(T * a)])
+
+        end
+        #apes = map(y -> y + T * y / norm(T * y), res)
     else
         n = length(as[1])
         template = zeros(n)
-        pes = []
-        for a in as
+        for a in res
 
             c = count(!=(0), a)
             tempv = copy(template)
@@ -1363,8 +1367,36 @@ function vertexRep(P::HPolytope)
     return res, pes
 end
 
-function ()
+function halfspaceFromVertices(r, p, interiorPoint)
+    #@show r, p
+    listHspaces::Vector{LazySets.HalfSpace} = []
+    n = length(r)
+    k = length(p)
+    #differenceVectors = map(x -> x - r, p) #stack(differenceVectors)
+    D = zeros(eltype(r), k, n)
+    for i in 1:k
+        D[i, :] = p[i] - r
+    end
+    #@show D
+    N = nullspace(D)
+    if size(N, 2) != 1
+        #@show N, D, r
+        a = N[:, 1]
+        a = a / norm(a)
+        b = dot(a, r)
 
+        if dot(a, interiorPoint) > b #
+            a = -a
+            b = -b
+        end
+        return [LazySets.HalfSpace(a, b)]
+    else
+        a = N[:, 1]
+        b = 0.0
+        return [LazySets.HalfSpace(a, b), LazySets.HalfSpace(-a, b)]
+
+        #@show N, a, interiorPoint
+    end
 end
 
 isinvertible(x::Matrix) = is_nonsingular(x) && applicable(LinearAlgebra.inv, x)

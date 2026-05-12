@@ -35,6 +35,7 @@ test = HPolytope([
 
 test3d = HPolytope([LazySets.HalfSpace(x, 1.0) for x in collect(BoxDirections(3))])
 test10d = HPolytope([LazySets.HalfSpace(x, 1.0) for x in collect(BoxDirections(10))])
+testHalfspace = LazySets.HalfSpace([1.0, 1.0, 0.0], 2.0)
 
 dirs = map(x -> x.a, constraints(inv))
 bounds = map(x -> x.b, constraints(inv))
@@ -57,13 +58,15 @@ fig = Plots.plot()
 
 vs3d, ps3d = vertexRep(test3d)
 vs10d, ps10d = vertexRep(test10d)
-
+#FromVertices(vs3d[1], ps3d[1])
+#@show vs3d[1], htest
 #@show vs3d
 #@show ps3d
 
 
 Plots.plot!(input, c=:purple, lab="Input", alpha=0.6)
 Plots.plot!(Z + input, c=:cyan, lab="Zonotope with input", alpha=0.2)
+Plots.plot!(approx, c=:brown, lab="approx", alpha=0.2)
 
 Plots.plot!(approx + input, c=:blue, lab="Overapproximated Z", alpha=0.2)
 Plots.plot!(inv, c=:yellow, lab="invariant", alpha=0.2)
@@ -94,21 +97,41 @@ println(isempty(intersectionr))
 Plots.plot!(intersectionr, c=:black, lab="Intersect2", alpha=0.5)
 
 vs, ps = vertexRep(test)
+@show size(ps)
+@show ps[1]
 v1 = [x[1] for x in vs]
 v2 = [x[2] for x in vs]
-p1 = [y[1] for y in ps]
-p2 = [y[2] for y in ps]
+p1 = [y[1][1] for y in ps]
+p2 = [y[1][2] for y in ps]
 
 @show size(vs)
 
 Plots.scatter!(v1, v2, c=:orange, lab="", alpha=0.5)
 Plots.scatter!(p1, p2, c=:red, lab="", alpha=0.5)
 
-A::Matrix = [0.0 1.0; 0.0 0.0]
+A::Matrix = [1.0 0.0; 0.0 0.0]
 
-Plots.plot!(mapPolytope(A, mapPolytope(A, approx)), c=:brown, lab="A * Intersect2", alpha=0.5)
+#Plots.plot!(mapPolytope(A, approx), c=:pink, lab="A * Intersect2", alpha=0.5)
 #Plots.plot!(rest, c=:blue, lab="Rest", alpha=0.5)
-xlims!(fig, (-3.0, 10.0))
+intPoint = sample(approx)
+vsA, psA = vertexRep(approx)
+@show constraints_list(A * approx)
+@show vsA, psA
+map!(x -> A * x, vsA)
+map!(x -> map(y -> A * y, x), psA) #map(y -> A * y, x)
+mIntPoint = A * intPoint
+#@show psA
+listHspaces::Vector{LazySets.HalfSpace} = []
+for (x, y) in zip(vsA, psA)
+    global listHspaces = vcat(listHspaces, halfspaceFromVertices(x, y, mIntPoint))
+end
+@show listHspaces
+newmethod = HPolytope(listHspaces)
+Plots.plot!(mapPolytope(A, approx), c=:pink, lab="A * Intersect2", alpha=1.0, lw=1.25)
+Plots.plot!(newmethod, c=:black, lab="new method", alpha=0.8, lw=0.5, ls=:dash)
+
+
+xlims!(fig, (-5.0, 10.0))
 ylims!(fig, (-3.0, 3.0))
 #println(rest)
 

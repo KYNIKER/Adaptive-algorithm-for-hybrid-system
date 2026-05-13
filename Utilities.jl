@@ -1109,7 +1109,19 @@ function bloatPolytope(input::Singleton, M, P::HPolytope)
 
             newP = HPolytope(newConstraints)
         else
-            @show (LazySets.isempty(P), M, input)
+            println("CRAZY..")
+            inputOffset = element(input)
+            intPoint = LazySets.API.an_element(P)
+            vs, ps = vertexRep(P)
+            Mvs = map(x -> inputOffset + M * x, vs)
+            Mps = map(x -> map(y -> inputOffset + M * y, x), ps)
+            mIntPoint = inputOffset + M * intPoint
+            listHspaces::Vector{LazySets.HalfSpace} = []
+            for (x, y) in zip(Mvs, Mps)
+                listHspaces = vcat(listHspaces, halfspaceFromVertices(x, y, mIntPoint))
+            end
+            newP = HPolytope(listHspaces)
+            #=@show (LazySets.isempty(P), M, input)
             @show LazySets.API.high(P)
             @show LazySets.API.low(P)
 
@@ -1132,7 +1144,7 @@ function bloatPolytope(input::Singleton, M, P::HPolytope)
             tempP = minkowski_sum(tempP, input)
             println("Before tohrep...")
             newP = tohrep(tempP)
-            println("HPolytope done")
+            println("HPolytope done")=#
 
 
         end
@@ -1216,49 +1228,82 @@ function bloatPolytope(input::Singleton, M, P::HPolytope)
 end
 
 function mapPolytope(M::Matrix, P::HPolytope)
-    if applicable(x -> linear_map(M, x), P)
-        println("Able to use linear_map")
-        tempP = nothing
-        try
-            tempP = linear_map(M, P)
-        catch
-            println("linear_map failed")
-            oldConstraints = constraints_list(P)
-            tempConstraints::Vector{LazySets.HalfSpace} = []
-            inverseTransposeM = inv(transpose(M))
-            ax = map(x -> x.a, oldConstraints)
-            for (idx, a) in pairs(ax)
-                if inverseTransposeM * a != zero(a)
-                    push!(tempConstraints, LazySets.HalfSpace(a, oldConstraints[idx].b))
-                else
-                    #push!(tempConstraints, LazySets.HalfSpace(a, 0.0))
 
+    try
+        tempP = linear_map(M, P)
+    catch
+        println("linear_map failed")
+        if isinvertible(M)
+            println("HECKIDY")
+            inverseTransposeM = LinearAlgebra.inv(transpose(M))
+            hspaces = map(normalize, constraints_list(P))
+            newConstraints::Vector{LazySets.HalfSpace} = []
+            for hspace in hspaces
+                a = hspace.a
+                b = hspace.b
+
+                push!(newConstraints, LazySets.HalfSpace(inverseTransposeM * a, b))
+            end
+            tempP = HPolytope(newConstraints)
+            return tempP
+
+        else
+            println("CRAZY CRAZY CRAZY")
+            @show LazySets.isempty(P), LazySets.isbounded(P)
+            @show LazySets.API.low(P), LazySets.API.high(P)
+            intPoint = LazySets.API.an_element(P)
+            vs, ps = vertexRep(P)
+            Mvs = map(x -> M * x, vs)
+            Mps = map(x -> map(y -> M * y, x), ps)
+            mIntPoint = M * intPoint
+            zidx = findall(==(zeros(length(vs[1]))), Mvs)
+            listHspaces::Vector{LazySets.HalfSpace} = []
+            if !isempty(zidx)
+                for zdx in zidx
+                    @show vs[zdx]
+                end
+                for xyidx in 1:length(vs)
+                    if !(xyidx in zidx)
+                        listHspaces = vcat(listHspaces, halfspaceFromVertices(Mvs[xyidx], Mps[xyidx], mIntPoint))
+                    else
+                        listHspaces = vcat(listHspaces, halfspaceFromVertices(vs[xyidx], ps[xyidx], intPoint))
+                        @show halfspaceFromVertices(vs[xyidx], ps[xyidx], intPoint)
+                    end
+                end
+            else
+                for (x, y) in zip(Mvs, Mps)
+                    listHspaces = vcat(listHspaces, halfspaceFromVertices(x, y, mIntPoint))
                 end
             end
+            #@show listHspaces
+            tempP = HPolytope(listHspaces)
+            @show ρ([0.0, 0.0, 0.0, 0.0, 1.0], tempP)
+            return tempP
 
-            tempP = linear_map(M, HPolytope(tempConstraints))
+            #@show LazySets.isbounded(tempP)
+            #@show LazySets.API.low(tempP), LazySets.API.high(tempP)
+            #vertices = vertices_list(P)
+            #Mv = map(x -> M * x, vertices)
+            #tempP = tohrep(VPolytope(convex_hull!(Mv)))
         end
-        #@show tempP
-        return tempP
-    elseif isinvertible(M)
-        println("HECKIDY")
-        inverseTransposeM = LinearAlgebra.inv(transpose(M))
-        hspaces = map(normalize, constraints_list(P))
-        newConstraints::Vector{LazySets.HalfSpace} = []
-        for hspace in hspaces
-            a = hspace.a
-            b = hspace.b
+        #=
+        oldConstraints = constraints_list(P)
+        tempConstraints::Vector{LazySets.HalfSpace} = []
+        inverseTransposeM = inv(transpose(M))
+        ax = map(x -> x.a, oldConstraints)
+        for (idx, a) in pairs(ax)
+            if inverseTransposeM * a != zero(a)
+                push!(tempConstraints, LazySets.HalfSpace(a, oldConstraints[idx].b))
+            else
+                #push!(tempConstraints, LazySets.HalfSpace(a, 0.0))
 
-            push!(newConstraints, LazySets.HalfSpace(inverseTransposeM * a, b))
+            end
         end
-        return HPolytope(newConstraints)
 
-    else
-        println("CRAZY CRAZY CRAZY")
-        vertices = vertices_list(P)
-        Mv = map(x -> M * x, vertices)
-        return tohrep(VPolytope(convex_hull!(Mv)))
+        tempP = linear_map(M, HPolytope(tempConstraints))=#
     end
+    #@show tempP
+
 end
 
 function overapproximatedCH(H1::HPolytope, H2::HPolytope)
@@ -1392,8 +1437,10 @@ function halfspaceFromVertices(r, p, interiorPoint)
         return [LazySets.HalfSpace(a, b)]
     else
         a = N[:, 1]
-        b = 0.0
-        return [LazySets.HalfSpace(a, b), LazySets.HalfSpace(-a, b)]
+        @show a
+        #b = 0.0
+        b = dot(a, r)
+        return [LazySets.HalfSpace(a, b), LazySets.HalfSpace(-a, b)] #LazySets.HalfSpace(a, b), LazySets.HalfSpace(-a, b)
 
         #@show N, a, interiorPoint
     end

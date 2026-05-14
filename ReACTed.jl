@@ -212,6 +212,7 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
                             end
                             jumpSetIntersected = revise(jumpSetIntersected, jumpSetLazy, collect(OctDirections(dim)))
                             @show LazySets.isempty(jumpSetIntersected)
+                            jumpSetIntersected = reducePolytope(jumpSetIntersected)
                             push!(waitlist, (edge.targetLoc, jumpSetLazy, [startTime-δ⁻, endtime], missing, nothing, nothing, jumpSetIntersected))
                             
                         else

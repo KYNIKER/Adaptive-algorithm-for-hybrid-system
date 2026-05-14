@@ -1534,6 +1534,20 @@ function halfspaceFromVertices(r, p, interiorPoint)
     end
 end
 
+function reducePolytope(P::HPolytope)
+    constraints = constraints_list(P)
+    mindists = map(x -> (x.a / norm(x.a)) * (x.b / norm(x.a)), constraints)
+    listHspacesToKeep::Vector{LazySets.HalfSpace} = []
+    for (idx, dir) in pairs(mindists)
+        if ρ(dir, P) == 1.0
+            push!(listHspacesToKeep, constraints[idx])
+        end
+    end
+
+    return HPolytope(listHspacesToKeep)
+end
+
+
 isinvertible(x::Matrix) = is_nonsingular(x) && applicable(LinearAlgebra.inv, x)
 is_nonsingular(A) = !issuccess(lu(A, check=false)) ? false : true
 

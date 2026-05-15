@@ -997,7 +997,7 @@ end
 # Stupid but correct way
 function constrain(input::LazySet, approximation, lazyRepresentation, invariantGuardIntersection)
     newConstraints::Vector{LazySets.HalfSpace} = []
-    directions = unique(vcat(collect(BoxDirections(LazySets.dim(approximation))), map(x -> x.a / norm(x.a), vcat(constraints_list(approximation), constraints_list(invariantGuardIntersection)))))
+    directions = map(x -> x.a, vcat(constraints_list(approximation), constraints_list(invariantGuardIntersection)))
 
     bounds0 = map(x -> ρ(x, input), directions) #, ρ(x, invariantGuardIntersection)
 
@@ -1091,7 +1091,7 @@ function bloatPolytope(input::Singleton, M, P::HPolytope)
         end
 
         newP = HPolytope(newConstraints)
-        @show LazySets.API.high(newP)
+        #@show LazySets.API.low(newP)
     catch
         println("Really doe?")
 
@@ -1310,10 +1310,10 @@ function mapPolytope(M::Matrix, P::HPolytope)
     catch
         println("linear_map failed")
         if isinvertible(M)
-            println("HECKIDY")
             inverseTransposeM = LinearAlgebra.inv(transpose(M))
-            hspaces = map(normalize, constraints_list(P))
+            hspaces = constraints_list(P)
             newConstraints::Vector{LazySets.HalfSpace} = []
+            println("Made the inverse")
             for hspace in hspaces
                 a = hspace.a
                 b = hspace.b
@@ -1321,7 +1321,7 @@ function mapPolytope(M::Matrix, P::HPolytope)
                 push!(newConstraints, LazySets.HalfSpace(inverseTransposeM * a, b))
             end
             #@show newConstraints
-            tempP = HPolytope(newConstraints)
+            tempP = HPolytope(map(normalize, newConstraints))
             return tempP
 
         else
@@ -1534,19 +1534,45 @@ function halfspaceFromVertices(r, p, interiorPoint)
     end
 end
 
-function reducePolytope(P::HPolytope)
+# TODO Check whether works in both directions
+function reducePolytope(P::HPolytope; tolerance=0.1)
     constraints = constraints_list(P)
-    mindists = map(x -> (x.a / norm(x.a)) * (x.b / norm(x.a)), constraints)
     listHspacesToKeep::Vector{LazySets.HalfSpace} = []
-    for (idx, dir) in pairs(mindists)
-        if ρ(dir, P) == 1.0
-            push!(listHspacesToKeep, constraints[idx])
+    for constraint in constraints
+        if abs(ρ(constraint.a, P) - constraint.b) < tolerance
+            push!(listHspacesToKeep, constraint)
+        end
+    end
+    res = HPolytope(listHspacesToKeep)
+    return res
+end
+
+function reducePolytopeFromBounding(P::HPolytope; tolerance=0.08)
+    constraints = constraints_list(P)
+    tconstraint::Vector{LazySets.HalfSpace} = map(x -> LazySets.HalfSpace(vec(x), ρ(x, P)), collect(BoxDirections(LazySets.dim(P))))
+    res = HPolytope(tconstraint) #overapproximate(P, BoxDirections(LazySets.dim(P)))
+    listHspacesToKeep::Vector{LazySets.HalfSpace} = []
+    for constraint in constraints
+        dir = constraint.a / norm(constraint.a)
+        Pdist = ρ(dir, P)
+        if abs(Pdist - ρ(dir, res)) > tolerance
+            LazySets.addconstraint!(res, LazySets.HalfSpace(dir, Pdist))
+        else
+            #@show (ρ(constraint.a, P) - ρ(constraint.a, res))
         end
     end
 
-    return HPolytope(listHspacesToKeep)
+    #=for (idx, dir) in pairs(mindists)
+        if ρ(dir, P) == 1.0
+            push!(listHspacesToKeep, constraints[idx])
+        end
+    end=#
+    #res = HPolytope(listHspacesToKeep)
+    #@show LazySets.API.high(res)
+    #@show LazySets.API.low(res)
+    @show length(constraints_list(res))
+    return res
 end
-
 
 isinvertible(x::Matrix) = is_nonsingular(x) && applicable(LinearAlgebra.inv, x)
 is_nonsingular(A) = !issuccess(lu(A, check=false)) ? false : true

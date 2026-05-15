@@ -197,6 +197,7 @@ function ReACTDiscretizePlus(loc, X0::HPolytope, δ⁻::Float64, δ⁺::Float64,
     P = minkowski_sum(dU, E_ψ) #
     lt = mapPolytope(phiDict[d], X0) #minkowski_sum(linear_map(phiDict[d], X0), P)  #minkowski_sum(convert(Zonotope, phiDict[d] * X0), dU)
     tl = mapPolytope(A^2, X0)
+    #@show LazySets.API.low(tl)
     te = symmetric_interval_hull(tl)
     E⁺ = overapproximate(symmetric_interval_hull(linear_map(P2A_abs, te)), BoxDirections(XDim))
     #rt = minkowski_sum(E_ψ, E⁺)

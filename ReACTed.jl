@@ -225,7 +225,7 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
                             if saveResult
                                 
                                 #push!(reachset, ([(map(x -> ρ(x, intersectedSet), dirs), [reachtime, reachtime + δ⁺])], "Guard intersection: " * string(reachtime) * " - " * string(timeNotIntersected) * ": " * string(loc.id) * "->" * string(loc.id)))
-                                push!(reachset, ([(map(x -> ρ(x, nonIntersectedSet), dirs), [startTime, reachtime + δ⁺])], "Guard intersection: " * string(reachtime) * " - " * string(timeNotIntersected) * ": " * string(loc.id) * "->" * string(loc.id)))
+                                push!(reachset, ([(map(x -> ρ(x, nonIntersectedSet; solver=model), dirs), [startTime, reachtime + δ⁺])], "Guard intersection: " * string(reachtime) * " - " * string(timeNotIntersected) * ": " * string(loc.id) * "->" * string(loc.id)))
                                 #return reachset
                                 
                             end
@@ -255,7 +255,7 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
                         println("After revise: $(LazySets.isempty(tintersectedSet))")
                         if !LazySets.isempty(tintersectedSet)
                             if saveResult
-                                push!(reachset, ([(map(x -> ρ(x, tintersectedSet), dirs), [reachtime, startTime])], "Guard intersection: " * string(reachtime) * " - " * string(timeNotIntersected) * ": " * string(loc.id) * "->" * string(loc.id)))
+                                push!(reachset, ([(map(x -> ρ(x, tintersectedSet; solver=model), dirs), [reachtime, startTime])], "Guard intersection: " * string(reachtime) * " - " * string(timeNotIntersected) * ": " * string(loc.id) * "->" * string(loc.id)))
                             end
                             jumpSetLazy = reset_map(nonIntersectedSet) #nonIntersectedSet # 
                             #@show minimum(map(x -> norm(x.a) ,constraints_list(intersectedSet)))
@@ -277,7 +277,7 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
                         else
                             if saveResult
                                 
-                                push!(reachset, ([(map(x -> ρ(x, intersectedSet), dirs), [reachtime, reachtime + δ⁺])], "Guard intersection: " * string(reachtime) * " - " * string(timeNotIntersected) * ": " * string(loc.id) * "->" * string(loc.id)))
+                                push!(reachset, ([(map(x -> ρ(x, intersectedSet; solver=model), dirs), [reachtime, reachtime + δ⁺])], "Guard intersection: " * string(reachtime) * " - " * string(timeNotIntersected) * ": " * string(loc.id) * "->" * string(loc.id)))
                                 #push!(reachset, ([(map(x -> ρ(x, nonIntersectedSet), dirs), [reachtime, reachtime + δ⁺])], "Guard intersection: " * string(reachtime) * " - " * string(timeNotIntersected) * ": " * string(loc.id) * "->" * string(loc.id)))
                                 #return reachset
                                 
@@ -426,7 +426,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
 
                 #if !reduce((x, y -> x && y), <=(Sρ + map(x -> ρ(x, newRR), constraintProjVectors), constraintProjBounds))
                 # Any has short-circuit, and returns false if no constraints
-                if any(((input + ρ(x, newRR)) > y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
+                if any(((input + ρ(x, newRR; solver=model)) > y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
                     #throw(ErrorException("Reached unsafe set."))
                     #@show [((input + ρ(x, newRR)), y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)]
 
@@ -563,12 +563,12 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
                 mul!(tempM, Φ, ϕt)
                 copy!(Φ, tempM)
             elseif false #constraintCheck && invariantCheck
-                if all((ρ(x, newRR) + ρ(x, Vs)) <= y for ( x, y, z) in zip(invarientProjVectors, invarientProjBounds, Iρ))
+                if all((ρ(x, newRR; solver=model) + ρ(x, Vs)) <= y for ( x, y, z) in zip(invarientProjVectors, invarientProjBounds, Iρ))
                     return (overapproximateIntersectingSetArray, time, invariantIntersection)
                 end
                 reviseByConstraints = revise(newRR, LinearMap(copy(Φ), lazyDiscritezationDict[currentTimeStep]), constraintProjVectors)
                 #@show isempty(reviseByConstraints)
-                VsOffset = map(x -> ρ(permutedims(Φ) *x, Vs), invarientProjVectors)
+                VsOffset = map(x -> ρ(permutedims(Φ) *x, Vs; solver=model), invarientProjVectors)
                 newSet = constrain(reviseByConstraints, LinearMap(copy(Φ), lazyDiscritezationDict[currentTimeStep]),  map(x -> permutedims(Φ) *x, invarientProjVectors), invarientProjBounds - VsOffset)
                 changedTimeStep = true
                 if !isempty(newSet)
@@ -732,7 +732,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
             if currentTimeStep < m
                 # If we hit a constraint
                 #newRR = concretize(newRR)
-                if any((input + ρ(x, newR)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
+                if any((input + ρ(x, newR; solver=model)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
                     #@show [((input + ρ(x, newR)), y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)]
 
                     handleHitConstraint(time, loc.id)
@@ -757,17 +757,17 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
             changedTimeStep = false
             #println(isempty(newR))
             #println(newR)
-            if all((input + ρ(x, newR)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) &&
+            if all((input + ρ(x, newR; solver=model)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) &&
                #any(sign(y) >= 0 ? (input + ρ(-x, newR)) <= y : !((input + ρ(x, newR)) < y) for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) &&
-               any((input + -ρ(-x, newR)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) &&
-               all((input + ρ(x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
+               any((input + -ρ(-x, newR; solver=model)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) &&
+               all((input + ρ(x, newR; solver=model)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
                 #(any((input + ρ(-x, newRR)) > y for (input, x, y) in zip(-Sρ, invarientProjVectors, invarientProjBounds)) && all((input + ρ(x, newRR)) <= y for (input, x, y) in zip(Sρ, invarientProjVectors, invarientProjBounds)))
                 #all(((ρ(x, tempSet)) <= y) for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Subset
                 #(isnothing(loc.invarient) || intersects(tempSet, loc.invarient))
                 #if mapreduce(x -> intersects(newRR, x), &, guard)
                 #push!(overapproximateIntersectingSetArray, newRR)
                 if saveResult
-                    push!(dirVals, (copy(dρ + map(x -> ρ(x, newR), oldDirProjVectors)), [time, time + currentTimeStep]))
+                    push!(dirVals, (copy(dρ + map(x -> ρ(x, newR; solver=model), oldDirProjVectors)), [time, time + currentTimeStep]))
                 end
                 #lastVs = copy(Vs)
                 #Vs = ReachabilityAnalysis.Exponentiation.Φ₁(A, time - minimum(interval), ReachabilityAnalysis.Exponentiation.BaseExp) * U
@@ -910,7 +910,7 @@ function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, constraint, dirs, 
             # Handle if we can no longer reduce the reachset (we keep hitting something)
             if currentTimeStep < m
                 # If we hit a constraint
-                if any((input + ρ(x, newR)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
+                if any((input + ρ(x, newR; solver=model)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
                     println("IN REACT??")
                     handleHitConstraint(time, loc.id)
                 end
@@ -928,18 +928,18 @@ function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, constraint, dirs, 
 
             changedTimeStep = false
 
-            if all((input + ρ(x, newR)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) &&
-               all((input + ρ(x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
+            if all((input + ρ(x, newR; solver=model)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) &&
+               all((input + ρ(x, newR; solver=model)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
 
                 if saveResult
-                    push!(dirVals, (copy(dρ + map(x -> ρ(x, newR), oldDirProjVectors)), [time, time + currentTimeStep]))
+                    push!(dirVals, (copy(dρ + map(x -> ρ(x, newR; solver=model), oldDirProjVectors)), [time, time + currentTimeStep]))
                 end
 
                 approveFlag =
                     true
-                dρ += map(x -> ρ(x, V), oldDirProjVectors)
-                Sρ += map(x -> ρ(x, V), constraintProjVectors)
-                Iρ += map(x -> ρ(x, V), invarientProjVectors)
+                dρ += map(x -> ρ(x, V; solver=model), oldDirProjVectors)
+                Sρ += map(x -> ρ(x, V; solver=model), constraintProjVectors)
+                Iρ += map(x -> ρ(x, V; solver=model), invarientProjVectors)
                 dirProjVectors = map(x -> pϕt * x, oldDirProjVectors)
                 constraintProjVectors = map(x -> pϕt * x, oldConstraintProjVectors)
                 invarientProjVectors = map(x -> pϕt * x, oldInvarientProjVectors)

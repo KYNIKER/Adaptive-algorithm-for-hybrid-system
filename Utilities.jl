@@ -2,6 +2,11 @@ using LazySets, ReachabilityAnalysis, LinearAlgebra, Polyhedra, Optim
 
 export HybridSystem, HybridSystemV2, Location, Edge, overapproximateIntervalReachset, intersects, splitZonotope, getBoxIntersection, getHalfSpaceProjections
 
+Umodel = JuMP.Model(HiGHS.Optimizer)
+#set_attribute(model, "eps_abs", 1e-5)
+#set_attribute(model, "eps_rel", 1e-5)
+set_silent(Umodel)
+
 struct Edge
     targetLoc::Int
     guard::Union{HPolyhedron,Nothing}
@@ -826,7 +831,7 @@ function revise(approximation, lazyRepresentation, directions)
         n = norm(direction)
         nd = direction / n
         distance = ρ(nd, lazyRepresentation)
-        tdistance = ρ(nd, approximation)
+        tdistance = ρ(nd, approximation; solver=Umodel)
         #@show (distance, tdistance, (distance == tdistance))
         push!(newConstraints, LazySets.HalfSpace(nd, distance))
 
@@ -860,7 +865,7 @@ function revise(approximation::HPolytope, lazyRepresentation)
         n = norm(direction)
         nd = direction / n
         #ρ(direction, approximation)
-        push!(newConstraints, LazySets.HalfSpace(nd, min(ρ(nd, approximation), ρ(nd, lazyRepresentation))))
+        push!(newConstraints, LazySets.HalfSpace(nd, min(ρ(nd, approximation; solver=Umodel), ρ(nd, lazyRepresentation))))
 
     end
     return HPolytope(newConstraints)
@@ -871,7 +876,7 @@ function revise(input::LazySet, approximation, lazyRepresentation, directions, b
     for (idx, direction) in pairs(directions)
         n = norm(direction)
         nd = direction / n
-        Hdistance, Idistance = ρ(nd, lazyRepresentation), ρ(nd, input)
+        Hdistance, Idistance = ρ(nd, lazyRepresentation; solver=Umodel), ρ(nd, input; solver=Umodel)
         if Hdistance + Idistance < bounds[idx] / n
             push!(newConstraints, LazySets.HalfSpace(nd, Hdistance))
         end
@@ -885,7 +890,7 @@ function revise(input::Vector{}, approximation, lazyRepresentation, directions, 
     for (idx, direction) in pairs(directions)
         n = norm(direction)
         nd = direction / n
-        distance = ρ(nd, lazyRepresentation)
+        distance = ρ(nd, lazyRepresentation; solver=Umodel)
         if distance + input[idx] < bounds[idx] / n
             push!(newConstraints, LazySets.HalfSpace(nd, distance))
         end
@@ -899,7 +904,7 @@ function constrain(approximation::HPolytope, lazyRepresentation, directions, bou
     for (idx, direction) in pairs(directions)
         n = norm(direction)
         nd = direction / n
-        distance = min(ρ(nd, lazyRepresentation), bounds[idx] / n)
+        distance = min(ρ(nd, lazyRepresentation; solver=Umodel), bounds[idx] / n)
         #=if distance > bounds[idx]
             push!(newConstraints, LazySets.HalfSpace(direction, bounds[idx]))
         else
@@ -920,7 +925,7 @@ function constrain(input::LazySet, approximation, lazyRepresentation, directions
     for (idx, direction) in pairs(directions)
         n = norm(direction)
         ndir = direction / norm(direction)
-        Hdistance, Idisctance = ρ(ndir, lazyRepresentation), ρ(ndir, input)
+        Hdistance, Idisctance = ρ(ndir, lazyRepresentation; solver=Umodel), ρ(ndir, input; solver=Umodel)
         distance = Hdistance + Idisctance
         #@show (Hdistance, Idisctance, bounds[idx] / n)
         #push!(newConstraints, LazySets.HalfSpace(direction, distance)) #bounds[idx]
@@ -949,7 +954,7 @@ function constrain(input::LazySet, approximation, lazyRepresentation, directions
             end
         end
         for dir in dupes
-            push!(constraintlist, LazySets.HalfSpace(dir, ρ(dir, approximation)))
+            push!(constraintlist, LazySets.HalfSpace(dir, ρ(dir, approximation; solver=Umodel)))
         end
     else
         constraintlist = constaintlist
@@ -965,7 +970,7 @@ function constrain(input::LazySet, approximation, lazyRepresentation, directions
         n = norm(a)
         b = (constraint.b / n)
         na = a / n
-        Idistance = ρ(na, input)
+        Idistance = ρ(na, input; solver=Umodel)
         #println("Idist!: $(Idistance)   $(constraint.a)")
 
         tconstraint = LazySets.HalfSpace(na, b + Idistance) #Idisctance
@@ -1001,7 +1006,7 @@ function constrain(input::LazySet, approximation, lazyRepresentation, invariantG
 
     bounds0 = map(x -> ρ(x, input), directions) #, ρ(x, invariantGuardIntersection)
 
-    bounds1 = map(x -> ρ(x, approximation), directions) #, ρ(x, invariantGuardIntersection)
+    bounds1 = map(x -> ρ(x, approximation; solver=Umodel), directions) #, ρ(x, invariantGuardIntersection)
     bounds2 = map(x -> ρ(x, lazyRepresentation), directions) #, ρ(x, invariantGuardIntersection)
     bounds = [min(b1, b2) for (b1, b2) in zip(bounds1, bounds2)]
     #@show maximum(bounds1)
@@ -1393,7 +1398,7 @@ function overapproximatedCH(H1::HPolytope, H2::HPolytope)
     directions = vcat(constraints_list(H1), constraints_list(H2), collect(BoxDirections(LazySets.dim(H1))))
     directions = map(x -> x.a / norm(x.a), directions)
     for direction in directions
-        distance = max(ρ(direction, H1), ρ(direction, H2))
+        distance = max(ρ(direction, H1; solver=Umodel), ρ(direction, H2; solver=Umodel))
         push!(newConstraints, LazySets.HalfSpace(direction, distance))
     end
     remove_redundant_constraints!(newConstraints)
@@ -1405,7 +1410,7 @@ function overapproximatedCH(H1::HPolytope, H2::LazySet)
     directions = vcat(map(x -> x.a / norm(x.a), constraints_list(H1)), collect(BoxDirections(LazySets.dim(H1))))
     for direction in directions
         #@show direction
-        d1 = ρ(direction, H1)
+        d1 = ρ(direction, H1; solver=Umodel)
         d2 = ρ(direction, H2)
         distance = max(d1, d2)
         push!(newConstraints, LazySets.HalfSpace(direction, distance))
@@ -1421,7 +1426,7 @@ function overapproximatedCH(H1::HPolyhedron, H2::LazySet)
     newConstraints::Vector{LazySets.HalfSpace} = []
     directions = vcat(map(x -> x.a, constraints_list(H1)), collect(BoxDirections(LazySets.dim(H1))))
     for direction in directions
-        distance = max(ρ(direction, H1), ρ(direction, H2))
+        distance = max(ρ(direction, H1; solver=Umodel), ρ(direction, H2))
         push!(newConstraints, LazySets.HalfSpace(direction, distance))
     end
     #remove_redundant_constraints!(newConstraints)
@@ -1539,7 +1544,7 @@ function reducePolytope(P::HPolytope; tolerance=0.1)
     constraints = constraints_list(P)
     listHspacesToKeep::Vector{LazySets.HalfSpace} = []
     for constraint in constraints
-        if abs(ρ(constraint.a, P) - constraint.b) < tolerance
+        if abs(ρ(constraint.a, P; solver=Umodel) - constraint.b) < tolerance
             push!(listHspacesToKeep, constraint)
         end
     end
@@ -1549,12 +1554,12 @@ end
 
 function reducePolytopeFromBounding(P::HPolytope; tolerance=0.08)
     constraints = constraints_list(P)
-    tconstraint::Vector{LazySets.HalfSpace} = map(x -> LazySets.HalfSpace(vec(x), ρ(x, P)), collect(BoxDirections(LazySets.dim(P))))
+    tconstraint::Vector{LazySets.HalfSpace} = map(x -> LazySets.HalfSpace(vec(x), ρ(x, P; solver=Umodel)), collect(BoxDirections(LazySets.dim(P))))
     res = HPolytope(tconstraint) #overapproximate(P, BoxDirections(LazySets.dim(P)))
     listHspacesToKeep::Vector{LazySets.HalfSpace} = []
     for constraint in constraints
         dir = constraint.a / norm(constraint.a)
-        Pdist = ρ(dir, P)
+        Pdist = ρ(dir, P; solver=Umodel)
         if abs(Pdist - ρ(dir, res)) > tolerance
             LazySets.addconstraint!(res, LazySets.HalfSpace(dir, Pdist))
         else

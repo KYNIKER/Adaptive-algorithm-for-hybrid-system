@@ -68,9 +68,9 @@ function RunFixed(name, δ, load_func)
 end
 
 
-names = ["gearbox", "platoon", "powerTrain", "spaceCraft"]
-minδ = [0.0008, 0.03, 0.002, 0.04]
-loadFunctions = [loadGearBox, loadPlatoon, loadPowertrain, () -> loadSpacecraft(abort_time=120.)]
+names = ["gearbox", "platoon", "spaceCraft"]
+minδ = [0.0008, 0.03, 0.04]
+loadFunctions = [loadGearBox, loadPlatoon, () -> loadSpacecraft(abort_time=120.)]
 
 # Long Versions
 # names = ["gearbox-01", "gearbox-02", "platoon", "powerTrain", "spaceCraft-0", "spaceCraft-120", "spaceCraft-240"]

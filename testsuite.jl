@@ -8,8 +8,8 @@ include("models/bouncingBall.jl")
 include("models/powerTrain.jl")
 include("models/spacecraft.jl")
 
-const RUN_FIXED = false
-const RUN_ADAPTIVE = false
+const RUN_FIXED = true
+const RUN_ADAPTIVE = true
 
 const MAX_ORDER = 5
 const REDUCE_ORDER = 5
@@ -68,14 +68,14 @@ function RunFixed(name, δ, load_func)
 end
 
 
-names = ["bouncingBall", "gearbox", "platoon", "powerTrain", "spaceCraft"]
-minδ = [0.05, 0.008, 0.03, 0.002, 0.04]
-loadFunctions = [loadBouncingBall, loadGearBox, loadPlatoon, loadPowertrain, () -> loadSpacecraft(abort_time=120.)]
+names = ["gearbox", "platoon", "powerTrain", "spaceCraft"]
+minδ = [0.0008, 0.03, 0.002, 0.04]
+loadFunctions = [loadGearBox, loadPlatoon, loadPowertrain, () -> loadSpacecraft(abort_time=120.)]
 
 # Long Versions
-# names = ["bouncingBall", "gearbox-01", "gearbox-02", "platoon", "powerTrain", "spaceCraft-0", "spaceCraft-120", "spaceCraft-240"]
+# names = ["gearbox-01", "gearbox-02", "platoon", "powerTrain", "spaceCraft-0", "spaceCraft-120", "spaceCraft-240"]
 # minδ = [0.05, 0.008, 0.008, 0.03, 0.002, 0.04, 0.04, 0.01]
-# funcs = [loadBouncingBall, loadGearBox, () -> loadGearBox(2), loadPlatoon, loadPowertrain, loadSpacecraft, ()-> loadSpacecraft(abort_time=120.), ()-> loadSpacecraft(abort_time=240.)]
+# funcs = [loadGearBox, () -> loadGearBox(2), loadPlatoon, loadPowertrain, loadSpacecraft, ()-> loadSpacecraft(abort_time=120.), ()-> loadSpacecraft(abort_time=240.)]
 
 
 
@@ -88,21 +88,21 @@ end
 
 if RUN_ADAPTIVE
     for (name, δ⁻, loadFunction) in zip(names, minδ, loadFunctions)
-        δ⁺ = δ⁻ * 2^5 
+        δ⁺ = δ⁻ * 2^5
         RunAdaptive(name * "_Adaptive", δ⁻, δ⁺, loadFunction)
     end
 end
 
-myLoading = () -> loadSpacecraft(abort_time=120.)
-#myLoading = loadPlatoon
-myLoading = loadGearBox
+# myLoading = () -> loadSpacecraft(abort_time=120.)
+# #myLoading = loadPlatoon
+# myLoading = loadGearBox
 
-minDelta = 0.0008
+# minDelta = 0.0008
 
-nameOfTest = "Gracie_Gearbox"
+# nameOfTest = "Gracie_Gearbox"
 
-RunFixed(nameOfTest, minDelta, myLoading)
-RunAdaptive(nameOfTest, minDelta, minDelta*2^3, myLoading)
-RunAdaptive(nameOfTest, minDelta, minDelta*2^5, myLoading)
-# RunAdaptive("NewGracieTest", minDelta, minDelta*2^7, myLoading)
-# RunAdaptive("NewGracieTest", minDelta, minDelta*2^9, myLoading)
+# RunFixed(nameOfTest, minDelta, myLoading)
+# RunAdaptive(nameOfTest, minDelta, minDelta*2^3, myLoading)
+# RunAdaptive(nameOfTest, minDelta, minDelta*2^5, myLoading)
+# # RunAdaptive("NewGracieTest", minDelta, minDelta*2^7, myLoading)
+# # RunAdaptive("NewGracieTest", minDelta, minDelta*2^9, myLoading)

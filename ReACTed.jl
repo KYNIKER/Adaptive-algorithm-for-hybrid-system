@@ -36,8 +36,6 @@ function ReACTed(hybridSystem::HybridSystemV2, initialLoc, interval, X0, U, dirs
         end
     end
 
-    @show dirsVectors
-
     res = auxReACTed(hybridSystem, hybridSystem.locations[loc], nothing, interval, X0, dirsVectors, constraint, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder, missing, clustering, timeConstraintList, saveResult)
 
     reachset = vcat(reachset, res)
@@ -73,7 +71,7 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
     end
 
     for edge in listOfEdges
-        println("Handling edge at time $time from $(loc.id) -> $(edge.targetLoc)")
+        # println("Handling edge at time $time from $(loc.id) -> $(edge.targetLoc)")
         guards = edge.guard # Technically the guard is one singular HPolyhedron, but it composes the other guards
 
 
@@ -86,7 +84,7 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
 
         if reachtime - time == 0.0
             if !isempty(reachset)
-                println("Found an immediate transition to $(edge.targetLoc), but we are not taking it as we are scared of zeno behaviour")
+                # println("Found an immediate transition to $(edge.targetLoc), but we are not taking it as we are scared of zeno behaviour")
             end
             if saveResult
                 push!(reachset, (tempReachset, string(time) * " - " * string(reachtime) * ": " * string(loc.id) * " took no steps"))
@@ -98,7 +96,7 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
             if saveResult
                 push!(reachset, (tempReachset, string(time) * " - " * string(reachtime) * ": " * string(loc.id) * "->" * string(edge.targetLoc)))
             end
-            println("Current time: $time, intersecting time start: $reachtime")
+            # println("Current time: $time, intersecting time start: $reachtime")
             tryContinueFlag, _, timeNotIntersected, intersectingSetsList = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, endtime], (reachtime - time), guards, setOfConstraints, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, tΦ, nothing, reduceOrder, maxOrder)
 
             if any((timeNotIntersected >= x ) for x in activeTimeConstraints)
@@ -181,7 +179,7 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
                     end
 
                     jumpSet = intersectedSet
-                    println("Finished intersections")
+                    # println("Finished intersections")
                 
                     branchedRun = auxReACTed(hybridSystem, hybridSystem.locations[edge.targetLoc], nothing, [reachtime, endtime], jumpSet, dirs, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, tΦ, clustering, timeConstraintList, saveResult)
                 
@@ -201,13 +199,13 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
                 end
             else
                 tryContinueFlag = false
-                println("No intersections with guards, end branch")
+                # println("No intersections with guards, end branch")
                 
             end
 
             # If we are not encountering an invarient, try continue
             if tryContinueFlag 
-                println("Continuing from previous run at time $timeNotIntersected")
+                # println("Continuing from previous run at time $timeNotIntersected")
                 branchedRun = auxReACTed(hybridSystem, loc, edge, [timeNotIntersected, endtime], latestSet, dirs, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, tΦ, clustering, timeConstraintList, saveResult)       
                 if saveResult
                     reachset = vcat(reachset, branchedRun)
@@ -216,7 +214,7 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
 
 
         else # Reached the end time
-            println("Reached end time before intersecting guard")
+            # println("Reached end time before intersecting guard")
             # Check if we hit activeTimeConstraints
             if any((reachtime >= x ) for x in activeTimeConstraints)
                 handleHitConstraint(reachtime, loc.id)
@@ -238,7 +236,7 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
     end
 
     if isempty(loc.edges) # This means it is just a continous system from here
-        println("No edges? call ReACT")
+        # println("No edges? call ReACT")
 
         #tempReachset, tempInput, reachtime, tΦ = ReACTGuards(loc, δ⁻, δ⁺, [time, endtime], guards, setOfConstraints, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, missing, saveResult)
 
@@ -313,7 +311,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
                 continueAfter = true 
 
                 if all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds))
-                    println("Intersecting guard, but no longer intersecting invarients")
+                    # println("Intersecting guard, but no longer intersecting invarients")
                     continueAfter = false
 
                     push!(intersectingSetsList, tempSet)
@@ -473,7 +471,7 @@ function ReACTTouches2(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, con
             runningset = minkowski_sum(linear_map(ϕt, runningset), V)
 
             if !isnothing(loc.invarient) && isdisjoint(runningset, loc.invarient)
-                println("Disjoint! ", i)
+                #  println("Disjoint! ", i)
                 return (reduce_order(preclustering, 10), Sρ, time)
             end
 

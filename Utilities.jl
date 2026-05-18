@@ -1118,7 +1118,7 @@ function bloatPolytope(input::Singleton, M, P::HPolytope)
             newP = HPolytope(newConstraints)
         else
             println("CRAZY..")
-            inputOffset = element(input)
+            #=inputOffset = element(input)
             intPoint = LazySets.API.an_element(P)
             vs, ps = vertexRep(P)
             Mvs = map(x -> inputOffset + M * x, vs)
@@ -1128,7 +1128,8 @@ function bloatPolytope(input::Singleton, M, P::HPolytope)
             for (x, y) in zip(Mvs, Mps)
                 listHspaces = vcat(listHspaces, halfspaceFromVertices(x, y, mIntPoint))
             end
-            newP = HPolytope(listHspaces)
+            =#
+            newP = bloatPolytope(input, diagm(ones(LazySets.API.dim(P))), mpPol(M, P))
             #=@show (LazySets.isempty(P), M, input)
             @show LazySets.API.high(P)
             @show LazySets.API.low(P)

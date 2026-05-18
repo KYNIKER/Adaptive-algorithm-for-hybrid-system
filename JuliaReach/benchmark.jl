@@ -6,7 +6,8 @@ include("gearbox/gearbox.jl")
 include("gearbox/gearbox_benchmark.jl")
 include("platoon/platoon.jl")
 include("platoon/platoon_benchmark.jl")
-#include("spacecraft/spacecraft_benchmark.jl")
+include("spacecraft/spacecraft_benchmark.jl")
+include("spacecraft/spacecraft.jl")
 
 # template directions
 
@@ -14,14 +15,14 @@ const extdirs = template_directions(6)
 const dirs = CustomDirections(collect(OctDirections{Float64,Vector{Float64}}(10)))
 
 cases = [
-    #"BRKDC01",
-    #"BRKDC01-discrete",
-    #"GRBX01-MES01",
-    #"GRBX01-MES01-discrete",
+    "BRKDC01",
+    "BRKDC01-discrete",
+    "GRBX01-MES01",
+    "GRBX01-MES01-discrete",
     "PLAD01-BND30",
     "PLAD01-BND30-discrete",
-    #="SRA01",
-    "SRA01-discrete"=#
+    "SRA01",
+    "SRA01-discrete"
 ]
 
 algCheckDict = Dict(
@@ -30,9 +31,9 @@ algCheckDict = Dict(
     "GRBX01-MES01" => LGG09(δ=0.0008, template=extdirs, approx_model=Forward()),
     "GRBX01-MES01-discrete" => LGG09(δ=0.0001, template=extdirs, cache=true, approx_model=NoBloating()),
     "PLAD01-BND30" => LGG09(δ=0.03, template=dirs, approx_model=Forward(setops=dirs)),
-    "PLAD01-BND30-discrete" => LGG09(δ=0.1, template=dirs, approx_model=NoBloating())
-    #="SRA01" => BOX(δ=0.04),
-    "SRA01-discrete" => BOX(δ=0.1, approx_model=NoBloating())=#
+    "PLAD01-BND30-discrete" => LGG09(δ=0.1, template=dirs, approx_model=NoBloating()),
+    "SRA01" => BOX(δ=0.04),
+    "SRA01-discrete" => BOX(δ=0.1, approx_model=NoBloating())
 )
 
 caseCheckDict = Dict(
@@ -55,7 +56,7 @@ function JuliaReachTest(name)
 
     alg = algCheckDict[name]
 
-    sol, df = run(alg, name)
+    sol, df = run_algs(alg, name)
 
     # Get amonut of steps taken
     # println(length(sol))
@@ -73,7 +74,7 @@ function JuliaReachTest(name)
     end
 end
 
-function run(alg, case)
+function run_algs(alg, case)
     modelname = caseCheckDict[case]
     if modelname == "embrake" 
         sol, df = runEMBrake(alg, case)
@@ -120,8 +121,10 @@ function runPlatoon(alg, case)
 end
 
 function runSpacecraft(alg, case)
+    prob_SRA01 = spacecraft(abort_time=120.0)
+    cmethod = LazyClustering(3)
 
-
+    sol, df = analyze_spacecraft(prob_SRA01, alg, cmethod, true, case, true)
     return sol, df
 end
 

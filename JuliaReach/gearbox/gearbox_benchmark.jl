@@ -27,10 +27,10 @@ end
 # ==============================================================================
 # Analysis function
 # ==============================================================================
-const extdirs = template_directions(6)
+const extdirs = template_directions(n)
 const thull = TemplateHullIntersection(extdirs)
 
-function analyze_once(prob, alg)
+function analyze_once_gearbox(prob, alg)
         # solve
         sol = solve(prob, max_jumps=100, clustering_method=LazyClustering(1, convex=false),
                     intersect_source_invariant=true, intersection_source_invariant_method=thull,
@@ -48,7 +48,8 @@ function analyze_once(prob, alg)
             end
         end
         # property 2
-        e5 = SingleEntryVector(5, n, 1.0)
+        # would like to use n instead of 6, but for some reason n = 5 in this scope? 
+        e5 = SingleEntryVector(5, 6, 1.0)
         validation &= ρ(e5, sol) < 20.0
 
         return (sol, validation)
@@ -58,14 +59,14 @@ function analyze_gearbox(prob, alg, case, warmup)
 
     # warm-up run
     if warmup
-        analyze_once(prob, alg)
+        analyze_once_gearbox(prob, alg)
     end
 
-    b = @benchmarkable _ = analyze_once($prob, $alg)
+    b = @benchmarkable _ = analyze_once_gearbox($prob, $alg)
     y = run(b)
 
     println("Proceeding to data collection...")
-    res = analyze_once(prob, alg)
+    res = analyze_once_gearbox(prob, alg)
     sol, validation = res
 
     timeList = []

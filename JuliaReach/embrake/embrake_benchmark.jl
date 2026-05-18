@@ -14,7 +14,7 @@ LazySets.deactivate_assertions()
 const x0 = 0.05
 const eₓ = SingleEntryVector(2, 4, 1.0)
 
-function analyze_once(prob, alg, validate)
+function analyze_once_embrake(prob, alg, validate)
     # solve
     sol = solve(prob, max_jumps=1001, alg=alg)
 
@@ -40,15 +40,15 @@ end
 function analyze_embrake(prob, alg, case, validate, warmup)
     # warm-up run
     if warmup
-        analyze_once(prob, alg, validate)
+        analyze_once_embrake(prob, alg, validate)
     end
 
     # benchmark run
-    b = @benchmarkable _ = analyze_once($prob, $alg, $validate)
+    b = @benchmarkable _ = analyze_once_embrake($prob, $alg, $validate)
     y = run(b)
 
     println("Proceeding to data collection...")
-    res = analyze_once(prob, alg, validate)
+    res = analyze_once_embrake(prob, alg, validate)
     sol, validation, max_t = res
 
     timeList = []

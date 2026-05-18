@@ -1,6 +1,6 @@
-using Plots, Plots.PlotMeasures, LaTeXStrings, BenchmarkTools
+using ReachabilityAnalysis, Plots, LazySets, BenchmarkTools, CSV, DataFrames
 using ReachabilityAnalysis, LazySets
-using ReachabilityAnalysis.ReachabilityBase.Timing: print_timed
+
 
 LazySets.deactivate_assertions()
 
@@ -8,7 +8,7 @@ LazySets.deactivate_assertions()
 # Analysis function
 # ==============================================================================
 
-function analyze_once(prob, alg, cmethod, imethod, dmin)
+function analyze_once_platoon(prob, alg, cmethod, imethod, dmin)
     # solve
     sol = solve(prob, alg=alg, clustering_method=cmethod,
                 intersection_method=imethod, intersect_source_invariant=false,
@@ -25,14 +25,14 @@ end
 function analyze_platoon(prob, alg, cmethod, imethod, dmin, case, warmup)
     # warm-up run
     if warmup
-        analyze_once(prob, alg, cmethod, imethod, dmin)
+        analyze_once_platoon(prob, alg, cmethod, imethod, dmin)
     end
 
-    b = @benchmarkable _ = analyze_once($prob, $alg, $cmethod, $imethod, $dmin)
+    b = @benchmarkable _ = analyze_once_platoon($prob, $alg, $cmethod, $imethod, $dmin)
     y = run(b)
 
     # benchmark run
-    res = analyze_once(prob, alg, cmethod, imethod, dmin)
+    res = analyze_once_platoon(prob, alg, cmethod, imethod, dmin)
     sol, validation = res
 
     timeList = []

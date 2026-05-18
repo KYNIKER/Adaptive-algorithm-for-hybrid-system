@@ -34,9 +34,6 @@ function getShapesForPlot(flowpipe, dims, alpha=1)
             for (d, t) in x
                 #@show d
 
-                @show d
-
-
                 push!(shapesList, Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]))
 
                 maxY = max(maxY, d[1])

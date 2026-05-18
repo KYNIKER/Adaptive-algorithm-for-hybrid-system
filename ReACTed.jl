@@ -4,6 +4,9 @@ include("Discretize.jl")
 include("Utilities.jl")
 
 model = JuMP.Model(HiGHS.Optimizer)
+set_string_names_on_creation(model, false)
+#set_attribute(model, "presolve", "off")
+
 #set_attribute(model, "eps_abs", 1e-5)
 #set_attribute(model, "eps_rel", 1e-5)
 set_silent(model)
@@ -49,6 +52,16 @@ function ReACTed(hybridSystem::HybridSystemV2, initialLoc, interval, X0, U, dirs
         location, initialset, interval′, TΦ, discDict, inputDict, polySet = pop!(waitinglist)
         
         reducedPolySet = polySet #isnothing(polySet) ? polySet : reducePolytope(polySet)
+
+        #@show LazySets.API.high(initialset)
+        #@show LazySets.API.low(initialset)
+
+        if !isnothing(polySet)
+            @show initialset ⊆ polySet
+            @show LazySets.API.high(polySet) - LazySets.API.high(initialset)
+            @show LazySets.API.low(polySet) - LazySets.API.low(initialset)
+        end
+
         res = auxReACTed(waitinglist, hybridSystem, dimLength, hybridSystem.locations[location], interval′, initialset, dirsVectors, constraint, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder, TΦ, discDict, inputDict, reducedPolySet, saveResult; clustering, mustSemantics)
         reachset = vcat(reachset, res)
     end
@@ -69,7 +82,7 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
     jumpDiscDict = Dict()
     #jumpOverapproximatedDiscDict = Dict()
     jumpInputDict = Dict()
-
+    t1 = Base.time();
     if isa(discretizationDict, Nothing) && isa(inputDiscritezationDict, Nothing)
         discretizationDict, inputDiscritezationDict = ReACTDiscretizePlus(loc, X0, δ⁻, δ⁺, alg, maxOrder, reduceOrder, PhiDict[loc.id])
         locChange = true
@@ -93,7 +106,7 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
         #@show norm(tempval)
         if !intersectedSetIsNothing
             #@show norm(intersectedDict[key])
-            tempval = LazySets.intersection(tempval, intersectedDict[key])
+            tempval = LazySets.intersection(tempval, intersectedDict[key]; prune=false)
             #@show norm(tempval)
             if norm(tempval) == 0.0
                 println("IS EMPTY FROM DISC??")
@@ -111,8 +124,14 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
         overapproximatedDiscretizationDict[key] = tempval
     end
     #t = overapproximate(X0, BoxDirections(dim))
+    #@show LazySets.API.high(discretizationDict[δ⁺])
+    #@show LazySets.API.low(discretizationDict[δ⁺])
 
-    println("Finished Dicts $locid $(length(loc.edges))")
+    #@show LazySets.API.high(overapproximatedDiscretizationDict[δ⁺])
+    #@show LazySets.API.low(overapproximatedDiscretizationDict[δ⁺])
+
+
+    println("Finished Dicts $locid $(length(loc.edges)) in $(Base.time() - t1) s")
     
     
     # For each edge we simulate the system
@@ -198,13 +217,15 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
                         #continue
                         
                         println("Before revise: $(LazySets.isempty(intersectedSet))")
-                        tintersectedSet = revise(intersectedSet, nonIntersectedSet, collect(OctDirections(dim))) #, collect(BoxDirections(dim))
+                        tintersectedSet = revise(intersectedSet, nonIntersectedSet,  collect(BoxDirections(dim))) #, collect(BoxDirections(dim))
                         println("After revise: $(LazySets.isempty(tintersectedSet))")
                         if !LazySets.isempty(tintersectedSet)
                             if saveResult
                                 push!(reachset, ([(map(x -> ρ(x, tintersectedSet), dirs), [reachtime, startTime])], "Guard intersection: " * string(reachtime) * " - " * string(timeNotIntersected) * ": " * string(loc.id) * "->" * string(loc.id)))
                             end
-                            jumpSetLazy = reset_map(Intersection(loc.invarient ∩ guards,nonIntersectedSet)) #nonIntersectedSet # 
+                            jumpSetLazy = reset_map(Intersection(loc.invarient ∩ guards, nonIntersectedSet)) # painfully slow but correct
+                            #jumpSetLazy = reset_map(nonIntersectedSet) #
+                            
                             #@show minimum(map(x -> norm(x.a) ,constraints_list(intersectedSet)))
                             #@show minimum(map(x -> abs(x.b) ,constraints_list(intersectedSet)))
                             #@show typeof(intersectedSet)
@@ -213,13 +234,13 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
 
                             if !isnothing(hybridSystem.locations[edge.targetLoc].invarient)
                                 jumpSetLazy = LazySets.Intersection( hybridSystem.locations[edge.targetLoc].invarient, jumpSetLazy) #reset_map(nonIntersectedSet) #
-                                jumpSetIntersected = LazySets.intersection(jumpSetIntersected, hybridSystem.locations[edge.targetLoc].invarient)
+                                jumpSetIntersected = LazySets.intersection(jumpSetIntersected, hybridSystem.locations[edge.targetLoc].invarient; prune=false)
                                 
                             end
                             jumpSetIntersected = revise(jumpSetIntersected, jumpSetLazy, collect(OctDirections(dim)))
                             @show LazySets.isempty(jumpSetIntersected)
-                            #jumpSetIntersected = reducePolytope(jumpSetIntersected)
-                            push!(waitlist, (edge.targetLoc, jumpSetLazy, [startTime-δ⁻, endtime], missing, nothing, nothing, jumpSetIntersected))
+                            #@time jumpSetIntersected = reducePolytopeFromBounding(jumpSetIntersected)
+                            push!(waitlist, (edge.targetLoc, jumpSetLazy, [startTime, endtime], missing, nothing, nothing, jumpSetIntersected))
                             
                         else
                             if saveResult
@@ -251,7 +272,7 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
                         #continue
                         
                         println("Before revise: $(LazySets.isempty(intersectedSet))")
-                        tintersectedSet = revise(intersectedSet, nonIntersectedSet, collect(OctDirections(dim))) #, collect(BoxDirections(dim))
+                        tintersectedSet = revise(intersectedSet, nonIntersectedSet,  collect(BoxDirections(dim))) #, collect(BoxDirections(dim))
                         println("After revise: $(LazySets.isempty(tintersectedSet))")
                         if !LazySets.isempty(tintersectedSet)
                             if saveResult
@@ -266,12 +287,12 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
                             
                             if !isnothing(hybridSystem.locations[edge.targetLoc].invarient)
                                 #jumpSetLazy = Intersection( hybridSystem.locations[edge.targetLoc].invarient, jumpSetLazy) #reset_map(nonIntersectedSet) #
-                                jumpSetIntersected = LazySets.intersection(jumpSetIntersected, hybridSystem.locations[edge.targetLoc].invarient)
+                                jumpSetIntersected = LazySets.intersection(jumpSetIntersected, hybridSystem.locations[edge.targetLoc].invarient; prune=false)
                                 
                             end
                             jumpSetIntersected = revise(jumpSetIntersected, jumpSetLazy, collect(OctDirections(dim)))
                             @show LazySets.isempty(jumpSetIntersected)
-                            jumpSetIntersected = reducePolytopeFromBounding(jumpSetIntersected)
+                            jumpSetIntersected = reducePolytope(jumpSetIntersected)
                             push!(waitlist, (edge.targetLoc, jumpSetLazy, [startTime, endtime], missing, nothing, nothing, jumpSetIntersected))
                             
                         else
@@ -523,7 +544,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
                 #newSet = constrain(Vs, newRR, LinearMap(copy(Φ), lazyDiscritezationDict[currentTimeStep]), vcat(guardProjVectors, invarientProjVectors), vcat(guardProjBounds, invarientProjBounds))
                 reviseByConstraints = revise(newRR, LinearMap(copy(Φ), lazyDiscritezationDict[currentTimeStep]), constraintProjVectors)
                 #@show isempty(reviseByConstraints)
-                newSet = constrain(Vs, reducePolytopeFromBounding(reviseByConstraints), LinearMap(copy(Φ), lazyDiscritezationDict[currentTimeStep]), InvariantGuardIntersect)
+                newSet = constrain(Vs, reviseByConstraints, LinearMap(copy(Φ), lazyDiscritezationDict[currentTimeStep]), InvariantGuardIntersect)
                 
                 #@show (norm(newRR), norm(newSet), norm(Vs), norm(MinkowskiSum(copy(Vs), LinearMap(copy(Φ), lazyDiscritezationDict[currentTimeStep]))))
                 #println("After constrain")
@@ -928,18 +949,18 @@ function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, constraint, dirs, 
 
             changedTimeStep = false
 
-            if all((input + ρ(x, newR; solver=model)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) &&
-               all((input + ρ(x, newR; solver=model)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
+            if all((input + ρ(x, newR)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) &&
+               all((input + ρ(x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
 
                 if saveResult
-                    push!(dirVals, (copy(dρ + map(x -> ρ(x, newR; solver=model), oldDirProjVectors)), [time, time + currentTimeStep]))
+                    push!(dirVals, (copy(dρ + map(x -> ρ(x, newR), oldDirProjVectors)), [time, time + currentTimeStep]))
                 end
 
                 approveFlag =
                     true
-                dρ += map(x -> ρ(x, V; solver=model), oldDirProjVectors)
-                Sρ += map(x -> ρ(x, V; solver=model), constraintProjVectors)
-                Iρ += map(x -> ρ(x, V; solver=model), invarientProjVectors)
+                dρ += map(x -> ρ(x, V), oldDirProjVectors)
+                Sρ += map(x -> ρ(x, V), constraintProjVectors)
+                Iρ += map(x -> ρ(x, V), invarientProjVectors)
                 dirProjVectors = map(x -> pϕt * x, oldDirProjVectors)
                 constraintProjVectors = map(x -> pϕt * x, oldConstraintProjVectors)
                 invarientProjVectors = map(x -> pϕt * x, oldInvarientProjVectors)

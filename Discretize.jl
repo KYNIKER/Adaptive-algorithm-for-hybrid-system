@@ -115,7 +115,14 @@ function ReACTDiscretizePlus(loc, X0, δ⁻::Float64, δ⁺::Float64, alg::Reach
     rt = MinkowskiSum(E_ψ, E⁺)
     f = MinkowskiSum(lt, rt)
     disc = UnionSet(CH(X0, f), LazySets.EmptySet(XDim)) # overapproximate(CH(X0, minkowski_sum(f, PZ)), Zonotope) #
-
+    #=
+    println("LazyRep")
+    @show LazySets.API.high(X0)
+    @show LazySets.API.low(X0)
+    @show LazySets.API.high(f)
+    @show LazySets.API.low(f)
+    @show LazySets.API.high(P)
+    @show LazySets.API.low(P)=#
     # TODO maybe we can reuse this somehow?
     # if (size(genmat(disc),2)==0)
     #     disc = X0
@@ -155,7 +162,7 @@ function ReACTDiscretizePlus(loc, X0, δ⁻::Float64, δ⁺::Float64, alg::Reach
     return discritezationDict, inputDiscritezationDict
 end
 
-
+# TODO - For some reason the discretization of X0 as a polytope is larger than as a LazySet, even if the lazy representation is a bit larger.. 
 function ReACTDiscretizePlus(loc, X0::HPolytope, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing)
     #XDim, _ = size(genmat(X0))
     #directions = CustomDirections(map(x -> x.a, constraints_list(X0)))
@@ -176,6 +183,8 @@ function ReACTDiscretizePlus(loc, X0::HPolytope, δ⁻::Float64, δ⁺::Float64,
         U = concretize(U)
         U = Zonotope(U.center + loc.c, genmat(U))
     end
+
+
     #U = overapproximate(U, BoxDirections(XDim))
     d = δ⁻
     dia::Matrix{Float64} = diagm(δ⁻ * ones(XDim))
@@ -187,7 +196,7 @@ function ReACTDiscretizePlus(loc, X0::HPolytope, δ⁻::Float64, δ⁺::Float64,
     #pis = ReachabilityAnalysis.Exponentiation.Φ₁(A, δ⁻, alg, isInvA, Φcache)
 
     #X0 = Zonotope([1., 0., -1.], [[0.0, 0.0, 0.0]])
-
+    #=
     inputDiscritezationDict[0] = U
     #if !(zeros(XDim) ∈ U) #Origin is *not* in input
     #println("Here")
@@ -195,16 +204,33 @@ function ReACTDiscretizePlus(loc, X0::HPolytope, δ⁻::Float64, δ⁺::Float64,
     #E_ψ = symmetric_interval_hull(linear_map(P2A_abs, symmetric_interval_hull(linear_map(A, U))))
     E_ψ = SymmetricIntervalHull(LinearMap(P2A_abs, SymmetricIntervalHull(A * U)))
     P = minkowski_sum(dU, E_ψ) #
-    lt = mapPolytope(phiDict[d], X0) #minkowski_sum(linear_map(phiDict[d], X0), P)  #minkowski_sum(convert(Zonotope, phiDict[d] * X0), dU)
+    lt = MinkowskiSum(P, mapPolytope(phiDict[d], X0)) #minkowski_sum(linear_map(phiDict[d], X0), P)  #minkowski_sum(convert(Zonotope, phiDict[d] * X0), dU)
     tl = mapPolytope(A^2, X0)
     #@show LazySets.API.low(tl)
     te = symmetric_interval_hull(tl)
-    E⁺ = overapproximate(symmetric_interval_hull(linear_map(P2A_abs, te)), BoxDirections(XDim))
+    E⁺ = symmetric_interval_hull(linear_map(P2A_abs, te))
     #rt = minkowski_sum(E_ψ, E⁺)
     f = MinkowskiSum(lt, E⁺)
-    #boundingDirections = vcat(constraints_list(X0), constraints_list(lt), constraints_list(E⁺))
-    #abstractBoundingDirections = map(x -> x.a, boundingDirections)
-    #@show typeof(abstractBoundingDirections)
+    =#
+    inputDiscritezationDict[0] = U
+    #if !(zeros(XDim) ∈ U) #Origin is *not* in input
+    #println("Here")
+    dU = LinearMap(δ⁻, U)#linear_map(dia, U)
+    E_ψ = SymmetricIntervalHull(LinearMap(P2A_abs, SymmetricIntervalHull(LinearMap(A, U))))
+    #E_ψ = SymmetricIntervalHull(LinearMap(P2A_abs, SymmetricIntervalHull(A * U)))
+    P = MinkowskiSum(dU, E_ψ) #
+    lt = MinkowskiSum(LinearMap(phiDict[d], X0), dU)  #minkowski_sum(convert(Zonotope, phiDict[d] * X0), dU)
+    E⁺ = SymmetricIntervalHull(LinearMap(P2A_abs, SymmetricIntervalHull(LinearMap(A * A, X0))))
+    rt = MinkowskiSum(E_ψ, E⁺)
+    f = MinkowskiSum(lt, rt)
+    #=
+    println("HpolyRep")
+    @show LazySets.API.high(X0)
+    @show LazySets.API.low(X0)
+    @show LazySets.API.high(f)
+    @show LazySets.API.low(f)
+    @show LazySets.API.high(P)
+    @show LazySets.API.low(P)=#
     disc = overapproximatedCH(X0, f) #CH(X0, f)
     #disc = overapproximate(disc, abstractBoundingDirections) # overapproximate(CH(X0, minkowski_sum(f, PZ)), Zonotope) #
 

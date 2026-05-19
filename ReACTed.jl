@@ -102,7 +102,7 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
 
     for key in keys(discretizationDict)
         #@show isempty(discretizationDict[key])
-        tempval = overapproximate(discretizationDict[key], BoxDirections(dim))
+        tempval = overapproximate(discretizationDict[key], OctDirections(dim))
         #@show norm(tempval)
         if !intersectedSetIsNothing
             #@show norm(intersectedDict[key])
@@ -217,7 +217,7 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
                         #continue
                         
                         println("Before revise: $(LazySets.isempty(intersectedSet))")
-                        tintersectedSet = revise(intersectedSet, nonIntersectedSet,  collect(BoxDirections(dim))) #, collect(BoxDirections(dim))
+                        tintersectedSet = revise(intersectedSet, nonIntersectedSet,  collect(OctDirections(dim))) #, collect(BoxDirections(dim))
                         println("After revise: $(LazySets.isempty(tintersectedSet))")
                         if !LazySets.isempty(tintersectedSet)
                             if saveResult
@@ -520,7 +520,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
                 return (overapproximateIntersectingSetArray, time, invariantIntersection)
             end
 
-            constraintCheck = all((ρ(x, newRR; solver = model) + ρ(x, Vs)) <= y for ( x, y) in zip( constraintProjVectors, constraintProjBounds))
+            constraintCheck = all((ρ(x, newRR) + ρ(x, Vs)) <= y for ( x, y) in zip( constraintProjVectors, constraintProjBounds))
             
             
             guardCheck = all((-ρ(-x, Vs) + (-ρ(-x, newRR;solver = model)) <= y) for ( x, y) in zip( guardProjVectors, guardProjBounds))

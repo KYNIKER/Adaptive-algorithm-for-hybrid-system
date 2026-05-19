@@ -86,14 +86,17 @@ function ReACTDiscretizePlus(loc, X0, δ⁻::Float64, δ⁺::Float64, alg::Reach
     end
 
     #U = isnothing(loc.B) ? (isnothing(loc.u) ? Zonotope(zeros(XDim), [zeros(XDim)]) : loc.u) : concretize(loc.B * loc.u)
+    dia::Matrix{Float64} = diagm(δ⁻ * ones(XDim))
     U = isnothing(loc.B) ? (isnothing(loc.u) ? Zonotope(zeros(XDim), zeros(XDim, 1)) : loc.u) : LinearMap(loc.B, loc.u)
     if !isnothing(loc.c)
         U = concretize(U)
-        U = Zonotope(U.center + loc.c, genmat(U))
+        #tU = ReachabilityAnalysis.Exponentiation.Φ₁(diagm(ones(XDim)), δ⁻, alg, false, nothing) * loc.c
+        U = Zonotope(U.center, genmat(U)) #Zonotope(U.center + loc.c, genmat(U))
+        #@show norm(U)
+        #@show norm(tU)
     end
 
     d = δ⁻
-    #dia::Matrix{Float64} = diagm(δ⁻ * ones(XDim))
     isInvA = false #isinvertible(A)
     Φ = copy(phiDict[d])
     A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(A)
@@ -114,6 +117,15 @@ function ReACTDiscretizePlus(loc, X0, δ⁻::Float64, δ⁺::Float64, alg::Reach
     E⁺ = SymmetricIntervalHull(LinearMap(P2A_abs, SymmetricIntervalHull(LinearMap(A * A, X0))))
     rt = MinkowskiSum(E_ψ, E⁺)
     f = MinkowskiSum(lt, rt)
+
+    if !isnothing(loc.c)
+        cP = ReachabilityAnalysis.Exponentiation.Φ₁(A, δ⁻, alg, false, nothing) * loc.c
+        P = MinkowskiSum(P, Singleton(cP))
+        f = MinkowskiSum(f, Singleton(cP))
+        #@show norm(U)
+        #@show norm(tU)
+    end
+
     disc = UnionSet(CH(X0, f), LazySets.EmptySet(XDim)) # overapproximate(CH(X0, minkowski_sum(f, PZ)), Zonotope) #
     #=
     println("LazyRep")
@@ -181,7 +193,7 @@ function ReACTDiscretizePlus(loc, X0::HPolytope, δ⁻::Float64, δ⁺::Float64,
     U = isnothing(loc.B) ? (isnothing(loc.u) ? Zonotope(zeros(XDim), zeros(XDim, 1)) : loc.u) : LinearMap(loc.B, loc.u)
     if !isnothing(loc.c)
         U = concretize(U)
-        U = Zonotope(U.center + loc.c, genmat(U))
+        U = Zonotope(U.center, genmat(U)) #Zonotope(U.center + loc.c, genmat(U))
     end
 
 
@@ -223,6 +235,15 @@ function ReACTDiscretizePlus(loc, X0::HPolytope, δ⁻::Float64, δ⁺::Float64,
     E⁺ = SymmetricIntervalHull(LinearMap(P2A_abs, SymmetricIntervalHull(LinearMap(A * A, X0))))
     rt = MinkowskiSum(E_ψ, E⁺)
     f = MinkowskiSum(lt, rt)
+
+    if !isnothing(loc.c)
+        cP = ReachabilityAnalysis.Exponentiation.Φ₁(A, δ⁻, alg, false, nothing) * loc.c
+        P = MinkowskiSum(P, Singleton(cP))
+        f = MinkowskiSum(f, Singleton(cP))
+        #@show norm(U)
+        #@show norm(tU)
+    end
+
     #=
     println("HpolyRep")
     @show LazySets.API.high(X0)

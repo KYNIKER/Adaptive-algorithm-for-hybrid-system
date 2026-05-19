@@ -56,11 +56,11 @@ function ReACTed(hybridSystem::HybridSystemV2, initialLoc, interval, X0, U, dirs
         #@show LazySets.API.high(initialset)
         #@show LazySets.API.low(initialset)
 
-        if !isnothing(polySet)
+        #=if !isnothing(polySet)
             @show initialset ⊆ polySet
             @show LazySets.API.high(polySet) - LazySets.API.high(initialset)
             @show LazySets.API.low(polySet) - LazySets.API.low(initialset)
-        end
+        end=#
 
         res = auxReACTed(waitinglist, hybridSystem, dimLength, hybridSystem.locations[location], interval′, initialset, dirsVectors, constraint, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder, TΦ, discDict, inputDict, reducedPolySet, saveResult; clustering, mustSemantics)
         reachset = vcat(reachset, res)
@@ -223,7 +223,7 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
                             if saveResult
                                 push!(reachset, ([(map(x -> ρ(x, tintersectedSet), dirs), [reachtime, startTime])], "Guard intersection: " * string(reachtime) * " - " * string(timeNotIntersected) * ": " * string(loc.id) * "->" * string(loc.id)))
                             end
-                            jumpSetLazy = reset_map(Intersection(loc.invarient ∩ guards, nonIntersectedSet)) # painfully slow but correct
+                            jumpSetLazy = reset_map(overapproximate(Intersection(loc.invarient ∩ guards, nonIntersectedSet), OctDirections(dim))) # painfully slow but correct
                             #jumpSetLazy = reset_map(nonIntersectedSet) #
                             
                             #@show minimum(map(x -> norm(x.a) ,constraints_list(intersectedSet)))
@@ -233,13 +233,13 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
                             jumpSetIntersected = Reset_Map(tintersectedSet) #intersection(Reset_Map(intersectedSet), hybridSystem.locations[edge.targetLoc].invarient)
 
                             if !isnothing(hybridSystem.locations[edge.targetLoc].invarient)
-                                jumpSetLazy = LazySets.Intersection( hybridSystem.locations[edge.targetLoc].invarient, jumpSetLazy) #reset_map(nonIntersectedSet) #
+                                jumpSetLazy = overapproximate(LazySets.Intersection( hybridSystem.locations[edge.targetLoc].invarient, jumpSetLazy), OctDirections(dim)) #reset_map(nonIntersectedSet) #
                                 jumpSetIntersected = LazySets.intersection(jumpSetIntersected, hybridSystem.locations[edge.targetLoc].invarient; prune=false)
                                 
                             end
-                            jumpSetIntersected = revise(jumpSetIntersected, jumpSetLazy, collect(OctDirections(dim)))
+                            #jumpSetIntersected = revise(jumpSetIntersected, jumpSetLazy, collect(OctDirections(dim)))
                             @show LazySets.isempty(jumpSetIntersected)
-                            #@time jumpSetIntersected = reducePolytopeFromBounding(jumpSetIntersected)
+                            @time jumpSetIntersected = reducePolytopeFromBounding(jumpSetIntersected)
                             push!(waitlist, (edge.targetLoc, jumpSetLazy, [startTime, endtime], missing, nothing, nothing, jumpSetIntersected))
                             
                         else
@@ -450,6 +450,10 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
                 if any(((input + ρ(x, newRR; solver=model)) > y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
                     #throw(ErrorException("Reached unsafe set."))
                     #@show [((input + ρ(x, newRR)), y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)]
+                    tempLazySet = MinkowskiSum(Vs, LinearMap(copy(Φ), lazyDiscritezationDict[δ⁻]))
+                    println(all((ρ(x, tempLazySet)) <= y for ( x, y) in zip( constraintProjVectors, constraintProjBounds)))
+                    println(all((-ρ(-x, tempLazySet)) <= y for ( x, y) in zip( guardProjVectors, guardProjBounds)))
+                    println(all((-ρ(-x, tempLazySet)) <= y for ( x, y) in zip(invarientProjVectors, invarientProjBounds)))
 
                     handleHitConstraint(time, loc.id)
                 end
@@ -466,7 +470,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
                     end
                     if isempty(overapproximateIntersectingSetArray)
                         println("Is empty_!_!")
-                        push!(overapproximateIntersectingSetArray, copy([constrain(Vs, newRR, LinearMap(copy(Φ), lazyDiscritezationDict[δ⁻]), InvariantGuardIntersect),MinkowskiSum(Vs, LinearMap(copy(Φ), lazyDiscritezationDict[δ⁻])), time]))
+                        push!(overapproximateIntersectingSetArray, copy([constrain(Vs, newRR, LinearMap(copy(Φ), lazyDiscritezationDict[δ⁻]), InvariantGuardIntersect),MinkowskiSum(copy(Vs), LinearMap(copy(Φ), lazyDiscritezationDict[δ⁻])), time]))
                         
                         #push!(overapproximateIntersectingSetArray, copy([constrain(Vs, newRR, LinearMap(copy(Φ), lazyDiscritezationDict[δ⁻]), invarientProjVectors,  invarientProjBounds),MinkowskiSum(Vs, LinearMap(copy(Φ), lazyDiscritezationDict[δ⁻])), time]))
                         #push!(overapproximateIntersectingSetArray, copy([newSet, MinkowskiSum(Vs, LinearMap(Φ, lazyDiscritezationDict[currentTimeStep])), time])) #
@@ -529,7 +533,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
                 @show LazySets.API.high(newRR)
                 throw(e)
             end=#
-            invariantCheck =  all((-ρ(-x, newRR; solver = model) + z) <= y for ( x, y, z) in zip(invarientProjVectors, invarientProjBounds, Iρ))
+            invariantCheck =  all((-ρ(-x, newRR; solver = model) + -ρ(-x, Vs)) <= y for ( x, y) in zip(invarientProjVectors, invarientProjBounds, Iρ))
             #sen = sen && any((-ρ(-x, Vs) + (-ρ(-x, newRR))) <= y for ( x, y) in zip(invarientProjVectors, invarientProjBounds))
             #println("After third: $(-ρ(-invarientProjVectors[1], newRR) + Iρ[1]) $(-ρ(-invarientProjVectors[1], Vs))  $(-ρ(-invarientProjVectors[1], newRR)) $(invarientProjBounds[1])")
                 #=
@@ -550,7 +554,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
                 #println("After constrain")
                 if !isempty(newSet)
                     #@show triedRevise
-                    push!(overapproximateIntersectingSetArray, [newSet,  MinkowskiSum(Vs, LinearMap(copy(Φ), lazyDiscritezationDict[δ⁻])), time]) #
+                    push!(overapproximateIntersectingSetArray, [newSet,  MinkowskiSum(copy(Vs), LinearMap(copy(Φ), lazyDiscritezationDict[δ⁻])), time]) #
                     if i == 3    
                         #return (overapproximateIntersectingSetArray, time)
                     end
@@ -754,7 +758,24 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
                 # If we hit a constraint
                 #newRR = concretize(newRR)
                 if any((input + ρ(x, newR; solver=model)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
-                    #@show [((input + ρ(x, newR)), y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)]
+                    @show [((input + ρ(x, newR)), y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)]
+                    @show [((input + ρ(x, lazyDiscritezationDict[δ⁻])), y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)]
+                    
+                    @show Sρ
+                    @show (time-minimum(interval))
+                    tconstraintProjVectors, tconstraintProjBounds = getHalfSpaceProjections(constraint)
+                    Vs = nestedInputDiscCalculate(inputDiscritezationDict, PhiDict, δ⁺, δ⁻, time-minimum(interval))
+                    tempLazySet = MinkowskiSum(Vs, lazyDiscritezationDict[δ⁻])
+                    @show [((ρ(x, tempLazySet)), y) for (input, x, y) in zip(Sρ, tconstraintProjVectors, tconstraintProjBounds)]
+                    tempLazySet = MinkowskiSum(Vs, LinearMap(Φ, lazyDiscritezationDict[δ⁻]))
+                    @show [((ρ(x, tempLazySet)), y) for (input, x, y) in zip(Sρ, tconstraintProjVectors, tconstraintProjBounds)]
+                    
+                    @show [((ρ(x, Vs)), y) for (input, x, y) in zip(Sρ, tconstraintProjVectors, tconstraintProjBounds)]
+
+                    #println(LazySets.API.isdisjoint(constraint, tempLazySet))
+                    #println(LazySets.API.isdisjoint(guards, tempLazySet))
+                    #println(LazySets.API.issubset(tempLazySet, loc.invarient))
+                    
 
                     handleHitConstraint(time, loc.id)
                 end
@@ -781,7 +802,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
             if all((input + ρ(x, newR; solver=model)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) &&
                #any(sign(y) >= 0 ? (input + ρ(-x, newR)) <= y : !((input + ρ(x, newR)) < y) for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) &&
                any((input + -ρ(-x, newR; solver=model)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) &&
-               all((input + ρ(x, newR; solver=model)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
+               all((input + -ρ(-x, newR; solver=model)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
                 #(any((input + ρ(-x, newRR)) > y for (input, x, y) in zip(-Sρ, invarientProjVectors, invarientProjBounds)) && all((input + ρ(x, newRR)) <= y for (input, x, y) in zip(Sρ, invarientProjVectors, invarientProjBounds)))
                 #all(((ρ(x, tempSet)) <= y) for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Subset
                 #(isnothing(loc.invarient) || intersects(tempSet, loc.invarient))
@@ -813,11 +834,15 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
             elseif triedRevise == false
                 
                 changedTimeStep = true
-                tSet = revise(discritezationDict[currentTimeStep], lazyDiscritezationDict[currentTimeStep], vcat(constraintProjVectors, -1 * guardProjVectors, invarientProjVectors), vcat(constraintProjBounds, -1 * guardProjBounds, invarientProjBounds)) # - vcat(Sρ, Gρ, Iρ)
-                #@show isempty(tSet)
+                @show [((input + ρ(x, discritezationDict[currentTimeStep])), y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)]
+                @show [((input + ρ(x, lazyDiscritezationDict[currentTimeStep])), y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)]
+
+                tSet = revise(discritezationDict[currentTimeStep], lazyDiscritezationDict[currentTimeStep], vcat(constraintProjVectors, -1 * guardProjVectors, guardProjVectors, invarientProjVectors)) # - vcat(Sρ, Gρ, Iρ)
+                @show [((input + ρ(x, tSet)), y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)]
+                @show isempty(tSet)
+
                 if !isempty(tSet)
-                    
-                    discritezationDict[currentTimeStep] = tSet
+                    discritezationDict[currentTimeStep] = copy(tSet)
                 elseif VERBOSE
                     println(time)
                     throw(DomainError(discritezationDict[currentTimeStep], "Set is empty?"))

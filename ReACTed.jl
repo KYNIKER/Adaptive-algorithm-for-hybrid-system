@@ -27,7 +27,7 @@ function ReACTed(hybridSystem::HybridSystemV2, initialLoc, interval, X0, U, dirs
     time::Float64 = minimum(interval)
     endtime::Float64 = maximum(interval)
     reachset = []
-    saveResult = false #true
+    saveResult = true
     dirsVectors = []
 
     dimLength = size(X0.center, 1)
@@ -145,7 +145,7 @@ function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval
                 push!(reachset, (tempReachset, string(time) * " - " * string(reachtime) * ": " * string(loc.id) * "->" * string(edge.targetLoc)))
             end
             # println("Current time: $time, intersecting time start: $reachtime")
-            tryContinueFlag, _, timeNotIntersected, intersectingSetsList = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, endtime], (reachtime - time), guards, setOfConstraints, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, tΦ, nothing, reduceOrder, maxOrder)
+            tryContinueFlag, _, timeNotIntersected, intersectingSetsList = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, endtime], (reachtime - time), guards, setOfConstraints, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, overapproximatedDiscretizationDict, tΦ, nothing, reduceOrder, maxOrder)
 
 
             if any((timeNotIntersected >= x) for x in activeTimeConstraints)
@@ -313,7 +313,7 @@ function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval
     return reachset
 end
 
-#=
+
 function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime::Float64, guard, constraint, STRATEGY::Integer, PhiDict, discritezationDict, inputDiscritezationDict, polytopeDict, Φ, accInput, reduce_order, max_order)
     STRATEGY = 0
     initialTimeStep = copy(δ⁻)
@@ -471,8 +471,9 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
     continueAfter = false # We are at the end time horizon, therefore no continuing
     return (continueAfter, Φ, time, intersectingSetsList)
 end
-=#
-function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime::Float64, guard, constraint, STRATEGY::Integer, PhiDict, discritezationDict, inputDiscritezationDict, Φ, accInput, reduce_order, max_order)
+
+#=
+function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime::Float64, guard, constraint, STRATEGY::Integer, PhiDict, discritezationDict, inputDiscritezationDict, polytopeDict, Φ, accInput, reduce_order, max_order)
     # Note that in touches we always use δ⁻
     # That is, we do not adjust timestep sizes
 
@@ -539,6 +540,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
     continueAfter = false # We are at the end time horizon, therefore no continuing
     return (continueAfter, Φ, time, intersectingSetsList)
 end
+=#
 function ReACTTouches2(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, constraint, STRATEGY::Integer, PhiDict, discritezationDict, inputDiscritezationDict, Φ, accInput)
     initialTimeStep = copy(δ⁺)
     m = copy(δ⁻)
@@ -771,7 +773,10 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
                 #if mapreduce(x -> intersects(newRR, x), &, guard)
                 #push!(overapproximateIntersectingSetArray, newRR)
                 if saveResult
-                    push!(dirVals, (copy(dρ + map(x -> ρ(x, polyNewR; solver=model), oldDirProjVectors)), [time, time + currentTimeStep]))
+                    plotDirZ = copy(dρ + map(x -> ρ(x, newR), oldDirProjVectors))
+                    plotDirP = copy(dρ + map(x -> ρ(x, polyNewR; solver=model), oldDirProjVectors))
+                    plotDir = [abs(x) < abs(y) ? x : y for (x, y) in zip(plotDirZ, plotDirP)]
+                    push!(dirVals, (copy(plotDir), [time, time + currentTimeStep]))
                 end
                 #lastVs = copy(Vs)
                 #Vs = ReachabilityAnalysis.Exponentiation.Φ₁(A, time - minimum(interval), ReachabilityAnalysis.Exponentiation.BaseExp) * U

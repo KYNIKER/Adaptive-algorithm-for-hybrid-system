@@ -125,7 +125,7 @@ function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval
         #   Compute the reachset closest to the guard without intersecting it and not reaching the unsafe set. 
 
         tempReachset, reachtime, tΦ = ReACTGuards(loc, δ⁻, δ⁺, [time, endtime], guards, setOfConstraints, dirs, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, overapproximatedDiscretizationDict, saveResult)
-
+        @show reachtime
 
 
 
@@ -145,7 +145,7 @@ function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval
                 push!(reachset, (tempReachset, string(time) * " - " * string(reachtime) * ": " * string(loc.id) * "->" * string(edge.targetLoc)))
             end
             # println("Current time: $time, intersecting time start: $reachtime")
-            tryContinueFlag, _, timeNotIntersected, intersectingSetsList = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, endtime], (reachtime - time), guards, setOfConstraints, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, overapproximatedDiscretizationDict, tΦ, nothing, reduceOrder, maxOrder)
+            tryContinueFlag, _, timeNotIntersected, intersectingSetsList = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, endtime], (reachtime - time), guards, setOfConstraints, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, tΦ, nothing, reduceOrder, maxOrder)
 
 
             if any((timeNotIntersected >= x) for x in activeTimeConstraints)
@@ -155,6 +155,7 @@ function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval
 
             timeIntersected = timeNotIntersected - reachtime
             latestSet = nothing
+            @show timeIntersected
             #
             #   Here we should check whether we have reached endtime. If true we should only push the jumpSet
             #   Still need to check whether we have reached the invariant. If true we should NOT push the else branch result, only the tempReachsets[infMaxsIdx]
@@ -471,7 +472,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
     return (continueAfter, Φ, time, intersectingSetsList)
 end
 =#
-function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime::Float64, guard, constraint, STRATEGY::Integer, PhiDict, discritezationDict, inputDiscritezationDict, polytopeDict, Φ, accInput, reduce_order, max_order)
+function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime::Float64, guard, constraint, STRATEGY::Integer, PhiDict, discritezationDict, inputDiscritezationDict, Φ, accInput, reduce_order, max_order)
     # Note that in touches we always use δ⁻
     # That is, we do not adjust timestep sizes
 
@@ -510,7 +511,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
            all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
             #if mapreduce(x -> intersects(newRR, x), &, guard)
 
-            push!(intersectingSetsList, tempSet)
+            push!(intersectingSetsList, copy(tempSet))
 
             # Main calculation. No longer changing timesteps
             Vs = minkowski_sum(Vs, V) #Update input
@@ -717,7 +718,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
     Gρ = zeros(Float64, length(guardProjVectors))
     Iρ = zeros(Float64, length(invarientProjVectors))
     dρ = zeros(Float64, length(dirs))
-    newR = discritezationDict[initialTimeStep]
+    newR = copy(discritezationDict[initialTimeStep])
     polyNewR = polytopeDict[initialTimeStep]
     i = 1
 

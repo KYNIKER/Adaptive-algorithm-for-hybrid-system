@@ -450,6 +450,10 @@ end
 
 #   Based on Alamo et al. "Guaranteed state estimation by zonotopes" (2005)
 function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HyperplaneModule.Hyperplane, σ::Float64)
+    if isSubSet(Z, H)
+        return Z
+    end
+
     G = genmat(Z)
     c = Z.center
     b = H.a
@@ -476,6 +480,10 @@ function iscollinear(a, b; atol = 1e-10)
 end
 
 function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HPolyhedron)
+    if isSubSet(Z, H)
+        return Z
+    end
+    
     HalfSpaces = copy(constraints_list(H))
     HSG = stack([x.a for x in HalfSpaces]; dims=1)
     res = copy(Z)

@@ -548,7 +548,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
     time::Float64 = minimum(interval)
     endtime::Float64 = maximum(interval)
 
-    currentTimeStep = copy(δ⁻)#copy(initialTimeStep)
+    currentTimeStep = copy(δ⁺)#copy(initialTimeStep)
 
     #overapproximateIntersectingSetArray = []
     #lastNewR = []

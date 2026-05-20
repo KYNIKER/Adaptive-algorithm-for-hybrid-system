@@ -223,8 +223,8 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
                             if saveResult
                                 push!(reachset, ([(map(x -> ρ(x, tintersectedSet), dirs), [reachtime, startTime])], "Guard intersection: " * string(reachtime) * " - " * string(timeNotIntersected) * ": " * string(loc.id) * "->" * string(loc.id)))
                             end
-                            jumpSetLazy = reset_map(overapproximate(Intersection(loc.invarient ∩ guards, nonIntersectedSet), OctDirections(dim))) # painfully slow but correct
-                            #jumpSetLazy = reset_map(nonIntersectedSet) #
+                            #jumpSetLazy = reset_map(overapproximate(Intersection(loc.invarient ∩ guards, nonIntersectedSet), OctDirections(dim))) # painfully slow but correct
+                            jumpSetLazy = reset_map(nonIntersectedSet) #
                             
                             #@show minimum(map(x -> norm(x.a) ,constraints_list(intersectedSet)))
                             #@show minimum(map(x -> abs(x.b) ,constraints_list(intersectedSet)))
@@ -233,7 +233,8 @@ function auxReACTed(waitlist, hybridSystem, dim, loc::Location, interval, X0, di
                             jumpSetIntersected = Reset_Map(tintersectedSet) #intersection(Reset_Map(intersectedSet), hybridSystem.locations[edge.targetLoc].invarient)
 
                             if !isnothing(hybridSystem.locations[edge.targetLoc].invarient)
-                                jumpSetLazy = overapproximate(LazySets.Intersection( hybridSystem.locations[edge.targetLoc].invarient, jumpSetLazy), OctDirections(dim)) #reset_map(nonIntersectedSet) #
+                                #jumpSetLazy = overapproximate(LazySets.Intersection( hybridSystem.locations[edge.targetLoc].invarient, jumpSetLazy), OctDirections(dim)) #reset_map(nonIntersectedSet) #
+                                jumpSetLazy = reset_map(nonIntersectedSet)
                                 jumpSetIntersected = LazySets.intersection(jumpSetIntersected, hybridSystem.locations[edge.targetLoc].invarient; prune=false)
                                 
                             end

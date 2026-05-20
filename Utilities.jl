@@ -455,12 +455,7 @@ function splitZonotope(Z::Zonotope, H_intersections::LazySets.HPolyhedronModule.
     return Z_intersection, Z_rest
 end
 
-# Takes two vectors. May be sparrse
-function iscollinear(a, b; atol=1e-10)
-    # If the value is zero (Or very close to zero, then they are linearly dependent)
-    # Squaring rather than doing norm because norm would take longer to calc 
-    return abs(dot(a, b)^2 - dot(a, a) * dot(b, b)) ≤ atol
-end
+
 
 #   Based on Alamo et al. "Guaranteed state estimation by zonotopes" (2005)
 function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HyperplaneModule.Hyperplane, σ::Float64)
@@ -482,14 +477,23 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HyperplaneModule.Hyp
     return Zonotope(ĉ, Ĝ)
 end
 
+# Takes two vectors. May be sparrse
+function iscollinear(a, b; atol=1e-10)
+    # If the value is zero (Or very close to zero, then they are linearly dependent)
+    # Squaring rather than doing norm because norm would take longer to calc 
+    return abs(dot(a, b)^2 - dot(a, a) * dot(b, b)) ≤ atol
+end
+
 function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HPolyhedron)
     HalfSpaces = copy(constraints_list(H))
     HSG = stack([x.a for x in HalfSpaces]; dims=1)
     res = copy(Z)
     if rank(HSG) < size(HSG, 1)
         #println("Collinear")
-        collinear = []
-        remidx = stack([false for x in HalfSpaces])
+        #collinear = []
+        collinear = Vector{LazySets.HalfSpaceModule.HalfSpace{Float64,Vector{Float64}}}()
+        #remidx = stack([false for x in HalfSpaces])
+        remidx = falses(length(HalfSpaces))
         for hs in HalfSpaces
             flag = false
             for (index2, i) in enumerate(HalfSpaces)
@@ -532,7 +536,8 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
             end
         end
         while !isempty(collinear)
-            temphs = []
+            #temphs = []
+            temphs = Vector{LazySets.HalfSpaceModule.HalfSpace{Float64,Vector{Float64}}}()
             push!(temphs, pop!(collinear))
             cols = any(i -> rank([i.a temphs[1].a]) <= 1, collinear, dims=2)
             for i in eachindex(cols)
@@ -1276,7 +1281,7 @@ function bloatPolytope(input::Singleton, M, P::HPolytope)
 end
 
 function mpPol(M::Matrix, P::HPolytope)
-    throw(error("This should never be called! mpPol? more like.. "))
+    #throw(error("This should never be called! mpPol? more like.. "))
     #println("CRAZY CRAZY CRAZY")
     #@show LazySets.isempty(P), LazySets.isbounded(P)
     #@show LazySets.API.low(P), LazySets.API.high(P)

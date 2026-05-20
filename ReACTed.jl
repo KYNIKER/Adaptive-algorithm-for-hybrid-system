@@ -254,11 +254,9 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
 end
 
 function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime::Float64, guard, constraint, STRATEGY::Integer, PhiDict, discritezationDict, inputDiscritezationDict, Φ, accInput, reduce_order, max_order)
-    STRATEGY = 0
-    initialTimeStep = copy(δ⁻)
-    #initialTimeStep = copy(δ⁺)
-    m = copy(δ⁻)
-    changedTimeStep = true
+    # Note that in touches we always use δ⁻
+    # That is, we do not adjust timestep sizes
+    
     phiDict = PhiDict
 
     constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint)
@@ -268,132 +266,56 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
     time::Float64 = minimum(interval)
     endtime::Float64 = maximum(interval)
 
-    currentTimeStep = copy(initialTimeStep)
-
-    V = copy(inputDiscritezationDict[initialTimeStep])
 
     Vs = nestedInputDiscCalculate(inputDiscritezationDict, PhiDict, δ⁺, δ⁻, initialTime, reduce_order, max_order)
-
-
-    #concretize(Vs)
-    #lastVs = copy(Vs)
-    newR = discritezationDict[initialTimeStep]
-    i = 1
-
+    # i = 1
 
     if ismissing(Φ)
         Φ::Matrix{Float64} = exp(initialTime .* loc.A)
     end
 
-    tempM = diagm(ones(Float64, size(loc.A, 2)))
-    ϕt = similar(Φ)
-    #newRR = copy(newR)
-    newRR = newR
+    ϕ = similar(Φ)
+    ϕ = phiDict[δ⁻]
 
-    attemptsRecorder = []
-    intersectingSetsList = Vector{Zonotope}()
+    # Compute current sets
+    newR = discritezationDict[δ⁻]
+    newRR = linear_map(Φ, newR)
+    V = copy(inputDiscritezationDict[δ⁻])
+    V = linear_map(Φ, V)
+    intersectingSetsList = Vector{Zonotope}() # This will store all of our sets
 
     while time < endtime
+        tempSet = concretize(newRR ⊕ Vs)
 
-        attempts = 1
-        approveFlag = false
+        if all((ρ(x, tempSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
+            all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) && 
+            #!isdisjoint(tempSet, guard; algorithm="sufficient") && # intersects
+            all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
+            #if mapreduce(x -> intersects(newRR, x), &, guard)
 
-        while !approveFlag
-            if currentTimeStep < m
+            push!(intersectingSetsList, tempSet)
 
-                tempSet = concretize(newRR ⊕ Vs)
-                if any(((ρ(x, tempSet)) > y) for (x, y) in zip(constraintProjVectors, constraintProjBounds))
-                    #throw(ErrorException("Reached unsafe set."))
-                    handleHitConstraint(time, loc.id)
-                end
+            # Main calculation. No longer changing timesteps
+            Vs = minkowski_sum(Vs, V) #Update input
+            newRR = linear_map(ϕ, newRR)
+            V = linear_map(ϕ, V)
 
-                # Assuming we stopped because we no longer intersect guards
-                continueAfter = true 
+            # i = i + 1
+            time = time + δ⁻
 
-                if all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds))
-                    # println("Intersecting guard, but no longer intersecting invarients")
-                    continueAfter = false
-
-                    push!(intersectingSetsList, tempSet)
-                end
-
-                return continueAfter, Φ, time, intersectingSetsList
-
-
-                #println("Touches Vs: ", accInput)
-                #println(norm(intersectingSet), " ", norm(newRR))
+        else # Handle hit something. We do not reduce anymore!
+            if any(((ρ(x, tempSet)) > y) for (x, y) in zip(constraintProjVectors, constraintProjBounds))
+                handleHitConstraint(time, loc.id)
             end
 
-            if changedTimeStep
-                newR = discritezationDict[currentTimeStep]
-                V = copy(inputDiscritezationDict[currentTimeStep])
-                ϕt = phiDict[currentTimeStep]
-                newRR = linear_map(Φ, newR)
-                V = linear_map(Φ, V)
-                changedTimeStep = false
-            else
-                newRR = linear_map(ϕt, newRR)
-                V = linear_map(ϕt, V)
+            continueAfter = true 
+            if all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds))
+                # If we stop because we are no longer intersect guards, 
+                # but still intersect the invariant we try continue
+                continueAfter = false
             end
 
-            # @show concretize(newRR)
-            # #@show concretize(Vs)
-            # @show concretize(V)
-
-            tempSet = concretize(newRR ⊕ Vs)
-
-            if all((ρ(x, tempSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
-               all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) && 
-               #!isdisjoint(tempSet, guard; algorithm="sufficient") && # intersects
-               all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
-                #if mapreduce(x -> intersects(newRR, x), &, guard)
-
-                push!(intersectingSetsList, tempSet)
-
-                #lastVs = copy(Vs)
-                #Vs = Vs ⊕ V
-                # Vs = concretize(Vs)
-                # V = concretize(V) 
-                Vs = minkowski_sum(Vs, V)
-
-                #Vs = LinearMap(ReachabilityAnalysis.Exponentiation.Φ₁(loc.A, time + currentTimeStep - minimum(interval), ReachabilityAnalysis.Exponentiation.BaseExp), inputDiscritezationDict[0])
-                approveFlag = true
-                #Sρ += inhom
-                mul!(tempM, Φ, ϕt)
-                copy!(Φ, tempM)
-            else
-                #newR = copy(newR)
-                currentTimeStep = currentTimeStep / 2
-                changedTimeStep = true
-                attempts = attempts + 1
-            end
-        end
-
-
-        push!(attemptsRecorder, attempts)
-        i = i + 1
-        time = time + currentTimeStep
-
-        # Reset / apply strategy
-        # Only do this if the current timestep is less than the initial
-        if STRATEGY == 0
-            # Only reduce
-        elseif STRATEGY == 1
-            # always try double
-            if currentTimeStep < initialTimeStep
-                currentTimeStep = currentTimeStep * 2
-                changedTimeStep = true
-            end
-        elseif STRATEGY == 2
-            # If attemptsrecorder past 4 are successes, double timestep
-            if currentTimeStep < initialTimeStep
-                lowest = min(4, i - 1)
-                window = @view attemptsRecorder[i-lowest:i-1]
-                if all(window .== 1)
-                    currentTimeStep = currentTimeStep * 2
-                    changedTimeStep = true
-                end
-            end
+            return continueAfter, Φ, time, intersectingSetsList
         end
     end
     continueAfter = false # We are at the end time horizon, therefore no continuing

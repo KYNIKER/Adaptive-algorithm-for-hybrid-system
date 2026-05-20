@@ -120,7 +120,7 @@ function ReACTDiscretizePlus(loc, X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Fl
 
     if !isnothing(loc.c)
         cP = ReachabilityAnalysis.Exponentiation.Φ₁(A, δ⁻, alg, false, nothing) * loc.c
-        P = MinkowskiSum(P, Singleton(cP))
+        P = minkowski_sum(P, Singleton(cP))
         f = minkowski_sum(f, Singleton(cP))
         #@show norm(U)
         #@show norm(tU)
@@ -174,7 +174,7 @@ function ReACTDiscretizePlus(loc, X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Fl
     # end
     discritezationDict[δ⁺] = disc
     inputDiscritezationDict[δ⁺] = concretize(P)
-
+    println("Zonotope disc done")
     return discritezationDict, inputDiscritezationDict
 end
 
@@ -258,7 +258,7 @@ function ReACTDiscretizePlus(loc, X0::HPolytope, δ⁻::Float64, δ⁺::Float64,
     @show LazySets.API.low(P)=#
     disc = overapproximatedCH(X0, f) #CH(X0, f)
     #disc = overapproximate(disc, abstractBoundingDirections) # overapproximate(CH(X0, minkowski_sum(f, PZ)), Zonotope) #
-
+    P = concretize(P)
     # TODO maybe we can reuse this somehow?
     # if (size(genmat(disc),2)==0)
     #     disc = X0
@@ -280,7 +280,10 @@ function ReACTDiscretizePlus(loc, X0::HPolytope, δ⁻::Float64, δ⁺::Float64,
         #     end
         # end
         #println(P)
-        disc = CH(disc, minkowski_sum(P, linear_map(phiDict[d], disc)))
+        tset = MinkowskiSum(P, linear_map(phiDict[d], disc))
+        println("Done tset")
+        disc = overapproximatedCH(reducePolytopeFromBounding(disc), tset)
+        println("Done CH disc")
         P = minkowski_sum(P, linear_map(phiDict[d], P))
         d = d * 2
     end
@@ -294,7 +297,7 @@ function ReACTDiscretizePlus(loc, X0::HPolytope, δ⁻::Float64, δ⁺::Float64,
     # end
     discritezationDict[δ⁺] = disc
     inputDiscritezationDict[δ⁺] = concretize(P)
-
+    println("HPolytope disc done")
     return discritezationDict, inputDiscritezationDict
 end
 

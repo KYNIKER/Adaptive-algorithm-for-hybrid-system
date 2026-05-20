@@ -1276,6 +1276,7 @@ function bloatPolytope(input::Singleton, M, P::HPolytope)
 end
 
 function mpPol(M::Matrix, P::HPolytope)
+    throw(error("This should never be called! mpPol? more like.. "))
     #println("CRAZY CRAZY CRAZY")
     #@show LazySets.isempty(P), LazySets.isbounded(P)
     #@show LazySets.API.low(P), LazySets.API.high(P)
@@ -1450,12 +1451,13 @@ end
 
 function overapproximatedCH(H1::HPolytope, H2::LazySet)
     newConstraints::Vector{LazySets.HalfSpace} = []
-    directions = vcat(map(x -> x.a / norm(x.a), constraints_list(H1)), collect(OctDirections(LazySets.dim(H1))))
+    directions = vcat(map(x -> x.a / norm(x.a), constraints_list(H1)))#, collect(OctDirections(LazySets.dim(H1))))
     for direction in directions
         #@show direction
-        d1 = ρ(direction, H1; solver=Umodel)
+        d1 = ρ(direction, H1) #; solver=Umodel
         d2 = ρ(direction, H2)
         distance = max(d1, d2)
+        #@show distance
         push!(newConstraints, LazySets.HalfSpace(direction, distance))
     end
     #remove_redundant_constraints!(newConstraints)

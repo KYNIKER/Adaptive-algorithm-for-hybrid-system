@@ -433,8 +433,8 @@ function ReACTDiscretizePlus(loc, X0::Zonotope, X0P::Union{Nothing,HPolytope}, �
 
         Plt = MinkowskiSum(LinearMap(phiDict[d], X0), dU)  #minkowski_sum(convert(Zonotope, phiDict[d] * X0), dU)
         PE⁺ = SymmetricIntervalHull(LinearMap(P2A_abs, SymmetricIntervalHull(LinearMap(A * A, X0))))
-        Prt = MinkowskiSum(E_ψ, E⁺)
-        Pf = MinkowskiSum(lt, rt)
+        Prt = MinkowskiSum(E_ψ, PE⁺)
+        Pf = MinkowskiSum(Plt, Prt)
 
         lt = minkowski_sum(LazySets.linear_map(phiDict[d], X0), dU)  #minkowski_sum(convert(Zonotope, phiDict[d] * X0), dU)
         E⁺ = SymmetricIntervalHull(LazySets.linear_map(P2A_abs, SymmetricIntervalHull(LazySets.linear_map(A * A, X0))))
@@ -444,8 +444,8 @@ function ReACTDiscretizePlus(loc, X0::Zonotope, X0P::Union{Nothing,HPolytope}, �
         if !isnothing(loc.c)
             cP = ReachabilityAnalysis.Exponentiation.Φ₁(A, δ⁻, alg, false, nothing) * loc.c
             P = minkowski_sum(P, Singleton(cP))
-            f = minkowski_sum(f, Singleton(cP))
-            Pf = MinkowskiSum(f, Singleton(cP))
+            LazySets.API.translate!(f, cP)
+            Pf = MinkowskiSum(Pf, Singleton(cP))
             #@show norm(U)
             #@show norm(tU)
         end
@@ -458,7 +458,7 @@ function ReACTDiscretizePlus(loc, X0::Zonotope, X0P::Union{Nothing,HPolytope}, �
         @show LazySets.API.low(f)
         @show LazySets.API.high(P)
         @show LazySets.API.low(P)=#
-        disc = overapproximatedCH(X0, f) #CH(X0, f)
+        disc = overapproximate(CH(X0, f), Zonotope) #CH(X0, f)
         Pdisc = overapproximatedCH(X0P, Pf)
         #disc = overapproximate(disc, abstractBoundingDirections) # overapproximate(CH(X0, minkowski_sum(f, PZ)), Zonotope) #
         P = concretize(P)
@@ -472,7 +472,7 @@ function ReACTDiscretizePlus(loc, X0::Zonotope, X0P::Union{Nothing,HPolytope}, �
         #return discritezationDict, inputDiscritezationDict
         #inputDiscritezationDict[d] = P
         while d < δ⁺
-            discritezationDict[d] = disc
+            discritezationDict[d] = copy(disc)
             PdiscritezationDict[d] = Pdisc
             inputDiscritezationDict[d] = concretize(P)
             if maxOrder > 0
@@ -514,9 +514,9 @@ function ReACTDiscretizePlus(loc, X0::Zonotope, X0P::Union{Nothing,HPolytope}, �
             #@show norm(tU)
         end
 
-        Pdisc = overapproximate(CH(X0, f), BoxDirections(XDim))
+        #Pdisc = overapproximate(CH(X0, f), BoxDirections(XDim))
         disc = overapproximate(CH(X0, f), Zonotope) # overapproximate(CH(X0, minkowski_sum(f, PZ)), Zonotope) #
-        #Pdisc = overapproximate(disc, BoxDirections(XDim))
+        Pdisc = copy(overapproximate(disc, BoxDirections(XDim)))
 
         while d < δ⁺
             discritezationDict[d] = disc

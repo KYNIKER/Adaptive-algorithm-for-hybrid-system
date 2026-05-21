@@ -60,7 +60,7 @@ function getHalfSpaceProjections(H::HPolyhedron)
 end
 
 function getHalfSpaceProjections(halfspaces::Vector{<:LazySets.HalfSpace}) # Any subtype of halfspace
-    projVectors = map(x -> x.a, halfspaces)
+    projVectors = map(x -> vec(x.a), halfspaces)
     projBounds = ρ.(projVectors, halfspaces)
     return projVectors, projBounds
 end
@@ -128,8 +128,10 @@ function intersects(Z::Zonotope, H::Vector{N}) where N
     return sen
 end
 
-function isDisjoint(Z::Zonotope, H::HPolyhedron)
-    return all(map(x -> -ρ(x.a, Z) <= x.b, constraints_list(H)))
+function isDisjointFast(Z::Zonotope, H)
+    #res = all(map(x -> -ρ(-x.a, Z) > x.b, constraints_list(H)))
+    #println(map(x -> -ρ(-x.a, Z) > x.b, constraints_list(H))[1])
+    return all(map(x -> -ρ(-x.a, Z) > x.b, constraints_list(H)))
 end
 
 function intersects(Z::Zonotope, H::Any)

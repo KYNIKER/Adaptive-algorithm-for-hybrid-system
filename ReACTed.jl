@@ -5,7 +5,7 @@ include("Utilities.jl")
 
 model = JuMP.Model(HiGHS.Optimizer)
 set_string_names_on_creation(model, false)
-#set_attribute(model, "presolve", "off")
+set_attribute(model, "presolve", "off")
 
 #set_attribute(model, "eps_abs", 1e-5)
 #set_attribute(model, "eps_rel", 1e-5)
@@ -27,7 +27,7 @@ function ReACTed(hybridSystem::HybridSystemV2, initialLoc, interval, X0, U, dirs
     time::Float64 = minimum(interval)
     endtime::Float64 = maximum(interval)
     reachset = []
-    saveResult = false
+    saveResult = true
     dirsVectors = []
 
     dimLength = size(X0.center, 1)
@@ -178,17 +178,19 @@ function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval
 
                 for set in intersectingSetsList
                     #polySet = overapproximate(set, BoxDirections(dims))
+
                     if !isa(guards, Nothing)
-                        if !isDisjoint(set, guards) #!isdisjoint(guards, set)
+                        if !isDisjointFast(set, guards) #!isdisjoint(guards, set)
                             set = zonotopeStripIntersection(set, guards)
                         else
+                            #@show LazySets.API.high(set)
                             continue
                         end
                     end
 
                     # Check invarient
                     if !isa(loc.invarient, Nothing)
-                        if !isDisjoint(set, loc.invarient)
+                        if !isDisjointFast(set, loc.invarient)
                             set = zonotopeStripIntersection(set, loc.invarient)
                         else
                             continue
@@ -204,9 +206,9 @@ function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval
 
                     # Apply jump Matrix
                     jumpSet = linear_map(edge.jumpMatrix, set)
-                    jumpSet = LazySets.translate(jumpSet, edge.jumpVector)
+                    LazySets.translate!(jumpSet, edge.jumpVector)
                     if !isa(hybridSystem.locations[edge.targetLoc].invarient, Nothing)
-                        if !isDisjoint(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)
+                        if !isDisjointFast(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)
                             jumpSet = zonotopeStripIntersection(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)
                         else
                             continue
@@ -313,6 +315,7 @@ function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval
 end
 
 
+# Optimized
 function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime::Float64, guard, constraint, STRATEGY::Integer, PhiDict, discritezationDict, inputDiscritezationDict, polytopeDict, Φ, accInput, reduce_order, max_order)
     STRATEGY = 0
     initialTimeStep = copy(δ⁻)
@@ -327,14 +330,14 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
     invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(loc.invarient)
     #dirProjVectors = map(x -> x, dirs)
 
-    originalConstraintProjVectors = copy(constraintProjVectors)
-    originalGuardProjVectors = copy(guardProjVectors)
-    originalInvarientProjVectors = copy(invarientProjVectors)
+    #originalConstraintProjVectors = copy(constraintProjVectors)
+    #originalGuardProjVectors = copy(guardProjVectors)
+    #originalInvarientProjVectors = copy(invarientProjVectors)
 
-    permutedphiDict = Dict()
-    for key in keys(phiDict)
-        permutedphiDict[key] = permutedims(phiDict[key])
-    end
+    #permutedphiDict = Dict()
+    #for key in keys(phiDict)
+    #    permutedphiDict[key] = permutedims(phiDict[key])
+    #end
 
 
     time::Float64 = minimum(interval)
@@ -349,9 +352,9 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
 
     #concretize(Vs)
     #lastVs = copy(Vs)
-    Sρ = map(x -> ρ(x, Vs), constraintProjVectors)
-    Gρ = map(x -> ρ(x, Vs), guardProjVectors)
-    Iρ = map(x -> ρ(x, Vs), invarientProjVectors)
+    #Sρ = map(x -> ρ(x, Vs), constraintProjVectors)
+    #Gρ = map(x -> ρ(x, Vs), guardProjVectors)
+    #Iρ = map(x -> ρ(x, Vs), invarientProjVectors)
     #dρ = map(x -> ρ(x, Vs), dirs)
     newR = copy(discritezationDict[initialTimeStep])
     polyNewR = polytopeDict[initialTimeStep]
@@ -362,22 +365,22 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
 
     tempM = diagm(ones(Float64, size(loc.A, 2)))
     ϕt = similar(Φ)
-    pϕt = similar(tempM)
+    #pϕt = similar(tempM)
     newRR = linear_map(Φ, newR)
 
     attemptsRecorder = []
     intersectingSetsList = Vector{Zonotope}()
 
-    transposedΦ = permutedims(Φ)
-    constraintProjVectors = map(x -> transposedΦ * x, originalConstraintProjVectors)
-    guardProjVectors = map(x -> transposedΦ * x, originalGuardProjVectors)
-    invarientProjVectors = map(x -> transposedΦ * x, originalInvarientProjVectors)
+    #transposedΦ = permutedims(Φ)
+    #constraintProjVectors = map(x -> transposedΦ * x, originalConstraintProjVectors)
+    #guardProjVectors = map(x -> transposedΦ * x, originalGuardProjVectors)
+    #invarientProjVectors = map(x -> transposedΦ * x, originalInvarientProjVectors)
     #dirProjVectors = map(x -> x, dirs)
 
     #oldDirProjVectors = copy(dirProjVectors)
-    oldConstraintProjVectors = copy(constraintProjVectors)
-    oldGuardProjVectors = copy(guardProjVectors)
-    oldInvarientProjVectors = copy(invarientProjVectors)
+    #oldConstraintProjVectors = copy(constraintProjVectors)
+    #oldGuardProjVectors = copy(guardProjVectors)
+    #oldInvarientProjVectors = copy(invarientProjVectors)
 
 
     while time < endtime
@@ -415,12 +418,12 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
                 newR = discritezationDict[currentTimeStep]
                 V = copy(inputDiscritezationDict[currentTimeStep])
                 ϕt = phiDict[currentTimeStep]
-                pϕt = permutedphiDict[currentTimeStep]
-                #newRR = linear_map(Φ, newR)
-                #V = linear_map(Φ, V)
+                #pϕt = permutedphiDict[currentTimeStep]
+                newRR = linear_map(Φ, newR)
+                V = linear_map(Φ, V)
             else
-                #newRR = linear_map(ϕt, newRR)
-                #V = linear_map(ϕt, V)
+                newRR = linear_map(ϕt, newRR)
+                V = linear_map(ϕt, V)
             end
             changedTimeStep = false
 
@@ -428,15 +431,18 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
             # #@show concretize(Vs)
             # @show concretize(V)
 
-            #tempSet = concretize(newRR ⊕ Vs)
+            tempSet = minkowski_sum(newRR, Vs)
+            if all((ρ(x, tempSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
+               all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) &&
+               all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
 
-            #if all(input + ρ(x, newR) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) && # IsSubSet
-            #   all(((input + -ρ(-x, newR)) <= y) for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) &&  #!isdisjoint(tempSet, guard; algorithm="sufficient") && # intersects
-            #   all((input + -ρ(-x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)) # Intersects
-            if touchesCheck(newR, Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds)
+                #if all(input + ρ(x, newR) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) && # IsSubSet
+                #   all(((input + -ρ(-x, newR)) <= y) for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) &&  #!isdisjoint(tempSet, guard; algorithm="sufficient") && # intersects
+                #   all((input + -ρ(-x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)) # Intersects
+                #if touchesCheck(newR, Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds)
                 #if mapreduce(x -> intersects(newRR, x), &, guard)
 
-                push!(intersectingSetsList, copy(minkowski_sum(linear_map(Φ, newR), Vs)))
+                push!(intersectingSetsList, copy(minkowski_sum(newRR, Vs)))
                 #lastVs = copy(Vs)
                 #Vs = Vs ⊕ V
                 # Vs = concretize(Vs)
@@ -450,16 +456,16 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
                 #Sρ += inhom
 
 
-                Sρ += map(x -> ρ(x, V), originalConstraintProjVectors)
-                Gρ += map(x -> ρ(x, V), originalGuardProjVectors)
-                Iρ += map(x -> ρ(x, V), originalInvarientProjVectors)
-                constraintProjVectors = map(x -> pϕt * x, oldConstraintProjVectors)
-                guardProjVectors = map(x -> pϕt * x, oldGuardProjVectors)
-                invarientProjVectors = map(x -> pϕt * x, oldInvarientProjVectors)
+                #Sρ += map(x -> ρ(x, V), originalConstraintProjVectors)
+                #Gρ += map(x -> ρ(x, V), originalGuardProjVectors)
+                #Iρ += map(x -> ρ(x, V), originalInvarientProjVectors)
+                #constraintProjVectors = map(x -> pϕt * x, oldConstraintProjVectors)
+                #guardProjVectors = map(x -> pϕt * x, oldGuardProjVectors)
+                #invarientProjVectors = map(x -> pϕt * x, oldInvarientProjVectors)
 
-                oldConstraintProjVectors = constraintProjVectors
-                oldGuardProjVectors = guardProjVectors
-                oldInvarientProjVectors = invarientProjVectors
+                #oldConstraintProjVectors = constraintProjVectors
+                #oldGuardProjVectors = guardProjVectors
+                #oldInvarientProjVectors = invarientProjVectors
 
 
                 mul!(tempM, Φ, ϕt)
@@ -503,6 +509,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
     continueAfter = false # We are at the end time horizon, therefore no continuing
     return (continueAfter, Φ, time, intersectingSetsList)
 end
+
 
 #=
 function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime::Float64, guard, constraint, STRATEGY::Integer, PhiDict, discritezationDict, inputDiscritezationDict, polytopeDict, Φ, accInput, reduce_order, max_order)
@@ -573,6 +580,8 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
     return (continueAfter, Φ, time, intersectingSetsList)
 end
 =#
+
+#=
 function ReACTTouches2(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, constraint, STRATEGY::Integer, PhiDict, discritezationDict, inputDiscritezationDict, Φ, accInput)
     initialTimeStep = copy(δ⁺)
     m = copy(δ⁻)
@@ -689,7 +698,7 @@ function ReACTTouches2(loc, δ⁻::Float64, δ⁺::Float64, interval, guard, con
     #intersectingSet = overapproximate(bigCH, Zonotope)
     return (preclustering, Sρ, time)
 end
-
+=#
 
 
 
@@ -716,12 +725,12 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
     guardProjVectors, guardProjBounds = getHalfSpaceProjections(guards)
     invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(loc.invarient)
     dirProjVectors = map(x -> x, dirs)
-
+    #=
     oldDirProjVectors = copy(dirProjVectors)
     oldConstraintProjVectors = copy(constraintProjVectors)
     oldGuardProjVectors = copy(guardProjVectors)
     oldInvarientProjVectors = copy(invarientProjVectors)
-
+    =#
     permutedphiDict = Dict{Float64,Matrix{Float64}}()
     for key in keys(phiDict)
         permutedphiDict[key] = permutedims(phiDict[key], (2, 1))
@@ -800,8 +809,8 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
             #   (all((input + -ρ(-x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)) || all((input + -ρ(-x, polyNewR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)))
             if guardCheck(newR, polyNewR, Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds)
                 if saveResult
-                    plotDirZ = copy(dρ + map(x -> ρ(x, newR), oldDirProjVectors))
-                    plotDirP = copy(dρ + map(x -> ρ(x, polyNewR; solver=model), oldDirProjVectors))
+                    plotDirZ = copy(dρ + map(x -> ρ(x, newR), dirProjVectors))
+                    plotDirP = copy(dρ + map(x -> ρ(x, polyNewR; solver=model), dirProjVectors))
                     plotDir = [abs(x) < abs(y) ? x : y for (x, y) in zip(plotDirZ, plotDirP)]
                     push!(dirVals, (copy(plotDir), [time, time + currentTimeStep]))
                 end
@@ -810,19 +819,23 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
 
                 approveFlag = true
 
-                dρ += map(x -> ρ(x, V), oldDirProjVectors)
+                dρ += map(x -> ρ(x, V), dirProjVectors)
                 Sρ += map(x -> ρ(x, V), constraintProjVectors)
                 Gρ += map(x -> ρ(x, V), guardProjVectors)
                 Iρ += map(x -> ρ(x, V), invarientProjVectors)
-                dirProjVectors = map(x -> pϕt * x, oldDirProjVectors)
-                constraintProjVectors = map(x -> pϕt * x, oldConstraintProjVectors)
-                guardProjVectors = map(x -> pϕt * x, oldGuardProjVectors)
-                invarientProjVectors = map(x -> pϕt * x, oldInvarientProjVectors)
+                map!(x -> pϕt * x, dirProjVectors)
+                map!(x -> pϕt * x, constraintProjVectors)
+                #guardProjVectors = map(x -> pϕt * x, guardProjVectors)
+                map!(x -> pϕt * x, guardProjVectors)
+                #invarientProjVectors = map(x -> pϕt * x, invarientProjVectors)
+                map!(x -> pϕt * x, invarientProjVectors)
 
+                #=
                 oldDirProjVectors = dirProjVectors
                 oldConstraintProjVectors = constraintProjVectors
                 oldGuardProjVectors = guardProjVectors
                 oldInvarientProjVectors = invarientProjVectors
+                =#
                 mul!(tempM, Φ, ϕt)
                 copy!(Φ, tempM)
             else
@@ -1016,10 +1029,26 @@ function handleHitConstraint(time, locationId)
             ERROR!!!\n")
 end
 
-function guardCheck(newR, polyNewR, Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds)
-    return (all(input + ρ(x, newR) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) || all((input + ρ(x, polyNewR)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))) &&
-           (any((input + -ρ(-x, newR)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) || any((input + -ρ(-x, polyNewR)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds))) &&
-           (all((input + -ρ(-x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)) || all((input + -ρ(-x, polyNewR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)))
+function guardCheck(newR::Zonotope, polyNewR, Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds) #; solver=model
+    #cache = map((input, x, y) -> input + ρ(x, newR) <= y, Sρ, constraintProjVectors, constraintProjBounds)
+    abssum = 0.0
+    c = newR.center
+    G = transpose(genmat(newR))
+    tc = zeros(size(G, 1))
+    #a = sum(abs, transpose(a) * G)
+    res = all(input + tsupfunc(x, tc, abssum, c, G) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) || all((input + ρ(x, polyNewR)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
+    res = res && (any((input + -tsupfunc(-x, tc, abssum, c, G)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) || any((input + -ρ(-x, polyNewR)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)))
+    res = res && (all((input + -tsupfunc(-x, tc, abssum, c, G)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)) || all((input + -ρ(-x, polyNewR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)))
+    return res
+end
+
+function tsupfunc(d, Z, Ab, c, G)
+    #c = center(Z)
+    #G = genmat(Z)
+    mul!(Z, G, d)
+    Ab = sum(abs, Z)
+    #c = dot(center(Z), d)
+    return dot(c, d) + Ab
 end
 
 function touchesCheck(newR, Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds)

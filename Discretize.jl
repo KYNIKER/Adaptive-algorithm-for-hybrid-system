@@ -174,7 +174,7 @@ function ReACTDiscretizePlus(loc, X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Fl
     # end
     discritezationDict[δ⁺] = disc
     inputDiscritezationDict[δ⁺] = concretize(P)
-    println("Zonotope disc done")
+    #println("Zonotope disc done")
     return discritezationDict, inputDiscritezationDict
 end
 
@@ -371,9 +371,9 @@ function ReACTDiscretizePlus(loc, X0::HPolytope, δ⁻::Float64, δ⁺::Float64,
         # end
         #println(P)
         tset = MinkowskiSum(P, linear_map(phiDict[d], disc))
-        println("Done tset")
+        #println("Done tset")
         disc = overapproximatedCH(reducePolytopeFromBounding(disc), tset)
-        println("Done CH disc")
+        #println("Done CH disc")
         P = minkowski_sum(P, linear_map(phiDict[d], P))
         d = d * 2
     end
@@ -387,7 +387,7 @@ function ReACTDiscretizePlus(loc, X0::HPolytope, δ⁻::Float64, δ⁺::Float64,
     # end
     discritezationDict[δ⁺] = disc
     inputDiscritezationDict[δ⁺] = concretize(P)
-    println("HPolytope disc done")
+    #println("HPolytope disc done")
     return discritezationDict, inputDiscritezationDict
 end
 

@@ -128,7 +128,9 @@ function intersects(Z::Zonotope, H::Vector{N}) where N
     return sen
 end
 
-
+function isDisjoint(Z::Zonotope, H::HPolyhedron)
+    return all(map(x -> -ρ(x.a, Z) <= x.b, constraints_list(H)))
+end
 
 function intersects(Z::Zonotope, H::Any)
     return isnothing(H) ? true : !isdisjoint(Z, H)
@@ -1443,7 +1445,7 @@ function overapproximatedCH(H1::HPolytope, H2::HPolytope)
     newConstraints::Vector{LazySets.HalfSpace} = []
     directions = vcat(constraints_list(H1), constraints_list(H2))
     directions = map(x -> x.a / norm(x.a), directions)
-    directions = vcat(directions, collect(OctDirections(LazySets.dim(H1))))
+    #directions = vcat(directions, collect(OctDirections(LazySets.dim(H1))))
     for direction in directions
         distance = max(ρ(direction, H1; solver=Umodel), ρ(direction, H2; solver=Umodel))
         push!(newConstraints, LazySets.HalfSpace(direction, distance))
@@ -1623,8 +1625,8 @@ function reducePolytopeFromBounding(P::HPolytope; tolerance=0.5)
     #res = HPolytope(listHspacesToKeep)
     #@show LazySets.API.high(res)
     #@show LazySets.API.low(res)
-    @show length(constraints_list(P))
-    @show length(constraints_list(res))
+    #@show length(constraints_list(P))
+    #@show length(constraints_list(res))
 
     return res
 end

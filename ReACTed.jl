@@ -80,15 +80,18 @@ function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval
     end
 
     dims = size(X0.center, 1)
-
-    discretizationDict, inputDiscritezationDict = ReACTDiscretizePlus(loc, X0, δ⁻, δ⁺, alg, maxOrder, reduceOrder, PhiDict[loc.id])
-
-    #@show norm(discretizationDict[δ⁻])
-
     time::Float64 = minimum(interval)
     endtime::Float64 = maximum(interval)
     reachset = []
     setOfConstraints = vcat(loc.constraints, constraint)
+
+    discretizationDict, overapproximatedDiscretizationDict, inputDiscritezationDict = ReACTDiscretizePlus(loc, X0, polyhedralSet, δ⁻, δ⁺, alg, maxOrder, reduceOrder, PhiDict[loc.id])
+    #=
+    discretizationDict, inputDiscritezationDict = ReACTDiscretizePlus(loc, X0, δ⁻, δ⁺, alg, maxOrder, reduceOrder, PhiDict[loc.id])
+
+    #@show norm(discretizationDict[δ⁻])
+
+
 
 
     #t1 = Base.time()
@@ -106,7 +109,7 @@ function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval
     #@show time
 
     #println("Finished Dicts $(loc.id) $(length(loc.edges)) in $(Base.time() - t1) s")
-
+    =#
 
 
 

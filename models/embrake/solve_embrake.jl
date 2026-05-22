@@ -13,10 +13,7 @@ function solve_embrake(sys, initialState, X0, T, δ⁺ = 2*10^-7, δ⁻ = 2*10^-
     n = length(X0.center)
     reachset = []
     phiDict = Dict()
-
-    δ⁺ = min(δ⁺, 2ζ)
     
-
     dirsVectors = []
     dimLength = size(X0.center, 1)
     for dir in dirs
@@ -75,22 +72,22 @@ function run_embrake(hybridSystem, loc::Location, time, Tsample, ζ, x0, T, disc
             branchedRun = []
             d = δ⁻
             jumpDiscDict = Dict()
-            while d <= δ⁺ 
+            while d <= δ⁺
+                tempSet = linear_map(jumpΦ, discretizationDict[d]) 
                 #tempJump = JumpSupport(discretizationDict[d], tempPhi*dir)
-                tempJump = JumpZonotope(linear_map(jumpΦ, discretizationDict[d]))
-
-                if (ρ(dirs[1], tempJump) > x0)
-                    return println("Could not verify")
+                tempJump = JumpZonotope(tempSet)
+                if (ρ(dirs[1], tempJump) > x0) || (ρ(dirs[1], tempSet) > x0)
+                    handleHitConstraint(time, 1)
                 else
                     jumpDiscDict[d] = tempJump
                 end
                 d = 2*d
             end
             jumpΦ = jumpΦ* PhiDict[δ⁺]
-            time = time + δ⁺
             if time < T
                 branchedRun = run_embrake(hybridSystem, loc, time, Tsample, ζ, x0, T, jumpDiscDict, inputDiscretizationDict, hybridSystem.globalConstraints, dirs, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, missing, saveResult)
             end
+            time = time + δ⁺
             i = i+1
             if saveResult && !isnothing(branchedRun)
                 reachset = vcat(reachset, branchedRun)

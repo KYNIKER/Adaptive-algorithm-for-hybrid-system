@@ -111,7 +111,7 @@ end
 
 
 names = ["brake", "gearbox", "platoon", "spaceCraft"]
-minδ = [2*10^-6, 0.0008, 0.03, 0.04]
+minδ = [2*10^-7, 0.0008, 0.03, 0.04]
 loadFunctions = [loadembrake, loadGearBox, loadPlatoon, () -> loadSpacecraft(abort_time=120.)]
 
 # Long Versions
@@ -128,34 +128,21 @@ if RUN_FIXED
             RunFixed(name * "_Fixed", δ, loadFunction)
         else
             RunBrake(name * "_Fixed", δ, δ, loadFunction)
+            #RunBrake(name * "_Adaptive", 2^6*δ, δ, loadFunction)
         end
     end
 end
 
 if RUN_ADAPTIVE
-    δ⁺arr = [2^1, 2^2, 2^3, 2^4, 2^5, 2^8, 2^10, 2^12]
+    δ⁺arr = [2^1, 2^2, 2^3, 2^4, 2^6, 2^8, 2^10, 2^12]
     for d in δ⁺arr
         for (name, δ⁻, loadFunction) in zip(names, minδ, loadFunctions)
             δ⁺ = δ⁻ * d
             if !occursin("embrake", lowercase(name))
                 RunAdaptive(name * "_Adaptive", δ⁻, δ⁺, loadFunction)
             else
-                #RunBrake(name * "_Adaptive", δ⁻, loadFunction)
+                RunBrake(name * "_Adaptive", δ⁺, δ⁻, loadFunction)
             end
         end
     end
 end
-
-# myLoading = () -> loadSpacecraft(abort_time=120.)
-# #myLoading = loadPlatoon
-# myLoading = loadGearBox
-
-# minDelta = 0.0008
-
-# nameOfTest = "Gracie_Gearbox"
-
-# RunFixed(nameOfTest, minDelta, myLoading)
-# RunAdaptive(nameOfTest, minDelta, minDelta*2^3, myLoading)
-# RunAdaptive(nameOfTest, minDelta, minDelta*2^5, myLoading)
-# # RunAdaptive("NewGracieTest", minDelta, minDelta*2^7, myLoading)
-# # RunAdaptive("NewGracieTest", minDelta, minDelta*2^9, myLoading)

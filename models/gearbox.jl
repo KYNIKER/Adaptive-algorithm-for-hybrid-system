@@ -6,7 +6,7 @@ using LazySets
 include("../Utilities.jl")
 
 
-function loadGearBox(GRBX = 1)
+function loadGearBox(GRBX=1)
 
     # Two modes to select from
     X0 = Hyperrectangle(low=[0, 0, -0.0168, 0.0029, 0, 1],
@@ -101,7 +101,7 @@ function loadGearBox(GRBX = 1)
     push!(edgeListLoc1, Edge(1, guard, A, zeros(n)))
 
     # transition l1 -> l2
-    guard = LazySets.HalfSpace(SingleEntryVector(px, n, -1.), -Δp)  # px >= Δp
+    guard = LazySets.HalfSpace(sparsevec([px], [-1.], n), -Δp)  # px >= Δp
     A = copy(A_template)
     A[vx, vx] = 0.
     A[vx, vy] = 0.
@@ -141,7 +141,7 @@ function loadGearBox(GRBX = 1)
         nothing, # constant input
         edgeListLoc1,
         []
-        )
+    )
     )
 
     #m_1 = @system(x' = Aext * x, x ∈ invariant)
@@ -152,13 +152,13 @@ function loadGearBox(GRBX = 1)
     #m_2 = @system(x' = A0 * x, x ∈ Universe(n))
 
     # Global constraint
-    property = LazySets.HalfSpace(sparsevec([5], [1.], n), 20.) 
+    property = LazySets.HalfSpace(sparsevec([5], [1.], n), 20.)
 
     H = HybridSystemV2(locations, [property])
 
 
     # Constraint
-    
+
     T = 0.21
 
     return H, 1, X0, T

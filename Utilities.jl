@@ -131,7 +131,7 @@ end
 function isDisjointFast(Z::Zonotope, H)
     #res = all(map(x -> -ρ(-x.a, Z) > x.b, constraints_list(H)))
     #println(map(x -> -ρ(-x.a, Z) > x.b, constraints_list(H))[1])
-    return all(map(x -> -ρ(-x.a, Z) > x.b, constraints_list(H)))
+    return any(map(x -> -ρ(-x.a, Z) > x.b, constraints_list(H)))
 end
 
 function intersects(Z::Zonotope, H::Any)
@@ -467,15 +467,16 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HyperplaneModule.Hyp
     c = Z.center
     b = H.a
     d = H.b
+    tb = transpose(b)
     # GG = G * transpose(G)
     # GGb = GG * b
     GGb = G * (transpose(G) * b)
-    dotProduct = dot(transpose(b), GGb) + σ^2
+    dotProduct = dot(tb, GGb) + σ^2
     # λ = GGB / (transpose(b) * GGb + σ^2)
     # λ = (G * transpose(G) * b) / (transpose(b) * G * transpose(G) * b + σ^2)
     λ = GGb / dotProduct
-    ĉ = c + λ * (d - transpose(b) * c)
-    upper = ((I - λ * transpose(b)) * G)
+    ĉ = c + λ * (d - tb * c)
+    upper = ((I - λ * tb) * G)
     lower = (σ * λ)
     Ĝ::Matrix{eltype(G)} = hcat(upper, lower)
     return Zonotope(ĉ, Ĝ)
@@ -1175,7 +1176,8 @@ function bloatPolytope(input::Singleton, M, P::HPolytope)
                 listHspaces = vcat(listHspaces, halfspaceFromVertices(x, y, mIntPoint))
             end
             =#
-            newP = bloatPolytope(input, diagm(ones(LazySets.API.dim(P))), mpPol(M, P))
+            newP = LazySets.translate(mpPol(M, P), element(input))
+            #newP = bloatPolytope(input, diagm(ones(LazySets.API.dim(P))), mpPol(M, P))
             #=@show (LazySets.isempty(P), M, input)
             @show LazySets.API.high(P)
             @show LazySets.API.low(P)
@@ -1287,7 +1289,9 @@ function mpPol(M::Matrix, P::HPolytope)
     #println("CRAZY CRAZY CRAZY")
     #@show LazySets.isempty(P), LazySets.isbounded(P)
     #@show LazySets.API.low(P), LazySets.API.high(P)
+
     intPoint = LazySets.API.an_element(P)
+
     vs, ps = vertexRep(P)
     #println("post vertexRep")
     Mvs = map(x -> M * x, vs)

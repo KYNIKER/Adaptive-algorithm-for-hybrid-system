@@ -1,7 +1,7 @@
 using ReachabilityAnalysis, SparseArrays
 using ReachabilityAnalysis.ReachabilityBase.Arrays: SingleEntryVector
 
-function loadSpacecraft(; abort_time::Union{Float64, Vector{Float64}}=-1.)
+function loadSpacecraft(; abort_time::Union{Float64,Vector{Float64}}=-1.)
     # abort times cycle betweeen:
     # -1 (no abort)
     # 120
@@ -12,11 +12,11 @@ function loadSpacecraft(; abort_time::Union{Float64, Vector{Float64}}=-1.)
 
 
     # variables
-    x  = 1  # x position (negative!)
-    y  = 2  # y position (negative!)
+    x = 1  # x position (negative!)
+    y = 2  # y position (negative!)
     vx = 3  # x velocity
     vy = 4  # y velocity
-    t  = 5  # time
+    t = 5  # time
 
     # number of variables
     n = 4 + 1
@@ -60,12 +60,12 @@ function loadSpacecraft(; abort_time::Union{Float64, Vector{Float64}}=-1.)
     A1[vy, y] = -0.0665123984901026
     A1[vy, vx] = -0.00875351105536225
     A1[vy, vy] = -2.90300269286856
-    invariant1 = HPolyhedron([LazySets.HalfSpace(SingleEntryVector(x, n, 1.), -100.)])  # x <= -100
+    invariant1 = HPolyhedron([LazySets.HalfSpace(sparsevec([x], [1.0], n), -100.)])  # x <= -100
     if aborting
         invariant1 = HPolyhedron([
-            LazySets.HalfSpace(SingleEntryVector(x, n, 1.), -100.),  # x <= -100
-            LazySets.HalfSpace(SingleEntryVector(t, n, 1.), t_abort_upper)  # t <= t_abort_upper
-           ])
+            LazySets.HalfSpace(sparsevec([x], [1.0], n), -100.),  # x <= -100
+            LazySets.HalfSpace(sparsevec([t], [1.0], n), t_abort_upper)  # t <= t_abort_upper
+        ])
     end
 
     #m_1 = @system(x' = Ax + b, x ∈ invariant)
@@ -91,20 +91,20 @@ function loadSpacecraft(; abort_time::Union{Float64, Vector{Float64}}=-1.)
         LazySets.HalfSpace(sparsevec([x, y], [1., 1.], n), 141.1),    # x + y <= 141.1
         LazySets.HalfSpace(sparsevec([x, y], [1., -1.], n), 141.1),   # -x + y >= -141.1
         LazySets.HalfSpace(sparsevec([x, y], [-1., 1.], n), 141.1)    # -x + y <= 141.1
-       ])
+    ])
 
     if aborting
         invariant2 = HPolyhedron([
-        LazySets.HalfSpace(sparsevec([x], [-1.], n), 100.),           # x >= -100
-        LazySets.HalfSpace(sparsevec([x], [1.], n), 100.),            # x <= 100
-        LazySets.HalfSpace(sparsevec([y], [-1.], n), 100.),           # y >= -100
-        LazySets.HalfSpace(sparsevec([y], [1.], n), 100.),            # y <= 100
-        LazySets.HalfSpace(sparsevec([x, y], [-1., -1.], n), 141.1),  # x + y >= -141.1
-        LazySets.HalfSpace(sparsevec([x, y], [1., 1.], n), 141.1),    # x + y <= 141.1
-        LazySets.HalfSpace(sparsevec([x, y], [1., -1.], n), 141.1),   # -x + y >= -141.1
-        LazySets.HalfSpace(sparsevec([x, y], [-1., 1.], n), 141.1),    # -x + y <= 141.1
-        LazySets.HalfSpace(SingleEntryVector(t, n, 1.), t_abort_upper)  # t <= t_abort_upper
-       ])
+            LazySets.HalfSpace(sparsevec([x], [-1.], n), 100.),           # x >= -100
+            LazySets.HalfSpace(sparsevec([x], [1.], n), 100.),            # x <= 100
+            LazySets.HalfSpace(sparsevec([y], [-1.], n), 100.),           # y >= -100
+            LazySets.HalfSpace(sparsevec([y], [1.], n), 100.),            # y <= 100
+            LazySets.HalfSpace(sparsevec([x, y], [-1., -1.], n), 141.1),  # x + y >= -141.1
+            LazySets.HalfSpace(sparsevec([x, y], [1., 1.], n), 141.1),    # x + y <= 141.1
+            LazySets.HalfSpace(sparsevec([x, y], [1., -1.], n), 141.1),   # -x + y >= -141.1
+            LazySets.HalfSpace(sparsevec([x, y], [-1., 1.], n), 141.1),    # -x + y <= 141.1
+            LazySets.HalfSpace(sparsevec([t], [1.0], n), t_abort_upper)  # t <= t_abort_upper
+        ])
     end
 
 
@@ -143,15 +143,15 @@ function loadSpacecraft(; abort_time::Union{Float64, Vector{Float64}}=-1.)
         LazySets.HalfSpace(sparsevec([x, y], [1., 1.], n), 141.1),    # x + y <= 141.1
         LazySets.HalfSpace(sparsevec([x, y], [1., -1.], n), 141.1),   # -x + y >= -141.1
         LazySets.HalfSpace(sparsevec([x, y], [-1., 1.], n), 141.1)    # -x + y <= 141.1
-       ])
+    ])
     #t1 = ConstrainedIdentityMap(n, guard)
 
     push!(loc1edges, Edge(2, guard, Diagonal(ones(n)), zeros(n)))
-    
+
     if aborting
         # 1 -> 3
         #add_transition!(automaton, 1, 3, 2)
-        guard = LazySets.HalfSpace(SingleEntryVector(t, n, -1.), -t_abort_lower)  # t >= t_abort_lower
+        guard = LazySets.HalfSpace(sparsevec([t], [-1.0], n), -t_abort_lower)  # t >= t_abort_lower
 
         # TODO put this back after testing
         # TODO put this back after testing
@@ -164,7 +164,7 @@ function loadSpacecraft(; abort_time::Union{Float64, Vector{Float64}}=-1.)
         # 2 -> 3
 
         #add_transition!(automaton, 2, 3, 3)
-        guard = LazySets.HalfSpace(SingleEntryVector(t, n, -1.), -t_abort_lower)  # t >= t_abort_lower
+        guard = LazySets.HalfSpace(sparsevec([t], [-1.0], n), -t_abort_lower)  # t >= t_abort_lower
 
         push!(loc2edges, Edge(3, guard, Diagonal(ones(n)), zeros(n)))
     end
@@ -179,8 +179,8 @@ function loadSpacecraft(; abort_time::Union{Float64, Vector{Float64}}=-1.)
     loc2Constraint = [
         # Line of sight property
         #LazySets.HalfSpace(sparsevec([x], [-1.0], n), 100.0),             # x >= -100
-        LazySets.HalfSpace(sparsevec([x, y], [tan(π/6), -1.0], n), 0.0),  # -x tan(30°) + y >= 0
-        LazySets.HalfSpace(sparsevec([x, y], [tan(π/6), 1.0], n), 0.0),   # -x tan(30°) - y >= 0
+        LazySets.HalfSpace(sparsevec([x, y], [tan(π / 6), -1.0], n), 0.0),  # -x tan(30°) + y >= 0
+        LazySets.HalfSpace(sparsevec([x, y], [tan(π / 6), 1.0], n), 0.0),   # -x tan(30°) - y >= 0
         # Velocity / octagon property
         # LazySets.HalfSpace(sparsevec([vx], [-1.0], n), cx),                # vx >= -cx
         # LazySets.HalfSpace(sparsevec([vx], [1.0], n), cx),                 # vx <= cx
@@ -217,7 +217,7 @@ function loadSpacecraft(; abort_time::Union{Float64, Vector{Float64}}=-1.)
 
     # initial condition in mode 1
     X0 = Hyperrectangle([-900., -400., 0., 0., 0.],
-                        [25., 25., 0., 0., 0.])
+        [25., 25., 0., 0., 0.])
 
     X0 = convert(Zonotope, X0)
 

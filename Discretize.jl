@@ -489,7 +489,7 @@ function ReACTDiscretizePlus(loc, X0::Zonotope, X0P::Union{Nothing,HPolytope}, Î
 
             tset = MinkowskiSum(P, linear_map(phiDict[d], disc))
             #println("Done tset")
-            Pdisc = overapproximatedCH(reducePolytopeFromBounding(disc), tset)
+            Pdisc = overapproximatedCH(reducePolytopeFromBounding(Pdisc), tset)
             #println("Done CH disc")
             P = minkowski_sum(P, linear_map(phiDict[d], P))
             d = d * 2

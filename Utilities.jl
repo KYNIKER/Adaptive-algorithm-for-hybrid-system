@@ -139,7 +139,7 @@ function isSubSet(Z::Zonotope, H::HPolyhedron)
     for h in H.constraints
         agenSum = reduce(+, abs.(genmat(Z) .* h.a))
         acenSum = dot(Vector(h.a), Z.center)
-        sen = sen & (acenSum + agenSum <= h.b)
+        sen = sen & (ρ(h.a, Z) <= h.b) #(acenSum + agenSum <= h.b)
         #sen = sen & (acenSum - agenSum <= h.b) & (acenSum + agenSum <= h.b)
     end
     return sen
@@ -450,6 +450,7 @@ end
 
 #   Based on Alamo et al. "Guaranteed state estimation by zonotopes" (2005)
 function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HyperplaneModule.Hyperplane, σ::Float64)
+    #@show isSubSet(Z, H)
     if isSubSet(Z, H)
         return Z
     end
@@ -473,24 +474,25 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HyperplaneModule.Hyp
 end
 
 # Takes two vectors. May be sparrse
-function iscollinear(a, b; atol = 1e-10)
+function iscollinear(a, b; atol=1e-10)
     # If the value is zero (Or very close to zero, then they are linearly dependent)
     # Squaring rather than doing norm because norm would take longer to calc 
-    return abs(dot(a, b)^2 - dot(a, a)*dot(b, b)) ≤ atol
+    return abs(dot(a, b)^2 - dot(a, a) * dot(b, b)) ≤ atol
 end
 
 function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HPolyhedron)
+    #@show isSubSet(Z, H)
     if isSubSet(Z, H)
         return Z
     end
-    
+
     HalfSpaces = copy(constraints_list(H))
     HSG = stack([x.a for x in HalfSpaces]; dims=1)
     res = copy(Z)
     if rank(HSG) < size(HSG, 1)
         #println("Collinear")
         #collinear = []
-        collinear = Vector{LazySets.HalfSpaceModule.HalfSpace{Float64, Vector{Float64}}}()
+        collinear = Vector{LazySets.HalfSpaceModule.HalfSpace{Float64,Vector{Float64}}}()
         #remidx = stack([false for x in HalfSpaces])
         remidx = falses(length(HalfSpaces))
         for hs in HalfSpaces
@@ -536,7 +538,7 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
         end
         while !isempty(collinear)
             #temphs = []
-            temphs = Vector{LazySets.HalfSpaceModule.HalfSpace{Float64, Vector{Float64}}}()
+            temphs = Vector{LazySets.HalfSpaceModule.HalfSpace{Float64,Vector{Float64}}}()
             push!(temphs, pop!(collinear))
             cols = any(i -> rank([i.a temphs[1].a]) <= 1, collinear, dims=2)
             for i in eachindex(cols)
@@ -694,12 +696,12 @@ function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination, alpha=1)
 end
 
 function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1)
-    
+
     amountOfDims = length(dims)
     if amountOfDims == 1
 
         dim2 = dims[1]
-        
+
         fig = Plots.plot(xlabel="time", ylabel="dim: " * string(dim2), ε=1e-6)
         cpallete = palette(:roma, length(flowpipe))
         i = 1
@@ -763,12 +765,12 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1)
 
                 if sen
                     Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=cpallete[i], leg=false, linealpha=0)
-                    
+
                     #Plots.plot!(Shape([(d1[1], d1[1]), (d2[1], d2[1]), (d1[2], d1[2]), (d2[2], d2[2])]), c=cpallete[i], lab="S" * string(i), linealpha=0) # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
                     sen = false
                 else
                     Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=cpallete[i], leg=false, linealpha=0)
-                    
+
                     #Plots.plot!(Shape([(d1[1], d1[1]), (d2[1], d2[1]), (d1[2], d1[2]), (d2[2], d2[2])]), c=cpallete[i], lab="", linealpha=0) # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
                 end
                 #plot!(r, c=cpallete[i], alpha=0.2)
@@ -785,20 +787,20 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1)
     savefig(fig, destination)
 end
 
-function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime, reduceOrder = 5, maxOrder = 5)
+function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime, reduceOrder=5, maxOrder=5)
     # We know that δ⁻ % currentTime == 0
-    outputInput = nothing
 
     precomputedLargestStep = log2(δ⁺ / δ⁻)
     totalSteps = Int(round(currentTime / δ⁻))  # Steps we need to take. We round cause floats make small errors
 
 
     # Convert to bits 
-    listToInclude = digits(totalSteps, base = 2) # Get bit map
+    listToInclude = digits(totalSteps, base=2) # Get bit map
 
     largestInput = copy(inputDict[δ⁺])
     ϕ = phiDict[δ⁺]
     tempM = similar(ϕ)
+    outputInput = Zonotope(zeros(size(tempM, 1)), zeros(size(tempM, 1), 1))
 
     precomputed = true
     i = 0 # Iterator for precomputed
@@ -807,9 +809,9 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime,
             if includeFlag == 1 # If we have to add
 
                 if isnothing(outputInput)
-                    outputInput = copy(inputDict[2^i * δ⁻])
+                    outputInput = copy(inputDict[2^i*δ⁻])
                 else
-                    outputInput = minkowski_sum(linear_map(phiDict[2^i * δ⁻], outputInput), inputDict[2^i * δ⁻])
+                    outputInput = minkowski_sum(linear_map(phiDict[2^i*δ⁻], outputInput), inputDict[2^i*δ⁻])
                 end
             end
 
@@ -849,15 +851,15 @@ function projectReachSet(dirs, reachSet)
     return projectedReachSet
 end
 
-            
 
 
-    
-
-    
 
 
-    
+
+
+
+
+
 
 
 

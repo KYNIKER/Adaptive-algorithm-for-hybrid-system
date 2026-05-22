@@ -452,8 +452,18 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
     # constraintProjVectors = map(x -> x.a, constraint)
     # constraintProjBounds = ρ.(constraintProjVectors, constraint)
     constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint)
-    guardProjVectors, guardProjBounds = getHalfSpaceProjections(guards)
-    invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(loc.invarient)
+    guardProjVectors, guardProjBounds = [], []
+    if isnothing(guards)
+        guardProjVectors, guardProjBounds = [constraintProjVectors[1]], [Inf]
+    else
+        guardProjVectors, guardProjBounds = getHalfSpaceProjections(guards)
+    end
+    invarientProjVectors, invarientProjBounds = [], []
+    if isnothing(loc.invarient)
+        invarientProjVectors, invarientProjBounds = [constraintProjVectors[1]], [Inf]
+    else
+        invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(loc.invarient)
+    end
     dirProjVectors = map(x -> x, dirs)
 
     oldDirProjVectors = copy(dirProjVectors)
@@ -499,7 +509,6 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
         #println("Time iss: $time")
         attempts = 1
         approveFlag = false
-
         while !approveFlag
             #println("Stuck?")
 
@@ -526,10 +535,10 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
  
             # #println(any((input + ρ(-x, newRR)) > y for (input, x, y) in zip(Sρ, invarientProjVectors, invarientProjBounds)))
             #println(all((input + ρ(x, newRR)) <= y for (input, x, y) in zip(Sρ, invarientProjVectors, invarientProjBounds)))
-            if all((input + ρ(x, newR)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) &&
-                #any(sign(y) >= 0 ? (input + ρ(-x, newR)) <= y : !((input + ρ(x, newR)) < y) for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) &&
-                any((input + -ρ(-x, newR)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) &&
-                all((input + -ρ(-x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
+            if isnothing(guards) || (all((input + ρ(x, newR)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) &&
+               #any(sign(y) >= 0 ? (input + ρ(-x, newR)) <= y : !((input + ρ(x, newR)) < y) for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) &&
+               any((input + -ρ(-x, newR)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) &&
+               all((input + ρ(x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)))
                 #(any((input + ρ(-x, newRR)) > y for (input, x, y) in zip(-Sρ, invarientProjVectors, invarientProjBounds)) && all((input + ρ(x, newRR)) <= y for (input, x, y) in zip(Sρ, invarientProjVectors, invarientProjBounds)))
                 #all(((ρ(x, tempSet)) <= y) for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Subset
                 #(isnothing(loc.invarient) || intersects(tempSet, loc.invarient))

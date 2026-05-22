@@ -825,17 +825,17 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
                     plotDirP = copy(dρ + map(x -> ρ(x, polyNewR; solver=model), dirProjVectors))
                     plotDir = [abs(x) < abs(y) ? x : y for (x, y) in zip(plotDirZ, plotDirP)]
                     push!(dirVals, (copy(plotDir), [time, time + currentTimeStep]))
+                    dρ += map(x -> ρ(x, V), dirProjVectors)
+                    map!(x -> pϕt * x, dirProjVectors)
                 end
                 #lastVs = copy(Vs)
                 #Vs = ReachabilityAnalysis.Exponentiation.Φ₁(A, time - minimum(interval), ReachabilityAnalysis.Exponentiation.BaseExp) * U
 
                 approveFlag = true
 
-                dρ += map(x -> ρ(x, V), dirProjVectors)
                 Sρ += map(x -> ρ(x, V), constraintProjVectors)
                 Gρ += map(x -> ρ(x, V), guardProjVectors)
                 Iρ += map(x -> ρ(x, V), invarientProjVectors)
-                map!(x -> pϕt * x, dirProjVectors)
                 map!(x -> pϕt * x, constraintProjVectors)
                 #guardProjVectors = map(x -> pϕt * x, guardProjVectors)
                 map!(x -> pϕt * x, guardProjVectors)

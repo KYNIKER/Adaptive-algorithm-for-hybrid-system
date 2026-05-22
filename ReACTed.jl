@@ -836,11 +836,11 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
                 Sρ += map(x -> ρ(x, V), constraintProjVectors)
                 Gρ += map(x -> ρ(x, V), guardProjVectors)
                 Iρ += map(x -> ρ(x, V), invarientProjVectors)
-                map!(x -> pϕt * x, constraintProjVectors)
+                constraintProjVectors = map(x -> pϕt * x, constraintProjVectors)
                 #guardProjVectors = map(x -> pϕt * x, guardProjVectors)
                 map!(x -> pϕt * x, guardProjVectors)
-                #invarientProjVectors = map(x -> pϕt * x, invarientProjVectors)
-                map!(x -> pϕt * x, invarientProjVectors)
+                invarientProjVectors = map(x -> pϕt * x, invarientProjVectors)
+                #map!(x -> pϕt * x, invarientProjVectors)
 
                 #=
                 oldDirProjVectors = dirProjVectors
@@ -977,18 +977,18 @@ function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, constraint, dirs, 
 
                 if saveResult
                     push!(dirVals, (copy(dρ + map(x -> ρ(x, newR), oldDirProjVectors)), [time, time + currentTimeStep]))
+                    dρ += map(x -> ρ(x, V), oldDirProjVectors)
+                    dirProjVectors = map(x -> pϕt * x, oldDirProjVectors)
+                    oldDirProjVectors = dirProjVectors
                 end
 
                 approveFlag =
                     true
-                dρ += map(x -> ρ(x, V), oldDirProjVectors)
                 Sρ += map(x -> ρ(x, V), constraintProjVectors)
                 Iρ += map(x -> ρ(x, V), invarientProjVectors)
-                dirProjVectors = map(x -> pϕt * x, oldDirProjVectors)
                 constraintProjVectors = map(x -> pϕt * x, oldConstraintProjVectors)
                 invarientProjVectors = map(x -> pϕt * x, oldInvarientProjVectors)
 
-                oldDirProjVectors = dirProjVectors
                 oldConstraintProjVectors = constraintProjVectors
                 oldInvarientProjVectors = invarientProjVectors
                 mul!(tempM, Φ, ϕt)

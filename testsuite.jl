@@ -14,7 +14,7 @@ const RUN_ADAPTIVE = true
 const MAX_ORDER = 5
 const REDUCE_ORDER = 5
 
-function RunAdaptive(name, δ⁻, δ⁺, load_func)
+function RunAdaptive(name, δ⁻, δ⁺, load_func, dirs)
     clustering = true
     timeConstraintList = []
     if occursin("gearbox", lowercase(name))
@@ -33,10 +33,10 @@ function RunAdaptive(name, δ⁻, δ⁺, load_func)
     GC.gc()
 
     # Warmup
-    _ = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), [], sys.globalConstraints, δ⁻, δ⁺ , ReachabilityAnalysis.Exponentiation.BaseExp, MAX_ORDER, REDUCE_ORDER, clustering, timeConstraintList)
+    _ = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), [], sys.globalConstraints, δ⁻, δ⁺ , ReachabilityAnalysis.Exponentiation.BaseExp, MAX_ORDER, REDUCE_ORDER, timeConstraintList)
 
     # Actual Test
-    b = @benchmarkable _ = ReACTed($sys, $initialState, [0., $T], $X0, $Zonotope(zeros(Float64, $n), $zeros(Float64, $n, 1)), [], $sys.globalConstraints, $δ⁻, $δ⁺ , ReachabilityAnalysis.Exponentiation.BaseExp, $MAX_ORDER, $REDUCE_ORDER, $clustering, $timeConstraintList)
+    b = @benchmarkable _ = ReACTed($sys, $initialState, [0., $T], $X0, $Zonotope(zeros(Float64, $n), $zeros(Float64, $n, 1)), [], $sys.globalConstraints, $δ⁻, $δ⁺ , ReachabilityAnalysis.Exponentiation.BaseExp, $MAX_ORDER, $REDUCE_ORDER, $timeConstraintList)
 
     y = run(b; verbose=true)
     println("Run completed.")
@@ -49,7 +49,7 @@ function RunAdaptive(name, δ⁻, δ⁺, load_func)
     # Write to csv file
     df = DataFrame(δ⁺=δ⁺, δ⁻=δ⁻, avgTime=mean(timeList), medianTime=median(timeList), memory=y.memory, allocs=y.allocs)
 
-    filename = "results/ReACT_" * name * "Results" * ".csv"
+    filename = "results/ReACTRevised_" * name * "Results" * ".csv"
     if isfile(filename)# Check if file exists
         open(filename, "a") do File
             CSV.write(File, df, delim=";", append=true)
@@ -63,13 +63,15 @@ function RunAdaptive(name, δ⁻, δ⁺, load_func)
     println("Finished writing to file")
 end
 
-function RunFixed(name, δ, load_func)
-    RunAdaptive(name, δ, δ, load_func)
+function RunFixed(name, δ, load_func, dirs)
+    RunAdaptive(name, δ, δ, load_func, dirs)
 end
 
 
 names = ["gearbox", "platoon", "spaceCraft"]
 minδ = [0.0008, 0.03, 0.04]
+δ⁺arr = [2^1, 2^2, 2^3, 2^4, 2^6, 2^8, 2^10, 2^12]
+dirs = [[3,4], [1,4,7], [1]]
 loadFunctions = [loadGearBox, loadPlatoon, () -> loadSpacecraft(abort_time=120.)]
 
 # Long Versions
@@ -81,15 +83,17 @@ loadFunctions = [loadGearBox, loadPlatoon, () -> loadSpacecraft(abort_time=120.)
 
 
 if RUN_FIXED
-    for (name, δ, loadFunction) in zip(names, minδ, loadFunctions)
-        RunFixed(name * "_Fixed", δ, loadFunction)
+    for (name, δ, loadFunction, dir) in zip(names, minδ, loadFunctions, dirs)
+        RunFixed(name * "_Fixed", δ, loadFunction, dir)
     end
 end
 
 if RUN_ADAPTIVE
-    for (name, δ⁻, loadFunction) in zip(names, minδ, loadFunctions)
-        δ⁺ = δ⁻ * 2^5
-        RunAdaptive(name * "_Adaptive", δ⁻, δ⁺, loadFunction)
+    for d in δ⁺arr
+        for (name, δ⁻, loadFunction, dir) in zip(names, minδ, loadFunctions, dirs)
+            δ⁺ = δ⁻ * d
+            RunAdaptive(name * "_Adaptive", δ⁻, δ⁺, loadFunction, dir)
+        end
     end
 end
 

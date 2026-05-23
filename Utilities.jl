@@ -1,4 +1,4 @@
-using LazySets, ReachabilityAnalysis, LinearAlgebra, Polyhedra, Optim
+using LazySets, ReachabilityAnalysis, LinearAlgebra, Polyhedra, Optim, JuMP, HiGHS
 
 export HybridSystem, HybridSystemV2, Location, Edge, overapproximateIntervalReachset, intersects, splitZonotope, getBoxIntersection, getHalfSpaceProjections
 
@@ -1147,9 +1147,9 @@ function bloatPolytope(input::Singleton, M, P::HPolytope)
         #@show LazySets.API.low(newP)
         newP = LazySets.translate(tempP, element(input))
     catch
-        println("Really doe?")
+        #println("Really doe?")
 
-        @show isinvertible(M)
+        #@show isinvertible(M)
         if isinvertible(M)
             inverseTransposeM = inv(transpose(M))
             hspaces = map(normalize, constraints_list(P))
@@ -1164,7 +1164,6 @@ function bloatPolytope(input::Singleton, M, P::HPolytope)
 
             newP = HPolytope(newConstraints)
         else
-            println("CRAZY..")
             #=inputOffset = element(input)
             intPoint = LazySets.API.an_element(P)
             vs, ps = vertexRep(P)
@@ -1311,7 +1310,7 @@ function mpPol(M::Matrix, P::HPolytope)
     #@show LazySets.API.low(Z)
     MB = linear_map(M, Z)
     B = overapproximate(MB, BoxDirections(LazySets.dim(P)))
-    @show LazySets.isempty(B)
+    #@show LazySets.isempty(B)
     #return MB
     for zdx in zidx
         #@show vs[zdx]
@@ -1328,7 +1327,7 @@ function mpPol(M::Matrix, P::HPolytope)
     end
     #@show LazySets.API.high(MB)
     #@show LazySets.API.low(MB)
-    println("Gets pretty far")
+    #println("Gets pretty far")
     if isempty(listHspaces)
         tempP = B
         return tempP

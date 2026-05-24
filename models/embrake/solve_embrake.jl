@@ -6,7 +6,6 @@ include("embrake.jl")
 
 function solve_embrake(sys, initialState, X0, T, δ⁺ = 2*10^-7, δ⁻ = 2*10^-7, maxOrder = 5, reduceOrder = 5, dirs = [], saveResult = true)
     time = 0
-
     x0 = 0.05
     Tsample = 1e-4
     ζ = 1e-6
@@ -44,7 +43,6 @@ end
 function run_embrake(hybridSystem, loc::Location, time, Tsample, ζ, x0, T, discretizationDict, inputDiscretizationDict, constraint, dirs, δ⁻::Float64, δ⁺::Float64, PhiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, Φ=missing, saveResult::Bool=true) where {N}
     guardTime = Tsample - ζ
     invariantTime = Tsample + ζ
-    
     reachset = []
     setOfConstraints = vcat(loc.constraints, constraint)
     edge = loc.edges[1]
@@ -69,6 +67,7 @@ function run_embrake(hybridSystem, loc::Location, time, Tsample, ζ, x0, T, disc
         i = 0
         jumpΦ = tΦ
         while i < λ
+            maxTime = 2ζ
             branchedRun = []
             d = δ⁻
             jumpDiscDict = Dict()
@@ -87,7 +86,8 @@ function run_embrake(hybridSystem, loc::Location, time, Tsample, ζ, x0, T, disc
             if time < T
                 branchedRun = run_embrake(hybridSystem, loc, time, Tsample, ζ, x0, T, jumpDiscDict, inputDiscretizationDict, hybridSystem.globalConstraints, dirs, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, missing, saveResult)
             end
-            time = time + δ⁺
+            time = time + min(δ⁺, maxTime)
+            maxTime = maxTime - δ⁺
             i = i+1
             if saveResult && !isnothing(branchedRun)
                 reachset = vcat(reachset, branchedRun)

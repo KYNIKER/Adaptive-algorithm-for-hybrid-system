@@ -456,7 +456,7 @@ end
 
 function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, constraint, dirs, STRATEGY::Integer, PhiDict, discritezationDict, inputDiscritezationDict, saveResult)
     # We calculate the reachset till we reach a guard for an intersection (or till failure)
-    initialTimeStep = copy(δ⁻)
+    initialTimeStep = copy(δ⁺)
     m = copy(δ⁻)
     changedTimeStep = true
     phiDict = PhiDict

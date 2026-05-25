@@ -41,6 +41,11 @@ res = []
 
 res = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), dirs, sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder, reduceOrder, timeConstraintList; clustering=clustering, mustSemantics=mustSemantics)
 
+
+amountOfSteps = foldr(+, [length(x) for (x, _) in res])
+@show amountOfSteps
+
+
 # @show length(res)
 println("Began plotting")
 plotProjectedFlowpipeLazy(res, dirs, n, joinpath("results/", "Ball.png"))

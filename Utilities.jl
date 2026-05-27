@@ -660,13 +660,13 @@ function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination, alpha=1)
 end
 
 function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1; xlim=nothing, ylim=nothing, verbose=false, legend=false)
-
+    acc = 1e-2
     amountOfDims = length(dims)
     if amountOfDims == 1
 
         dim2 = amountOfDims[1]
 
-        fig = Plots.plot(xlabel="time", ylabel="dim: " * string(dim2), ε=1e-6, legend=:outerright)
+        fig = Plots.plot(xlabel="time", ylabel="dim: " * string(dim2), ε=acc, legend=:outerright)
         cpallete = palette(:roma, length(flowpipe))
         i = 1
         k = 0
@@ -684,10 +684,10 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1; x
 
                 #d = [-ρ(sparsevec([dim2], [-1.0], ndim), r), ρ(sparsevec([dim2], [1.0], ndim), r)] #r[dim2]
                 if sen
-                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], leg=legend, lab="S" * string(i), linealpha=0.1)
+                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], leg=legend, lab="S" * string(i), linealpha=0.1, ε=acc)
                     sen = false
                 else
-                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], leg=legend, lab="", linealpha=0.1)
+                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], leg=legend, lab="", linealpha=0.1, ε=acc)
                 end
                 #Plots.plot!(Shape([mincor1, maxcor1, maxcor1, mincor1], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
 
@@ -699,7 +699,7 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1; x
     elseif amountOfDims == 2
         dim1 = dims[1]
         dim2 = dims[2]
-        fig = Plots.plot(xlabel="dim: " * string(dim1), ylabel="dim: " * string(dim2), ε=1e-6)
+        fig = Plots.plot(xlabel="dim: " * string(dim1), ylabel="dim: " * string(dim2), ε=acc)
         cpallete = palette(:roma, length(flowpipe))
         i = 1
         k = 0
@@ -736,10 +736,10 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1; x
                 d1 = [r[1], -r[2]]#[ρ(sparsevec([dim1], [-1.0], ndim), r), ρ(sparsevec([dim1], [1.0], ndim), r)]
                 d2 = [r[3], -r[4]]#[ρ(sparsevec([dim2], [-1.0], ndim), r), ρ(sparsevec([dim2], [1.0], ndim), r)]
                 if sen
-                    Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=cpallete[i], leg=legend, lab="S" * string(i), linealpha=0)
+                    Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=cpallete[i], leg=legend, lab="S" * string(i), linealpha=0, ε=acc)
                     sen = false
                 else
-                    Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=cpallete[i], leg=legend, lab="", linealpha=0)
+                    Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=cpallete[i], leg=legend, lab="", linealpha=0, ε=acc)
                 end
                 #plot!(r, c=cpallete[i], alpha=0.2)
             end
@@ -1311,13 +1311,13 @@ function mpPol(M::Matrix, P::HPolytope)
     end=#
 end
 
-function mapPolytope(M::Matrix, P::HPolytope)
+function mapPolytope(M::Matrix, P::HPolytope; invertible=false)
     try
         tempP = linear_map(M, P)
         return tempP
     catch
         println("linear_map failed")
-        if isinvertible(M)
+        if isinvertible(M) || invertible
             inverseTransposeM = LinearAlgebra.inv(transpose(M))
             hspaces = constraints_list(P)
             newConstraints::Vector{LazySets.HalfSpace} = []
@@ -1441,7 +1441,7 @@ function vertexRep(P::HPolytope)
     as = map(x -> vec(x.a), hspaces) #/ (norm(x.a)^2)
     bs = map(x -> (x.b), hspaces) #/ (norm(x.a)^2)
     #@show zip(as, bs)
-    res = map(x -> (vec(x.a) / norm(x.a)) * (x.b / norm(x.a)), hspaces) #/ (norm(x.a)^2)
+    res = map(x -> (Array(x.a) / norm(x.a)) * (x.b / norm(x.a)), hspaces) #/ (norm(x.a)^2)
     #@show length(as[1])
     pes = []
     if length(as[1]) == 2
@@ -1465,6 +1465,8 @@ function vertexRep(P::HPolytope)
             #V = F.V
             #@show V, a, reshape(a, 1, :)
             #push!(apes, V[:, 2:end])
+            #@show a
+            #@show typeof(a)
             ns = nullspace(permutedims(a))
             #push!(apes, ns)
             apes = map(x -> x + a, collect(eachcol(ns)))

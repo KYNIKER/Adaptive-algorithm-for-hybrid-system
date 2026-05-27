@@ -15,8 +15,8 @@ const extdirs = template_directions(6)
 const dirs = CustomDirections(collect(OctDirections{Float64,Vector{Float64}}(10)))
 
 cases = [
-    "BRKDC01",
-    "BRKDC01-discrete",
+    "BRKNC01",
+    "BRKNC01-discrete",
     "GRBX01-MES01",
     "GRBX01-MES01-discrete",
     "PLAD01-BND30",
@@ -26,8 +26,8 @@ cases = [
 ]
 
 algCheckDict = Dict(
-    "BRKDC01" =>  GLGM06(δ=2e-7, max_order=1, static=true, dim=4, ngens=4, approx_model=Forward()),
-    "BRKDC01-discrete" => GLGM06(δ=1e-8, max_order=1, static=true, dim=4, ngens=4, approx_model=NoBloating()),
+    "BRKNC01" =>  GLGM06(δ=7e-8, max_order=1, static=true, dim=4, ngens=4, approx_model=Forward()),
+    "BRKNC01-discrete" => GLGM06(δ=1e-8, max_order=1, static=true, dim=4, ngens=4, approx_model=NoBloating()),
     "GRBX01-MES01" => LGG09(δ=0.0008, template=extdirs, approx_model=Forward()),
     "GRBX01-MES01-discrete" => LGG09(δ=0.0001, template=extdirs, cache=true, approx_model=NoBloating()),
     "PLAD01-BND30" => LGG09(δ=0.03, template=dirs, approx_model=Forward(setops=dirs)),
@@ -37,8 +37,8 @@ algCheckDict = Dict(
 )
 
 caseCheckDict = Dict(
-    "BRKDC01" => "embrake",
-    "BRKDC01-discrete" => "embrake",
+    "BRKNC01" => "embrake",
+    "BRKNC01-discrete" => "embrake",
     "GRBX01-MES01" => "gearbox",
     "GRBX01-MES01-discrete" => "gearbox",
     "PLAD01-BND30" => "platoon",
@@ -90,9 +90,9 @@ function run_algs(alg, case, doPlot)
 end
 
 function runEMBrake(alg, case, doPlot)
-    prob_no_pv_no_jit = embrake_no_pv(ζ=0.)
-    
-    sol, df = analyze_embrake(prob_no_pv_no_jit, alg, case, true, true)
+    prob_no_pv_with_jit = embrake_no_pv(ζ=[-1e-8, 1e-7], Tsample=1e-4)
+
+    sol, df = analyze_embrake(prob_no_pv_with_jit, alg, case, true, true)
     
     if doPlot
         TARGET_FOLDER = isdefined(Main, :TARGET_FOLDER) ? Main.TARGET_FOLDER : @__DIR__
@@ -112,7 +112,7 @@ function runEMBrake(alg, case, doPlot)
             end
         end
 
-        sol_no_pv_no_jit = nothing
+        sol_no_pv_with_jit = nothing
         GC.gc()
 
         # ignore the first 1500 sets because the plot recipe does not like them

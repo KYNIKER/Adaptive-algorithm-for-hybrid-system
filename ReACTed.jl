@@ -144,7 +144,7 @@ function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval
 
 
 
-        if reachtime - time == 0.0
+        #=if reachtime - time == 0.0
             if !isempty(reachset)
                 # println("Found an immediate transition to $(edge.targetLoc), but we are not taking it as we are scared of zeno behaviour")
             end
@@ -152,7 +152,7 @@ function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval
                 push!(reachset, (tempReachset, string(time) * " - " * string(reachtime) * ": " * string(loc.id) * "->" * string(edge.targetLoc) * " took no steps"))
             end
             #continue
-        end
+        end=#
         if reachtime < endtime
 
             if saveResult
@@ -190,7 +190,7 @@ function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval
                 for (set, _) in intersectingSetsList
                     polySet = overapproximate(set, BoxDirections(dims))
 
-                    # måske tjek hvilken der gør den empty
+                    #= måske tjek hvilken der gør den empty
                     if !isa(guards, Nothing)
                         if !isDisjointFast(set, guards) #!isdisjoint(guards, set)
                         #set = zonotopeStripIntersection(set, guards)
@@ -218,7 +218,7 @@ function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval
                         end
                     end
                     #tpolySet = overapproximate(set, BoxDirections(dims))
-
+                    =#
                     polySet = LazySets.intersection(polySet, guards; prune=false)
                     # Push to reachset
                     if saveResult
@@ -239,6 +239,8 @@ function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval
                     #LazySets.API.isempty(jumpPolySet) && continue
 
                     if !isa(hybridSystem.locations[edge.targetLoc].invarient, Nothing)
+                        jumpPolySet = LazySets.intersection(jumpPolySet, hybridSystem.locations[edge.targetLoc].invarient; prune=false)
+                        #=
                         if !isDisjointFast(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)
                             #jumpSet = zonotopeStripIntersection(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)
                             jumpPolySet = LazySets.intersection(jumpPolySet, hybridSystem.locations[edge.targetLoc].invarient; prune=false)
@@ -248,7 +250,7 @@ function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval
                             @show LazySets.API.high(jumpSet)
 
                             continue
-                        end
+                        end=#
                     end
                     push!(jumpSetsList, jumpSet)
                     push!(jumpPolySetsList, jumpPolySet)
@@ -455,8 +457,8 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
     #oldGuardProjVectors = copy(guardProjVectors)
     #oldInvarientProjVectors = copy(invarientProjVectors)
     #tempPolySet = isnothing(loc.invarient)
-    tempPolySet = mapPolytope(Φ, polyNewR) #isnothing(loc.invarient) ? constrain(Vs, mapPolytope(Φ, polyNewR), newRR, overapproximate(minkowski_sum(Vs, newRR), BoxDirections(LazySets.dim(Vs)))) : constrain(Vs, mapPolytope(Φ, polyNewR), newRR, loc.invarient)
-
+    #tempPolySet = mapPolytope(Φ, polyNewR) #isnothing(loc.invarient) ? constrain(Vs, mapPolytope(Φ, polyNewR), newRR, overapproximate(minkowski_sum(Vs, newRR), BoxDirections(LazySets.dim(Vs)))) : constrain(Vs, mapPolytope(Φ, polyNewR), newRR, loc.invarient)
+    tempPolySet = polyNewR
     while time < endtime
 
         attempts = 1
@@ -486,7 +488,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
                     continueAfter = false
 
                 end
-                @show length(intersectingSetsList), loc.id, continueAfter
+                #@show length(intersectingSetsList), loc.id, continueAfter
                 #@show [((ρ(x, tempSet)), y) for (x, y) in zip(constraintProjVectors, constraintProjBounds)]
                 #@show [((-ρ(-x, tempSet)), y) for (x, y) in zip(guardProjVectors, guardProjBounds)]
                 #@show [((-ρ(-x, tempSet)), y) for (x, y) in zip(invarientProjVectors, invarientProjBounds)]
@@ -871,18 +873,18 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
                 # If we hit a constraint
                 #newRR = concretize(newRR)
                 if !(any((input + ρ(x, newR)) > y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)) && any((input + ρ(x, polyNewR; solver=model)) > y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))) && (any((input + ρ(x, newR)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) && any((input + ρ(x, polyNewR; solver=model)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)))
-                    @show [((input + ρ(x, newR)), y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)]
-                    @show [((input + ρ(x, polyNewR; solver=model)), y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)]
+                    #@show [((input + ρ(x, newR)), y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)]
+                    #@show [((input + ρ(x, polyNewR; solver=model)), y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)]
 
-                    @show Sρ
-                    @show i
-                    @show constraintProjVectors
+                    #@show Sρ
+                    #@show i
+                    #@show constraintProjVectors
                     handleHitConstraint(time, loc.id)
                 end
-                println("Guards i in loc $(loc.id): $i ")
-                @show [((input + ρ(x, newR)), y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)]
-                @show [((input + -ρ(-x, newR)), y) for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)]
-                @show [((input + ρ(x, newR)), y) for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)]
+                #println("Guards i in loc $(loc.id): $i ")
+                #@show [((input + ρ(x, newR)), y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)]
+                #@show [((input + -ρ(-x, newR)), y) for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)]
+                #@show [((input + ρ(x, newR)), y) for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)]
                 #=
 
                 @show [((input + ρ(x, polyNewR)), y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)]
@@ -924,12 +926,12 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
                 #lastVs = copy(Vs)
                 #Vs = ReachabilityAnalysis.Exponentiation.Φ₁(A, time - minimum(interval), ReachabilityAnalysis.Exponentiation.BaseExp) * U
 
-                if i % 500 == 0
-                    println("\n\n hit 500 \n\n")
-                    #@show [((input + ρ(x, newR)), y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)]
-                    #@show [((input + -ρ(-x, newR)), y) for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)]
-                    #@show [((input + -ρ(-x, newR)), y) for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)]
-                end
+                #if i % 500 == 0
+                #println("\n\n hit 500 \n\n")
+                #@show [((input + ρ(x, newR)), y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)]
+                #@show [((input + -ρ(-x, newR)), y) for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)]
+                #@show [((input + -ρ(-x, newR)), y) for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)]
+                #end
 
                 approveFlag = true
 
@@ -1153,25 +1155,25 @@ function guardCheck(newR::Zonotope, polyNewR::HPolytope, Sρ::Vector{Float64}, c
     res = res && (all((input + -tsupfunc(-x, tc, abssum, c, G)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)) || all((input + -ρ(-x, polyNewR; solver=model)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)))
     return res=#
     res = all(input + tsupfunc(x, tc, abssum, c, G) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) || all((input + ρ(x, polyNewR; solver=model)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
-    if !res
-        println("Constraint fails")
-        return res
-    end
+    #if !res
+    #    println("Constraint fails")
+    #    return res
+    #end
     res = res && (any((input + -tsupfunc(-x, tc, abssum, c, G)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) || any((input + -ρ(-x, polyNewR; solver=model)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)))
-    if !res
-        println("Guard fails")
-        #@show [((input + -ρ(-x, newR)), input, y) for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)]
+    #if !res
+    #    println("Guard fails")
+    #@show [((input + -ρ(-x, newR)), input, y) for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)]
 
-        return res
-    end
+    #    return res
+    #end
     res = res && (all((input + -tsupfunc(-x, tc, abssum, c, G)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)) || all((input + -ρ(-x, polyNewR; solver=model)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)))
-    if !res
-        println("Invariant fails")
-        #@show [((input + ρ(x, newR)), input, y) for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)]
-        #@show [((input + -ρ(-x, newR)), input, y) for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)]
+    #if !res
+    #    println("Invariant fails")
+    #@show [((input + ρ(x, newR)), input, y) for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)]
+    #@show [((input + -ρ(-x, newR)), input, y) for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)]
 
-        return res
-    end
+    #    return res
+    #end
     return res
 end
 
@@ -1183,25 +1185,25 @@ function guardCheck(newR::Zonotope, polyNewR::HPolytope, Sρ, constraintProjVect
     tc = Vector{Float64}(undef, size(G, 1))
     #a = sum(abs, transpose(a) * G)
     res = all(input + tsupfunc(x, tc, abssum, c, G) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) || all((input + ρ(x, polyNewR; solver=model)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
-    if !res
-        println("Constraint fails")
-        return res
-    end
+    #if !res
+    #    println("Constraint fails")
+    #    return res
+    #end
     res = res && (any((input + -tsupfunc(-x, tc, abssum, c, G)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) || any((input + -ρ(-x, polyNewR; solver=model)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)))
-    if !res
-        println("Guard fails")
-        #@show [((input + -ρ(-x, newR)), input, y) for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)]
+    #if !res
+    #    println("Guard fails")
+    #@show [((input + -ρ(-x, newR)), input, y) for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)]
 
-        return res
-    end
+    #    return res
+    #end
     res = res && (all((input + -tsupfunc(-x, tc, abssum, c, G)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)) || all((input + -ρ(-x, polyNewR; solver=model)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)))
-    if !res
-        println("Invariant fails")
-        #@show [((input + ρ(x, newR)), input, y) for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)]
-        #@show [((input + -ρ(-x, newR)), input, y) for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)]
+    #if !res
+    #    println("Invariant fails")
+    #@show [((input + ρ(x, newR)), input, y) for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)]
+    #@show [((input + -ρ(-x, newR)), input, y) for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)]
 
-        return res
-    end
+    #    return res
+    #end
     return res
 end
 
@@ -1219,7 +1221,7 @@ function touchesCheck(newR::Zonotope, constraintProjVectors::Vector{SparseArrays
     c = newR.center
     G = transpose(genmat(newR))
     tc = Vector{Float64}(undef, size(G, 1))
-    @show all(-ρ(-x, newR) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds))
+    #@show all(-ρ(-x, newR) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds))
     return all(ρ(x, newR) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
            !any((-ρ(-x, newR) >= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) &&
            all(-ρ(-x, newR) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects

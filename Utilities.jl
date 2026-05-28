@@ -1372,12 +1372,12 @@ function mapPolytope(M::Matrix, P::HPolytope; invertible=false)
         tempP = linear_map(M, P)
         return tempP
     catch
-        println("linear_map failed")
+        #println("linear_map failed")
         if invertible || isinvertible(M)
             inverseTransposeM = LinearAlgebra.inv(transpose(M))
             hspaces = constraints_list(P)
             newConstraints::Vector{LazySets.HalfSpace} = []
-            println("Made the inverse")
+            #println("Made the inverse")
             for hspace in hspaces
                 a = hspace.a
                 b = hspace.b
@@ -1389,7 +1389,7 @@ function mapPolytope(M::Matrix, P::HPolytope; invertible=false)
             return tempP
 
         else
-            @show M
+            #@show M
             return mpPol(M, P)
             #=
             println("CRAZY CRAZY CRAZY")

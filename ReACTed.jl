@@ -6,7 +6,10 @@ include("Utilities.jl")
 model = JuMP.Model(HiGHS.Optimizer)
 set_string_names_on_creation(model, false)
 set_attribute(model, "presolve", "off")
-
+set_attribute(model, "primal_feasibility_tolerance", 1e-10)
+#set_attribute(model, "output_flag", false)
+#set_attribute(model, "eps_abs", 1e-5)
+#set_attribute(model, "eps_rel", 1e-5)
 #set_attribute(model, "eps_abs", 1e-5)
 #set_attribute(model, "eps_rel", 1e-5)
 set_silent(model)
@@ -29,7 +32,8 @@ function ReACTed(hybridSystem::HybridSystemV2, initialLoc, interval, X0, U, dirs
     reachset = []
     saveResult = true
     dirsVectors = []
-
+    zenoBound = 500
+    transitionCount = 0
     dimLength = size(X0.center, 1)
     if isempty(dirs)
         saveResult = false
@@ -49,6 +53,8 @@ function ReACTed(hybridSystem::HybridSystemV2, initialLoc, interval, X0, U, dirs
 
     push!(waitinglist, (loc, X0, nothing, interval, diagm(ones(dimLength)), nothing))
     while !isempty(waitinglist)
+        GC.gc()
+        JuMP.empty!(model)
         location, initialset, edge, interval′, TΦ, polySet = pop!(waitinglist)
 
         reducedPolySet = polySet #isnothing(polySet) ? polySet : reducePolytope(polySet)
@@ -63,6 +69,11 @@ function ReACTed(hybridSystem::HybridSystemV2, initialLoc, interval, X0, U, dirs
         end=#
         res = auxReACTed(waitinglist, hybridSystem, hybridSystem.locations[location], edge, interval′, initialset, dirsVectors, constraint, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder, TΦ, reducedPolySet, timeConstraintList, saveResult; clustering, mustSemantics)
         reachset = vcat(reachset, res)
+        if transitionCount < zenoBound
+            transitionCount += 1
+        else
+            return reachset
+        end
     end
 
     return reachset
@@ -138,9 +149,9 @@ function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval
                 # println("Found an immediate transition to $(edge.targetLoc), but we are not taking it as we are scared of zeno behaviour")
             end
             if saveResult
-                push!(reachset, (tempReachset, string(time) * " - " * string(reachtime) * ": " * string(loc.id) * " took no steps"))
+                push!(reachset, (tempReachset, string(time) * " - " * string(reachtime) * ": " * string(loc.id) * "->" * string(edge.targetLoc) * " took no steps"))
             end
-            continue
+            #continue
         end
         if reachtime < endtime
 
@@ -163,11 +174,11 @@ function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval
             #   Still need to check whether we have reached the invariant. If true we should NOT push the else branch result, only the tempReachsets[infMaxsIdx]
             #
             invariantGuardIntersection = LazySets.intersection(loc.invarient, guards)
+            if tryContinueFlag
+                latestSet, _ = pop!(intersectingSetsList)
+            end
             if !isempty(intersectingSetsList)
                 # we first save this for later
-                if tryContinueFlag
-                    latestSet = copy(last(intersectingSetsList))
-                end
                 # Afterwards we process the intersecting set
 
                 intersectedSet = nothing
@@ -176,14 +187,19 @@ function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval
                 jumpPolySetsList = Vector{HPolytope}()
                 i = 0
 
-                for set in intersectingSetsList
-                    #polySet = overapproximate(set, BoxDirections(dims))
+                for (set, _) in intersectingSetsList
+                    polySet = overapproximate(set, BoxDirections(dims))
 
+                    # måske tjek hvilken der gør den empty
                     if !isa(guards, Nothing)
                         if !isDisjointFast(set, guards) #!isdisjoint(guards, set)
-                            set = zonotopeStripIntersection(set, guards)
+                        #set = zonotopeStripIntersection(set, guards)
                         else
-                            #@show LazySets.API.high(set)
+                            println("Guard makes empty")
+
+                            @show LazySets.API.high(set)
+                            @show LazySets.API.low(set)
+
                             continue
                         end
                     end
@@ -191,14 +207,19 @@ function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval
                     # Check invarient
                     if !isa(loc.invarient, Nothing)
                         if !isDisjointFast(set, loc.invarient)
-                            set = zonotopeStripIntersection(set, loc.invarient)
+                            #set = zonotopeStripIntersection(set, loc.invarient)
                         else
+                            println("Invariant makes empty")
+                            @show LazySets.isdisjoint(set, loc.invarient)
+                            @show LazySets.API.high(set)
+                            @show LazySets.API.low(set)
+
                             continue
                         end
                     end
                     #tpolySet = overapproximate(set, BoxDirections(dims))
 
-                    polySet = LazySets.intersection(overapproximate(set, BoxDirections(dims)), invariantGuardIntersection; prune=false)
+                    polySet = LazySets.intersection(polySet, guards; prune=false)
                     # Push to reachset
                     if saveResult
                         push!(plottingList, (map(x -> ρ(x, polySet), dirs), [reachtime + δ⁻ * i, reachtime + δ⁻ * (i + 1)]))
@@ -211,17 +232,21 @@ function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval
                     #@show LazySets.API.isempty(set)
                     #@show LazySets.API.isempty(tpolySet)
 
-                    LazySets.API.isempty(polySet) && continue
+                    #LazySets.API.isempty(polySet) && continue
 
                     jumpPolySet = Reset_Map(polySet)
 
-                    LazySets.API.isempty(jumpPolySet) && continue
+                    #LazySets.API.isempty(jumpPolySet) && continue
 
                     if !isa(hybridSystem.locations[edge.targetLoc].invarient, Nothing)
                         if !isDisjointFast(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)
-                            jumpSet = zonotopeStripIntersection(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)
+                            #jumpSet = zonotopeStripIntersection(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)
                             jumpPolySet = LazySets.intersection(jumpPolySet, hybridSystem.locations[edge.targetLoc].invarient; prune=false)
                         else
+                            println("New invariant makes empty")
+
+                            @show LazySets.API.high(jumpSet)
+
                             continue
                         end
                     end
@@ -272,21 +297,59 @@ function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval
                     end
                 end
             else
-                tryContinueFlag = false
+                #tryContinueFlag = false
                 # println("No intersections with guards, end branch")
+                if tryContinueFlag
+                    # println("Continuing from previous run at time $timeNotIntersected")
+                    polySet = overapproximate(latestSet, BoxDirections(dims))
+                    if !isa(loc.invarient, Nothing)
+                        if !isDisjointFast(latestSet, loc.invarient)
+                            #set = zonotopeStripIntersection(latestSet, loc.invarient)
+                            polySet = LazySets.intersection(polySet, loc.invarient)
+                            push!(waitlist, (loc.id, copy(latestSet), edge, [timeNotIntersected, endtime], tΦ, polySet))
+                        else
+                            println("Invariant makes lastest set empty")
+                            @show LazySets.API.high(latestSet)
+                            @show LazySets.API.low(latestSet)
 
+                            continue
+                        end
+                    else
+                        push!(waitlist, (loc.id, copy(latestSet), edge, [timeNotIntersected, endtime], tΦ, polySet))
+                    end
+                    #=branchedRun = auxReACTed(hybridSystem, loc, edge, [timeNotIntersected, endtime], latestSet, dirs, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, tΦ, clustering, timeConstraintList, saveResult)
+                    if saveResult
+                        reachset = vcat(reachset, branchedRun)
+                    end=#
+                end
             end
 
             # If we are not encountering an invarient, try continue
+            #=
             if tryContinueFlag
                 # println("Continuing from previous run at time $timeNotIntersected")
-                push!(waitlist, (loc.id, copy(latestSet), edge, [timeNotIntersected, endtime], tΦ, nothing))
+                polySet = overapproximate(lastestSet, BoxDirections(dims))
+                if !isa(loc.invarient, Nothing)
+                    if !isDisjointFast(latestSet, loc.invarient)
+                        set = zonotopeStripIntersection(latestSet, loc.invarient)
+                        polySet = LazySets.intersection(polySet, loc.invarient)
+                        push!(waitlist, (loc.id, copy(latestSet), edge, [timeNotIntersected, endtime], tΦ, polySet))
+                    else
+                        println("Invariant makes lastest set empty")
+                        @show LazySets.API.high(set)
+                        @show LazySets.API.low(set)
+
+                        continue
+                    end
+                else
+                    push!(waitlist, (loc.id, copy(latestSet), edge, [timeNotIntersected, endtime], tΦ, polySet))
+                end
                 #=branchedRun = auxReACTed(hybridSystem, loc, edge, [timeNotIntersected, endtime], latestSet, dirs, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, tΦ, clustering, timeConstraintList, saveResult)
                 if saveResult
                     reachset = vcat(reachset, branchedRun)
                 end=#
             end
-
+            =#
 
         else # Reached the end time
             # println("Reached end time before intersecting guard")
@@ -379,7 +442,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
     newRR = linear_map(Φ, newR)
 
     attemptsRecorder = []
-    intersectingSetsList = Vector{Zonotope}()
+    intersectingSetsList = [] #Vector{Zonotope}()
 
     #transposedΦ = permutedims(Φ)
     #constraintProjVectors = map(x -> transposedΦ * x, originalConstraintProjVectors)
@@ -391,7 +454,8 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
     #oldConstraintProjVectors = copy(constraintProjVectors)
     #oldGuardProjVectors = copy(guardProjVectors)
     #oldInvarientProjVectors = copy(invarientProjVectors)
-
+    #tempPolySet = isnothing(loc.invarient)
+    tempPolySet = mapPolytope(Φ, polyNewR) #isnothing(loc.invarient) ? constrain(Vs, mapPolytope(Φ, polyNewR), newRR, overapproximate(minkowski_sum(Vs, newRR), BoxDirections(LazySets.dim(Vs)))) : constrain(Vs, mapPolytope(Φ, polyNewR), newRR, loc.invarient)
 
     while time < endtime
 
@@ -402,21 +466,30 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
             if currentTimeStep < m
 
                 tempSet = concretize(newRR ⊕ Vs)
-                if any(((ρ(x, tempSet)) > y) for (x, y) in zip(constraintProjVectors, constraintProjBounds))
-                    #throw(ErrorException("Reached unsafe set."))
-                    handleHitConstraint(time, loc.id)
-                end
+
 
                 # Assuming we stopped because we no longer intersect guards
                 continueAfter = true
+                if all(((ρ(x, tempSet)) <= y) for (x, y) in zip(invarientProjVectors, invarientProjBounds))
+                    if any(((ρ(x, tempSet)) > y) for (x, y) in zip(constraintProjVectors, constraintProjBounds))
+                        #throw(ErrorException("Reached unsafe set."))
+                        handleHitConstraint(time, loc.id)
+                    end
+                    push!(intersectingSetsList, (tempSet, tempPolySet))
+                    if all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds))
+                        # println("Intersecting guard, but no longer intersecting invarients")
+                        continueAfter = false
 
-                if all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds))
-                    # println("Intersecting guard, but no longer intersecting invarients")
+
+                    end
+                else
                     continueAfter = false
 
-                    push!(intersectingSetsList, tempSet)
                 end
-
+                @show length(intersectingSetsList), loc.id, continueAfter
+                #@show [((ρ(x, tempSet)), y) for (x, y) in zip(constraintProjVectors, constraintProjBounds)]
+                #@show [((-ρ(-x, tempSet)), y) for (x, y) in zip(guardProjVectors, guardProjBounds)]
+                #@show [((-ρ(-x, tempSet)), y) for (x, y) in zip(invarientProjVectors, invarientProjBounds)]
                 return continueAfter, Φ, time, intersectingSetsList
 
 
@@ -452,7 +525,12 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
             if touchesCheck(tempSet, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, invarientProjVectors, invarientProjBounds)
                 #if mapreduce(x -> intersects(newRR, x), &, guard)
 
-                push!(intersectingSetsList, copy(minkowski_sum(newRR, Vs)))
+
+                #if isempty(tempPolySet)
+                #    return (false, Φ, time, intersectingSetsList)
+                #end
+                push!(intersectingSetsList, (copy(tempSet), tempPolySet))
+                #tempPolySet = constrain(inputDiscritezationDict[currentTimeStep], mapPolytope(ϕt, tempPolySet; invertible=true), linear_map(ϕt, tempSet), loc.invarient)
                 #lastVs = copy(Vs)
                 #Vs = Vs ⊕ V
                 # Vs = concretize(Vs)
@@ -792,14 +870,25 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
             if currentTimeStep < m
                 # If we hit a constraint
                 #newRR = concretize(newRR)
-                if (any((input + ρ(x, newR)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) && any((input + ρ(x, polyNewR; solver=model)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)))
-                    #@show [((input + ρ(x, newR)), y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)]
-                    #@show [((input + ρ(x, polyNewR; solver=model)), y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)]
+                if !(any((input + ρ(x, newR)) > y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)) && any((input + ρ(x, polyNewR; solver=model)) > y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))) && (any((input + ρ(x, newR)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) && any((input + ρ(x, polyNewR; solver=model)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)))
+                    @show [((input + ρ(x, newR)), y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)]
+                    @show [((input + ρ(x, polyNewR; solver=model)), y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)]
 
-                    #@show Sρ
+                    @show Sρ
+                    @show i
+                    @show constraintProjVectors
                     handleHitConstraint(time, loc.id)
                 end
-                #println("Guards i: $i")
+                println("Guards i in loc $(loc.id): $i ")
+                @show [((input + ρ(x, newR)), y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)]
+                @show [((input + -ρ(-x, newR)), y) for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)]
+                @show [((input + ρ(x, newR)), y) for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)]
+                #=
+
+                @show [((input + ρ(x, polyNewR)), y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)]
+                @show [((input + -ρ(-x, polyNewR)), y) for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)]
+                @show [((input + ρ(x, polyNewR)), y) for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)]
+                =#
                 return (dirVals, time, Φ)
             end
 
@@ -820,6 +909,10 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
             #   (any((input + -ρ(-x, newR)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) || any((input + -ρ(-x, polyNewR)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds))) &&
             #   (all((input + -ρ(-x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)) || all((input + -ρ(-x, polyNewR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)))
             if guardCheck(newR, polyNewR, Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds)
+                #if any((input + ρ(x, polyNewR)) > y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
+                #    tset = constrain
+                #end
+
                 if saveResult
                     plotDirZ = copy(dρ + map(x -> ρ(x, newR), dirProjVectors))
                     plotDirP = copy(dρ + map(x -> ρ(x, polyNewR; solver=model), dirProjVectors))
@@ -831,10 +924,17 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
                 #lastVs = copy(Vs)
                 #Vs = ReachabilityAnalysis.Exponentiation.Φ₁(A, time - minimum(interval), ReachabilityAnalysis.Exponentiation.BaseExp) * U
 
+                if i % 500 == 0
+                    println("\n\n hit 500 \n\n")
+                    #@show [((input + ρ(x, newR)), y) for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)]
+                    #@show [((input + -ρ(-x, newR)), y) for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)]
+                    #@show [((input + -ρ(-x, newR)), y) for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)]
+                end
+
                 approveFlag = true
 
                 Sρ += map(x -> ρ(x, V), constraintProjVectors)
-                Gρ += map(x -> ρ(x, V), guardProjVectors)
+                Gρ += map(x -> -ρ(-x, V), guardProjVectors)
                 Iρ += map(x -> ρ(x, V), invarientProjVectors)
                 constraintProjVectors = map(x -> pϕt * x, constraintProjVectors)
                 #guardProjVectors = map(x -> pϕt * x, guardProjVectors)
@@ -1048,9 +1148,30 @@ function guardCheck(newR::Zonotope, polyNewR::HPolytope, Sρ::Vector{Float64}, c
     G = transpose(genmat(newR))
     tc = Vector{Float64}(undef, size(G, 1))
     #a = sum(abs, transpose(a) * G)
-    res = all(input + tsupfunc(x, tc, abssum, c, G) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) || all((input + ρ(x, polyNewR; solver=model)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
-    res = res && (any((input + -tsupfunc(-x, tc, abssum, c, G)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) || any((input + -ρ(-x, polyNewR; solver=model)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)))
+    #=res = all(input + tsupfunc(x, tc, abssum, c, G) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) || all((input + ρ(x, polyNewR; solver=model)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
+    res = res && (all((input + -tsupfunc(-x, tc, abssum, c, G)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) || all((input + -ρ(-x, polyNewR; solver=model)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)))
     res = res && (all((input + -tsupfunc(-x, tc, abssum, c, G)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)) || all((input + -ρ(-x, polyNewR; solver=model)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)))
+    return res=#
+    res = all(input + tsupfunc(x, tc, abssum, c, G) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) || all((input + ρ(x, polyNewR; solver=model)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
+    if !res
+        println("Constraint fails")
+        return res
+    end
+    res = res && (any((input + -tsupfunc(-x, tc, abssum, c, G)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) || any((input + -ρ(-x, polyNewR; solver=model)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)))
+    if !res
+        println("Guard fails")
+        #@show [((input + -ρ(-x, newR)), input, y) for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)]
+
+        return res
+    end
+    res = res && (all((input + -tsupfunc(-x, tc, abssum, c, G)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)) || all((input + -ρ(-x, polyNewR; solver=model)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)))
+    if !res
+        println("Invariant fails")
+        #@show [((input + ρ(x, newR)), input, y) for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)]
+        #@show [((input + -ρ(-x, newR)), input, y) for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)]
+
+        return res
+    end
     return res
 end
 
@@ -1062,8 +1183,25 @@ function guardCheck(newR::Zonotope, polyNewR::HPolytope, Sρ, constraintProjVect
     tc = Vector{Float64}(undef, size(G, 1))
     #a = sum(abs, transpose(a) * G)
     res = all(input + tsupfunc(x, tc, abssum, c, G) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) || all((input + ρ(x, polyNewR; solver=model)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
+    if !res
+        println("Constraint fails")
+        return res
+    end
     res = res && (any((input + -tsupfunc(-x, tc, abssum, c, G)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) || any((input + -ρ(-x, polyNewR; solver=model)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)))
+    if !res
+        println("Guard fails")
+        #@show [((input + -ρ(-x, newR)), input, y) for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)]
+
+        return res
+    end
     res = res && (all((input + -tsupfunc(-x, tc, abssum, c, G)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)) || all((input + -ρ(-x, polyNewR; solver=model)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)))
+    if !res
+        println("Invariant fails")
+        #@show [((input + ρ(x, newR)), input, y) for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)]
+        #@show [((input + -ρ(-x, newR)), input, y) for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)]
+
+        return res
+    end
     return res
 end
 
@@ -1081,9 +1219,16 @@ function touchesCheck(newR::Zonotope, constraintProjVectors::Vector{SparseArrays
     c = newR.center
     G = transpose(genmat(newR))
     tc = Vector{Float64}(undef, size(G, 1))
+    @show all(-ρ(-x, newR) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds))
+    return all(ρ(x, newR) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
+           !any((-ρ(-x, newR) >= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) &&
+           all(-ρ(-x, newR) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
+
+    #=
     return all(tsupfunc(x, tc, abssum, c, G) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
-           all((-tsupfunc(-x, tc, abssum, c, G) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) &&
+           all((-tsupfunc(-x, tc, abssum, c, G) >= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) &&
            all(-tsupfunc(-x, tc, abssum, c, G) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
+    =#
 end
 
 function touchesCheck(newR::Zonotope, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, invarientProjVectors, invarientProjBounds)
@@ -1091,7 +1236,12 @@ function touchesCheck(newR::Zonotope, constraintProjVectors, constraintProjBound
     c = newR.center
     G = transpose(genmat(newR))
     tc = Vector{Float64}(undef, size(G, 1))
+    return all(ρ(x, newR) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
+           !any((-ρ(-x, newR) >= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) &&
+           all(-ρ(-x, newR) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
+    #=
     return all(tsupfunc(x, tc, abssum, c, G) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
-           all((-tsupfunc(-x, tc, abssum, c, G) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) &&
-           all(-tsupfunc(-x, tc, abssum, c, G) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
+        all((-tsupfunc(-x, tc, abssum, c, G) >= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) &&
+        all(-tsupfunc(-x, tc, abssum, c, G) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
+    =#
 end

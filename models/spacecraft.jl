@@ -172,7 +172,7 @@ function loadSpacecraft(; abort_time::Union{Float64,Vector{Float64}}=-1.)
     velocity = 0.055 * 60.0     # meters per minute
     cx = velocity * cos(π / 8)  # x-coordinate of the octagon's first (ENE) corner
     cy = velocity * sin(π / 8)  # y-coordinate of the octagon's first (ENE) corner
-
+    @show cx, vx
     # cx        -> 3.048802457287246
     # cx + cy   -> 4.311657784092042e
 
@@ -182,8 +182,8 @@ function loadSpacecraft(; abort_time::Union{Float64,Vector{Float64}}=-1.)
         LazySets.HalfSpace(sparsevec([x, y], [tan(π / 6), -1.0], n), 0.0),  # -x tan(30°) + y >= 0
         LazySets.HalfSpace(sparsevec([x, y], [tan(π / 6), 1.0], n), 0.0),   # -x tan(30°) - y >= 0
         # Velocity / octagon property
-        # LazySets.HalfSpace(sparsevec([vx], [-1.0], n), cx),                # vx >= -cx
-        # LazySets.HalfSpace(sparsevec([vx], [1.0], n), cx),                 # vx <= cx
+        LazySets.HalfSpace(sparsevec([vx], [-1.0], n), cx),                # vx >= -cx
+        LazySets.HalfSpace(sparsevec([vx], [1.0], n), cx),                 # vx <= cx
         LazySets.HalfSpace(sparsevec([vy], [-1.0], n), cx),                # vy >= -cx
         LazySets.HalfSpace(sparsevec([vy], [1.0], n), cx),                 # vy <= cx
         LazySets.HalfSpace(sparsevec([vx, vy], [1., 1.0], n), cy + cx),    # vx + vy <= cy + cx

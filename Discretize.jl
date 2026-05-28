@@ -102,13 +102,13 @@ function ReACTDiscretizePlus(loc, X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Fl
     Φcache = sum(A) == abs(sum(A)) ? Φ : nothing
     P2A_abs = ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, isInvA, Φcache)
     #pis = ReachabilityAnalysis.Exponentiation.Φ₁(A, δ⁻, alg, isInvA, Φcache)
-
+    dia::Matrix{Float64} = diagm(δ⁻ * ones(XDim))
     #X0 = Zonotope([1., 0., -1.], [[0.0, 0.0, 0.0]])
 
     inputDiscritezationDict[0] = U
     #if !(zeros(XDim) ∈ U) #Origin is *not* in input
     #println("Here")
-    dU = overapproximate(LinearMap(δ⁻, U), Zonotope)#linear_map(dia, U)
+    dU = linear_map(dia, U) #overapproximate(LinearMap(δ⁻, U), Zonotope)#
     E_ψ = SymmetricIntervalHull(linear_map(P2A_abs, SymmetricIntervalHull(LazySets.linear_map(A, U))))
     #E_ψ = SymmetricIntervalHull(LinearMap(P2A_abs, SymmetricIntervalHull(A * U)))
     P = minkowski_sum(dU, E_ψ) #
@@ -269,7 +269,7 @@ end
 =#
 
 # TODO - For some reason the discretization of X0 as a polytope is larger than as a LazySet, even if the lazy representation is a bit larger.. 
-function ReACTDiscretizePlus(loc, X0::HPolytope, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing)
+function ReACTDiscretizePlus(loc, X0::HPolytope, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=0, reduceOrder::Int=5, phiDict=nothing)
     #XDim, _ = size(genmat(X0))
     #directions = CustomDirections(map(x -> x.a, constraints_list(X0)))
     #@show directions
@@ -391,7 +391,7 @@ function ReACTDiscretizePlus(loc, X0::HPolytope, δ⁻::Float64, δ⁺::Float64,
     return discritezationDict, inputDiscritezationDict
 end
 
-function ReACTDiscretizePlus(loc, X0::Zonotope, X0P::Union{Nothing,HPolytope}, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing)
+function ReACTDiscretizePlus(loc, X0::Zonotope, X0P::Union{Nothing,HPolytope}, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=0, reduceOrder::Int=5, phiDict=nothing)
     #XDim, _ = size(genmat(X0))
     #directions = CustomDirections(map(x -> x.a, constraints_list(X0)))
     #@show directions
@@ -425,7 +425,7 @@ function ReACTDiscretizePlus(loc, X0::Zonotope, X0P::Union{Nothing,HPolytope}, �
 
     inputDiscritezationDict[0] = U
 
-    dU = overapproximate(LinearMap(δ⁻, U), Zonotope)#linear_map(dia, U)
+    dU = linear_map(dia, U) #overapproximate(LinearMap(δ⁻, U), Zonotope)#
     E_ψ = SymmetricIntervalHull(linear_map(P2A_abs, SymmetricIntervalHull(LazySets.linear_map(A, U))))
     #E_ψ = SymmetricIntervalHull(LinearMap(P2A_abs, SymmetricIntervalHull(A * U)))
     P = minkowski_sum(dU, E_ψ) #

@@ -3,6 +3,8 @@ using LazySets, ReachabilityAnalysis, LinearAlgebra, Polyhedra, Optim, JuMP, HiG
 export HybridSystem, HybridSystemV2, Location, Edge, overapproximateIntervalReachset, intersects, splitZonotope, getBoxIntersection, getHalfSpaceProjections
 
 Umodel = JuMP.Model(HiGHS.Optimizer)
+set_attribute(Umodel, HiGHS.ComputeInfeasibilityCertificate(), false)
+#Umodel = JuMP.direct_model(HiGHS.Optimizer())
 set_string_names_on_creation(Umodel, false)
 set_attribute(Umodel, "presolve", "off")
 #set_attribute(model, "eps_abs", 1e-5)
@@ -796,13 +798,17 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1; x
     if !isnothing(ylim)
         ylims!(fig, ylim)
     end
-    display(fig)
+    default(fmt=:png)
+    println("Saving..")
     savefig(fig, destination)
+    println("Display..")
+    display(fig)
 end
 
 function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime, reduceOrder=5, maxOrder=5)
     # We know that δ⁻ % currentTime == 0
-    outputInput = nothing
+    n = LazySets.dim(inputDict[0])
+    outputInput = Zonotope(zeros(n), zeros(n, 1))
 
     precomputedLargestStep = log2(δ⁺ / δ⁻)
     totalSteps = Int(round(currentTime / δ⁻))  # Steps we need to take. We round cause floats make small errors
@@ -1054,7 +1060,7 @@ function constrain(input::LazySet, approximation, lazyRepresentation, invariantG
 
     bounds0 = map(x -> ρ(x, input), directions) #, ρ(x, invariantGuardIntersection)
     #@show typeof(approximation)
-    bounds1 = map(x -> ρ(x, approximation), directions) #, ρ(x, invariantGuardIntersection)
+    bounds1 = map(x -> ρ(x, approximation), directions) #, ρ(x, invariantGuardIntersection) ; solver=Umodel
     bounds2 = map(x -> ρ(x, lazyRepresentation), directions) #, ρ(x, invariantGuardIntersection)
     bounds = [min(b1, b2) for (b1, b2) in zip(bounds1, bounds2)]
     #@show maximum(bounds1)
@@ -1361,13 +1367,13 @@ function mpPol(M::Matrix, P::HPolytope)
     end=#
 end
 
-function mapPolytope(M::Matrix, P::HPolytope)
+function mapPolytope(M::Matrix, P::HPolytope; invertible=false)
     try
         tempP = linear_map(M, P)
         return tempP
     catch
         println("linear_map failed")
-        if isinvertible(M)
+        if invertible || isinvertible(M)
             inverseTransposeM = LinearAlgebra.inv(transpose(M))
             hspaces = constraints_list(P)
             newConstraints::Vector{LazySets.HalfSpace} = []
@@ -1383,6 +1389,7 @@ function mapPolytope(M::Matrix, P::HPolytope)
             return tempP
 
         else
+            @show M
             return mpPol(M, P)
             #=
             println("CRAZY CRAZY CRAZY")

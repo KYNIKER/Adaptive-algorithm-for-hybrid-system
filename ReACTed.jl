@@ -81,16 +81,18 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
 
 
 
-
+        #=
         if reachtime - time == 0.0
+            println("zeno?")
             if !isempty(reachset)
                 # println("Found an immediate transition to $(edge.targetLoc), but we are not taking it as we are scared of zeno behaviour")
             end
             if saveResult
                 push!(reachset, (tempReachset, string(time) * " - " * string(reachtime) * ": " * string(loc.id) * " took no steps"))
             end
-            continue
+            #continue
         end
+        =#
         #println("Everytime")
         if reachtime < endtime
 
@@ -126,25 +128,18 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
                 for set in intersectingSetsList
                     jumpSet = copy(set)
 
-                    if !isa(guards, Nothing)
-                        if !isdisjoint(guards, jumpSet)
-                            jumpSet = zonotopeStripIntersection(jumpSet, guards)
-                        else
+                    if !isa(loc.invarient, Nothing)
+                        jumpSet = zonotopeStripIntersection(jumpSet, loc.invarient)
 
-                            continue
-                        end
+                    end
+
+                    any(x -> ρ(x.a, jumpSet) > x.b, setOfConstraints) && handleHitConstraint(reachtime + δ⁻ * i, loc.id)
+
+                    if !isa(guards, Nothing)
+                        jumpSet = zonotopeStripIntersection(jumpSet, guards)
                     end
 
                     # Check invarient
-                    if !isa(loc.invarient, Nothing)
-                        if !isdisjoint(loc.invarient, jumpSet)
-                            jumpSet = zonotopeStripIntersection(jumpSet, loc.invarient)
-                        else
-
-
-                            continue
-                        end
-                    end
                     # Push to reachset
                     if saveResult
                         push!(plottingList, (map(x -> ρ(x, jumpSet), dirs), [reachtime + δ⁻ * i, reachtime + δ⁻ * (i + 1)]))
@@ -157,6 +152,8 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
                         jumpSet = concretize(LazySets.translate(jumpSet, edge.jumpVector))
                     end
                     if !isa(hybridSystem.locations[edge.targetLoc].invarient, Nothing)
+                        jumpSet = zonotopeStripIntersection(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)
+                        #=
                         if !isdisjoint(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)
                             jumpSet = zonotopeStripIntersection(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)
                         else
@@ -164,6 +161,7 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
 
                             continue
                         end
+                        =#
                     end
 
 
@@ -237,9 +235,9 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
                         push!(newReach, (Z, timeInterval))
                     end
                     tempReachset = newReach
-                    reachset = vcat(reachset, (tempReachset, string(loc.id) * "->" * string(edge.targetLoc)))
+                    reachset = vcat(reachset, (tempReachset, string(time) * " - " * string(reachtime) * ": " * string(loc.id) * "->" * string(edge.targetLoc)))
                 else
-                    reachset = vcat(reachset, (tempReachset, string(loc.id) * "->" * string(edge.targetLoc)))
+                    reachset = vcat(reachset, (tempReachset, string(time) * " - " * string(reachtime) * ": " * string(loc.id) * "->" * string(edge.targetLoc)))
                 end
             end
         end
@@ -316,9 +314,9 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
             #@show all((ρ(x, tempSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds))
             #@show all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds))
             #@show all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds))
-            if any(((ρ(x, tempSet)) > y) for (x, y) in zip(constraintProjVectors, constraintProjBounds))
-                handleHitConstraint(time, loc.id)
-            end
+            #if all((ρ(x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) && any(((ρ(x, tempSet)) > y) for (x, y) in zip(constraintProjVectors, constraintProjBounds))
+            #    handleHitConstraint(time, loc.id)
+            #end
 
             continueAfter = true
             if all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds))
@@ -528,9 +526,9 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
             if currentTimeStep < m
                 # If we hit a constraint
                 #newRR = concretize(newRR)
-                if any((input + ρ(x, newR)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
-                    handleHitConstraint(time, loc.id)
-                end
+                #if all((input + ρ(x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)) && any((input + ρ(x, newR)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
+                #    handleHitConstraint(time, loc.id)
+                #end
                 return (dirVals, time, Φ)
             end
 
@@ -619,7 +617,7 @@ end
 
 function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, constraint, dirs, STRATEGY::Integer, PhiDict, discritezationDict, inputDiscritezationDict, saveResult)
     # We calculate the reachset till we reach a guard for an intersection (or till failure)
-    println("HUH")
+    #println("HUH")
 
     initialTimeStep = copy(δ⁺)
     m = copy(δ⁻)

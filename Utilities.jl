@@ -782,9 +782,9 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1)
         println("Cannot plot with amount of dims $amountOfDims")
         return
     end
-
-    display(fig)
+    default(fmt=:png)
     savefig(fig, destination)
+    display(fig)
 end
 
 function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime, reduceOrder=5, maxOrder=5)

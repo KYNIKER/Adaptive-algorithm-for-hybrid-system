@@ -1,7 +1,7 @@
 using Plots, LazySets, LinearAlgebra, BenchmarkTools, CSV, DataFrames, Expokit, CDDLib, Profile, PProf, JuMP, HiGHS #, ProfileView #, ReachabilityAnalysis
 
 include("Utilities.jl")
-include("ReACTed.jl")
+include("ReACTedAlternative.jl")
 include("models/girardExample.jl")
 include("models/gearbox.jl")
 include("models/platoon.jl")

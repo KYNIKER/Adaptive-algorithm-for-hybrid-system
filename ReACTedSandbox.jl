@@ -46,6 +46,12 @@ amountOfSteps = foldr(+, [length(x) for (x, _) in res])
 @show amountOfSteps
 
 
+
+
+amountOfSteps = foldr(+, [length(x) for (x, _) in res])
+
+@show amountOfSteps
+
 # @show length(res)
 println("Began plotting")
 plotProjectedFlowpipeLazy(res, dirs, n, joinpath("results/", "Ball.png"))

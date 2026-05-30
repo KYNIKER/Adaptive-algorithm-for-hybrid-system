@@ -152,7 +152,7 @@ function isSubSet(Z::Zonotope, H::HPolyhedron)
     for h in H.constraints
         agenSum = reduce(+, abs.(genmat(Z) .* h.a))
         acenSum = dot(Vector(h.a), Z.center)
-        sen = sen & (acenSum + agenSum <= h.b)
+        sen = sen & (ρ(h.a, Z) <= h.b) #(acenSum + agenSum <= h.b)
         #sen = sen & (acenSum - agenSum <= h.b) & (acenSum + agenSum <= h.b)
     end
     return sen
@@ -465,6 +465,11 @@ end
 
 #   Based on Alamo et al. "Guaranteed state estimation by zonotopes" (2005)
 function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HyperplaneModule.Hyperplane, σ::Float64)
+    #@show isSubSet(Z, H)
+    if isSubSet(Z, H)
+        return Z
+    end
+
     G = genmat(Z)
     c = Z.center
     b = H.a
@@ -486,18 +491,26 @@ end
 
 # Takes two vectors. May be sparrse
 function iscollinear(a, b; atol=1e-10)
+function iscollinear(a, b; atol=1e-10)
     # If the value is zero (Or very close to zero, then they are linearly dependent)
     # Squaring rather than doing norm because norm would take longer to calc 
+    return abs(dot(a, b)^2 - dot(a, a) * dot(b, b)) ≤ atol
     return abs(dot(a, b)^2 - dot(a, a) * dot(b, b)) ≤ atol
 end
 
 function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HPolyhedron)
+    #@show isSubSet(Z, H)
+    if isSubSet(Z, H)
+        return Z
+    end
+
     HalfSpaces = copy(constraints_list(H))
     HSG = stack([x.a for x in HalfSpaces]; dims=1)
     res = copy(Z)
     if rank(HSG) < size(HSG, 1)
         #println("Collinear")
         #collinear = []
+        collinear = Vector{LazySets.HalfSpaceModule.HalfSpace{Float64,Vector{Float64}}}()
         collinear = Vector{LazySets.HalfSpaceModule.HalfSpace{Float64,Vector{Float64}}}()
         #remidx = stack([false for x in HalfSpaces])
         remidx = falses(length(HalfSpaces))
@@ -544,6 +557,7 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
         end
         while !isempty(collinear)
             #temphs = []
+            temphs = Vector{LazySets.HalfSpaceModule.HalfSpace{Float64,Vector{Float64}}}()
             temphs = Vector{LazySets.HalfSpaceModule.HalfSpace{Float64,Vector{Float64}}}()
             push!(temphs, pop!(collinear))
             cols = any(i -> rank([i.a temphs[1].a]) <= 1, collinear, dims=2)
@@ -712,7 +726,6 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1; x
         cpallete = palette(:roma, length(flowpipe))
         i = 1
         k = 0
-
         for (x, y) in flowpipe
             sen = true
             if verbose
@@ -722,7 +735,6 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1; x
 
             for (d, t) in x
                 #@show d
-
 
                 #d = [-ρ(sparsevec([dim2], [-1.0], ndim), r), ρ(sparsevec([dim2], [1.0], ndim), r)] #r[dim2]
                 if sen
@@ -815,10 +827,12 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime,
 
     # Convert to bits 
     listToInclude = digits(totalSteps, base=2) # Get bit map
+    listToInclude = digits(totalSteps, base=2) # Get bit map
 
     largestInput = copy(inputDict[δ⁺])
     ϕ = phiDict[δ⁺]
     tempM = similar(ϕ)
+    outputInput = Zonotope(zeros(size(tempM, 1)), zeros(size(tempM, 1), 1))
 
     precomputed = true
     i = 0
@@ -828,7 +842,9 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime,
 
                 if isnothing(outputInput)
                     outputInput = copy(inputDict[2^i*δ⁻])
+                    outputInput = copy(inputDict[2^i*δ⁻])
                 else
+                    outputInput = minkowski_sum(linear_map(phiDict[2^i*δ⁻], outputInput), inputDict[2^i*δ⁻])
                     outputInput = minkowski_sum(linear_map(phiDict[2^i*δ⁻], outputInput), inputDict[2^i*δ⁻])
                 end
             end

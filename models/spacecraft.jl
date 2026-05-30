@@ -92,6 +92,7 @@ function loadSpacecraft(; abort_time::Union{Float64,Vector{Float64}}=-1.)
         LazySets.HalfSpace(sparsevec([x, y], [1., -1.], n), 141.1),   # -x + y >= -141.1
         LazySets.HalfSpace(sparsevec([x, y], [-1., 1.], n), 141.1)    # -x + y <= 141.1
     ])
+    ])
 
     if aborting
         invariant2 = HPolyhedron([
@@ -144,6 +145,7 @@ function loadSpacecraft(; abort_time::Union{Float64,Vector{Float64}}=-1.)
         LazySets.HalfSpace(sparsevec([x, y], [1., -1.], n), 141.1),   # -x + y >= -141.1
         LazySets.HalfSpace(sparsevec([x, y], [-1., 1.], n), 141.1)    # -x + y <= 141.1
     ])
+    ])
     #t1 = ConstrainedIdentityMap(n, guard)
 
     push!(loc1edges, Edge(2, guard, Diagonal(ones(n)), zeros(n)))
@@ -181,7 +183,11 @@ function loadSpacecraft(; abort_time::Union{Float64,Vector{Float64}}=-1.)
         #LazySets.HalfSpace(sparsevec([x], [-1.0], n), 100.0),             # x >= -100
         LazySets.HalfSpace(sparsevec([x, y], [tan(π / 6), -1.0], n), 0.0),  # -x tan(30°) + y >= 0
         LazySets.HalfSpace(sparsevec([x, y], [tan(π / 6), 1.0], n), 0.0),   # -x tan(30°) - y >= 0
+        LazySets.HalfSpace(sparsevec([x, y], [tan(π / 6), -1.0], n), 0.0),  # -x tan(30°) + y >= 0
+        LazySets.HalfSpace(sparsevec([x, y], [tan(π / 6), 1.0], n), 0.0),   # -x tan(30°) - y >= 0
         # Velocity / octagon property
+        LazySets.HalfSpace(sparsevec([vx], [-1.0], n), cx),                # vx >= -cx
+        LazySets.HalfSpace(sparsevec([vx], [1.0], n), cx),                 # vx <= cx
         LazySets.HalfSpace(sparsevec([vx], [-1.0], n), cx),                # vx >= -cx
         LazySets.HalfSpace(sparsevec([vx], [1.0], n), cx),                 # vx <= cx
         LazySets.HalfSpace(sparsevec([vy], [-1.0], n), cx),                # vy >= -cx
@@ -217,6 +223,7 @@ function loadSpacecraft(; abort_time::Union{Float64,Vector{Float64}}=-1.)
 
     # initial condition in mode 1
     X0 = Hyperrectangle([-900., -400., 0., 0., 0.],
+        [25., 25., 0., 0., 0.])
         [25., 25., 0., 0., 0.])
 
     X0 = convert(Zonotope, X0)

@@ -5,7 +5,7 @@ using LazySets
 
 include("../../Utilities.jl")
 
-function loadembrake(x0, Tsample, ζ)
+function loadembrake(x0=0.05, Tsample = 1e-4, ζ = 1e-6)
     # model's constants
     L = 1.e-3
     KP = 10000.0
@@ -16,7 +16,7 @@ function loadembrake(x0, Tsample, ζ)
     i = 113.1167
 
 
-    # state variables: [I, x, xe, xc, T]
+    # state variables: [I, x, xe, xc]
     A = Matrix([-(R+K^2/drot)/L 0 KP/L KI/L;
                 K/i/drot        0 0    0;
                 0               0 0    0;

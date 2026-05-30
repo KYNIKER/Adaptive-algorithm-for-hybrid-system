@@ -2,6 +2,7 @@ using Plots, LazySets, LinearAlgebra, BenchmarkTools, CSV, DataFrames, Expokit, 
 
 include("Utilities.jl")
 include("ReACTed.jl")
+include("ReACTedAlternative.jl")
 include("models/girardExample.jl")
 include("models/gearbox.jl")
 include("models/platoon.jl")
@@ -40,6 +41,7 @@ n = length(X0.center)
 res = []
 
 res = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), dirs, sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder, reduceOrder, clustering, timeConstraintList)
+resAlt = ReACTedAlternative(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), dirs, sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder, reduceOrder, timeConstraintList)
 
 
 amountOfSteps = foldr(+, [length(x) for (x, _) in res])
@@ -54,7 +56,8 @@ amountOfSteps = foldr(+, [length(x) for (x, _) in res])
 
 # @show length(res)
 println("Began plotting")
-plotProjectedFlowpipeLazy(res, dirs, n, joinpath("results/", "Ball.png"))
+altExtended = figureProjectedFlowpipeLazy(res, dirs, n, joinpath("results/", "plad01.png"), :blue)
+plotProjectedFlowpipeLazy(resAlt, dirs, n, joinpath("results/", "plad01.png"), :red; fig=altExtended)
 
 
 # plotProjectedFlowpipe(res, 0, 4, joinpath("results/", "SandboxDim24.png"))

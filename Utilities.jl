@@ -712,15 +712,21 @@ function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination, alpha=1)
     savefig(fig, destination)
 end
 
-function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1; xlim=nothing, ylim=nothing, verbose=false, legend=false)
-
+function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1; xlim=nothing, ylim=nothing, verbose=false, legend=false, fig=missing)
+    la = 0.1
     amountOfDims = length(dims)
+    if ismissing(fig)
+        if amountOfDims == 1
+            fig = Plots.plot(xlabel="time", ylabel="dim: " * string(dims[1]), ε=1e-6, legend=:outerright)
+        elseif amountOfDims == 2
+            fig = Plots.plot(xlabel="dim: " * string(dims[1]), ylabel="dim: " * string(dims[2]), ε=1e-6, legend=:outerright)
+        end
+    end
+    cpallete = palette(:roma, length(flowpipe))
     if amountOfDims == 1
 
         dim2 = amountOfDims[1]
 
-        fig = Plots.plot(xlabel="time", ylabel="dim: " * string(dim2), ε=1e-6, legend=:outerright)
-        cpallete = palette(:roma, length(flowpipe))
         i = 1
         k = 0
         for (x, y) in flowpipe
@@ -735,10 +741,10 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1; x
 
                 #d = [-ρ(sparsevec([dim2], [-1.0], ndim), r), ρ(sparsevec([dim2], [1.0], ndim), r)] #r[dim2]
                 if sen
-                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], leg=legend, lab="S" * string(i), linealpha=0.1)
+                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], leg=legend, lab="S" * string(i), linealpha=la)
                     sen = false
                 else
-                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], leg=legend, lab="", linealpha=0.1)
+                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], leg=legend, lab="", linealpha=la)
                 end
                 #Plots.plot!(Shape([mincor1, maxcor1, maxcor1, mincor1], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
 
@@ -750,8 +756,6 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1; x
     elseif amountOfDims == 2
         dim1 = dims[1]
         dim2 = dims[2]
-        fig = Plots.plot(xlabel="dim: " * string(dim1), ylabel="dim: " * string(dim2), ε=1e-6)
-        cpallete = palette(:roma, length(flowpipe))
         i = 1
         k = 0
         for (x, y) in flowpipe
@@ -787,10 +791,10 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1; x
                 d1 = [r[1], -r[2]]#[ρ(sparsevec([dim1], [-1.0], ndim), r), ρ(sparsevec([dim1], [1.0], ndim), r)]
                 d2 = [r[3], -r[4]]#[ρ(sparsevec([dim2], [-1.0], ndim), r), ρ(sparsevec([dim2], [1.0], ndim), r)]
                 if sen
-                    Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=cpallete[i], leg=legend, lab="S" * string(i), linealpha=0)
+                    Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=cpallete[i], leg=legend, lab="S" * string(i), linealpha=la)
                     sen = false
                 else
-                    Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=cpallete[i], leg=legend, lab="", linealpha=0)
+                    Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=cpallete[i], leg=legend, lab="", linealpha=la)
                 end
                 #plot!(r, c=cpallete[i], alpha=0.2)
             end
@@ -812,6 +816,318 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1; x
     savefig(fig, destination)
     println("Display..")
     display(fig)
+
+end
+
+function figureProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1; xlim=nothing, ylim=nothing, verbose=false, legend=false, fig=missing)
+    la = 0.1
+    amountOfDims = length(dims)
+    if ismissing(fig)
+        if amountOfDims == 1
+            fig = Plots.plot(xlabel="time", ylabel="dim: " * string(dims[1]), ε=1e-6, legend=:outerright)
+        elseif amountOfDims == 2
+            fig = Plots.plot(xlabel="dim: " * string(dims[1]), ylabel="dim: " * string(dims[2]), ε=1e-6, legend=:outerright)
+        end
+    end
+    cpallete = palette(:roma, length(flowpipe))
+    if amountOfDims == 1
+
+        dim2 = amountOfDims[1]
+
+        i = 1
+        k = 0
+        for (x, y) in flowpipe
+            sen = true
+            if verbose
+                println(y)
+
+            end
+
+            for (d, t) in x
+                #@show d
+
+                #d = [-ρ(sparsevec([dim2], [-1.0], ndim), r), ρ(sparsevec([dim2], [1.0], ndim), r)] #r[dim2]
+                if sen
+                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], leg=legend, lab="S" * string(i), linealpha=la)
+                    sen = false
+                else
+                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], leg=legend, lab="", linealpha=la)
+                end
+                #Plots.plot!(Shape([mincor1, maxcor1, maxcor1, mincor1], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
+
+                #plot!(r, c=cpallete[i], alpha=0.2)
+            end
+            #plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="", alpha=0.8)
+            i += 1
+        end
+    elseif amountOfDims == 2
+        dim1 = dims[1]
+        dim2 = dims[2]
+        i = 1
+        k = 0
+        for (x, y) in flowpipe
+            if verbose
+                println(y)
+
+            end
+            sen = true
+            for (r, t) in x
+                #=
+                G = genmat(r)
+                c = r.center
+
+                projectedG = projectionMatrix * G
+                projectGDim1s = mapreduce(x -> sign(x[dim1]) * x, +, eachcol(projectedG))
+                projectGDim2s = mapreduce(x -> sign(x[dim2]) * x, +, eachcol(projectedG))
+
+                maxcor1s = c + projectGDim1s
+                mincor1s = c - projectGDim1s
+                maxcor2s = c + projectGDim2s
+                mincor2s = c - projectGDim2s
+
+                projectGDim1 = reduce(+, reduce(+, G, dims=dim1))
+                projectGDim2 = reduce(+, reduce(+, G, dims=dim2))
+                maxcor1 = c[dim1] + projectGDim1
+                mincor1 = c[dim1] - projectGDim1
+                maxcor2 = c[dim2] + projectGDim2
+                mincor2 = c[dim2] - projectGDim2
+                =#
+                #@show r
+                #Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="", alpha=0.1)
+                #Plots.plot!(Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], maxcor1s[dim2], maxcor2s[dim2], mincor2s[dim2]]), c=cpallete[i], lab="") # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
+                d1 = [r[1], -r[2]]#[ρ(sparsevec([dim1], [-1.0], ndim), r), ρ(sparsevec([dim1], [1.0], ndim), r)]
+                d2 = [r[3], -r[4]]#[ρ(sparsevec([dim2], [-1.0], ndim), r), ρ(sparsevec([dim2], [1.0], ndim), r)]
+                if sen
+                    Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=cpallete[i], leg=legend, lab="S" * string(i), linealpha=la)
+                    sen = false
+                else
+                    Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=cpallete[i], leg=legend, lab="", linealpha=la)
+                end
+                #plot!(r, c=cpallete[i], alpha=0.2)
+            end
+            #Plots.plot!(c=cpallete[i], lab=string(i))
+            i += 1
+        end
+    else
+        println("Cannot plot with amount of dims $amountOfDims")
+        return
+    end
+    if !isnothing(xlim)
+        xlims!(fig, xlim)
+    end
+    if !isnothing(ylim)
+        ylims!(fig, ylim)
+    end
+    return fig
+end
+
+function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, color, alpha=1; xlim=nothing, ylim=nothing, verbose=false, legend=false, fig=missing)
+    la = 0.1
+    amountOfDims = length(dims)
+    if ismissing(fig)
+        if amountOfDims == 1
+            fig = Plots.plot(xlabel="time", ylabel="dim: " * string(dims[1]), ε=1e-6, legend=:outerright)
+        elseif amountOfDims == 2
+            fig = Plots.plot(xlabel="dim: " * string(dims[1]), ylabel="dim: " * string(dims[2]), ε=1e-6, legend=:outerright)
+        end
+    end
+
+    if amountOfDims == 1
+
+        dim2 = amountOfDims[1]
+
+        i = 1
+        k = 0
+        for (x, y) in flowpipe
+            sen = true
+            if verbose
+                println(y)
+
+            end
+
+            for (d, t) in x
+                #@show d
+
+                #d = [-ρ(sparsevec([dim2], [-1.0], ndim), r), ρ(sparsevec([dim2], [1.0], ndim), r)] #r[dim2]
+                if sen
+                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=color, leg=legend, lab="S" * string(i), linealpha=la)
+                    sen = false
+                else
+                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=color, leg=legend, lab="", linealpha=la)
+                end
+                #Plots.plot!(Shape([mincor1, maxcor1, maxcor1, mincor1], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
+
+                #plot!(r, c=cpallete[i], alpha=0.2)
+            end
+            #plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="", alpha=0.8)
+            i += 1
+        end
+    elseif amountOfDims == 2
+        dim1 = dims[1]
+        dim2 = dims[2]
+        i = 1
+        k = 0
+        for (x, y) in flowpipe
+            if verbose
+                println(y)
+
+            end
+            sen = true
+            for (r, t) in x
+                #=
+                G = genmat(r)
+                c = r.center
+
+                projectedG = projectionMatrix * G
+                projectGDim1s = mapreduce(x -> sign(x[dim1]) * x, +, eachcol(projectedG))
+                projectGDim2s = mapreduce(x -> sign(x[dim2]) * x, +, eachcol(projectedG))
+
+                maxcor1s = c + projectGDim1s
+                mincor1s = c - projectGDim1s
+                maxcor2s = c + projectGDim2s
+                mincor2s = c - projectGDim2s
+
+                projectGDim1 = reduce(+, reduce(+, G, dims=dim1))
+                projectGDim2 = reduce(+, reduce(+, G, dims=dim2))
+                maxcor1 = c[dim1] + projectGDim1
+                mincor1 = c[dim1] - projectGDim1
+                maxcor2 = c[dim2] + projectGDim2
+                mincor2 = c[dim2] - projectGDim2
+                =#
+                #@show r
+                #Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="", alpha=0.1)
+                #Plots.plot!(Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], maxcor1s[dim2], maxcor2s[dim2], mincor2s[dim2]]), c=cpallete[i], lab="") # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
+                d1 = [r[1], -r[2]]#[ρ(sparsevec([dim1], [-1.0], ndim), r), ρ(sparsevec([dim1], [1.0], ndim), r)]
+                d2 = [r[3], -r[4]]#[ρ(sparsevec([dim2], [-1.0], ndim), r), ρ(sparsevec([dim2], [1.0], ndim), r)]
+                if sen
+                    Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=color, leg=legend, lab="S" * string(i), linealpha=la)
+                    sen = false
+                else
+                    Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=color, leg=legend, lab="", linealpha=la)
+                end
+                #plot!(r, c=cpallete[i], alpha=0.2)
+            end
+            #Plots.plot!(c=cpallete[i], lab=string(i))
+            i += 1
+        end
+    else
+        println("Cannot plot with amount of dims $amountOfDims")
+        return
+    end
+    if !isnothing(xlim)
+        xlims!(fig, xlim)
+    end
+    if !isnothing(ylim)
+        ylims!(fig, ylim)
+    end
+    default(fmt=:png)
+    println("Saving..")
+    savefig(fig, destination)
+    println("Display..")
+    display(fig)
+
+end
+
+function figureProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, color, alpha=1; xlim=nothing, ylim=nothing, verbose=false, legend=false, fig=missing)
+    la = 0.1
+    amountOfDims = length(dims)
+    if ismissing(fig)
+        if amountOfDims == 1
+            fig = Plots.plot(xlabel="time", ylabel="dim: " * string(dims[1]), ε=1e-6, legend=:outerright)
+        elseif amountOfDims == 2
+            fig = Plots.plot(xlabel="dim: " * string(dims[1]), ylabel="dim: " * string(dims[2]), ε=1e-6, legend=:outerright)
+        end
+    end
+
+    if amountOfDims == 1
+
+        dim2 = amountOfDims[1]
+
+        i = 1
+        k = 0
+        for (x, y) in flowpipe
+            sen = true
+            if verbose
+                println(y)
+
+            end
+
+            for (d, t) in x
+                #@show d
+
+                #d = [-ρ(sparsevec([dim2], [-1.0], ndim), r), ρ(sparsevec([dim2], [1.0], ndim), r)] #r[dim2]
+                if sen
+                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=color, leg=legend, lab="S" * string(i), linealpha=la)
+                    sen = false
+                else
+                    Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=color, leg=legend, lab="", linealpha=la)
+                end
+                #Plots.plot!(Shape([mincor1, maxcor1, maxcor1, mincor1], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
+
+                #plot!(r, c=cpallete[i], alpha=0.2)
+            end
+            #plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="", alpha=0.8)
+            i += 1
+        end
+    elseif amountOfDims == 2
+        dim1 = dims[1]
+        dim2 = dims[2]
+        i = 1
+        k = 0
+        for (x, y) in flowpipe
+            if verbose
+                println(y)
+
+            end
+            sen = true
+            for (r, t) in x
+                #=
+                G = genmat(r)
+                c = r.center
+
+                projectedG = projectionMatrix * G
+                projectGDim1s = mapreduce(x -> sign(x[dim1]) * x, +, eachcol(projectedG))
+                projectGDim2s = mapreduce(x -> sign(x[dim2]) * x, +, eachcol(projectedG))
+
+                maxcor1s = c + projectGDim1s
+                mincor1s = c - projectGDim1s
+                maxcor2s = c + projectGDim2s
+                mincor2s = c - projectGDim2s
+
+                projectGDim1 = reduce(+, reduce(+, G, dims=dim1))
+                projectGDim2 = reduce(+, reduce(+, G, dims=dim2))
+                maxcor1 = c[dim1] + projectGDim1
+                mincor1 = c[dim1] - projectGDim1
+                maxcor2 = c[dim2] + projectGDim2
+                mincor2 = c[dim2] - projectGDim2
+                =#
+                #@show r
+                #Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="", alpha=0.1)
+                #Plots.plot!(Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], maxcor1s[dim2], maxcor2s[dim2], mincor2s[dim2]]), c=cpallete[i], lab="") # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
+                d1 = [r[1], -r[2]]#[ρ(sparsevec([dim1], [-1.0], ndim), r), ρ(sparsevec([dim1], [1.0], ndim), r)]
+                d2 = [r[3], -r[4]]#[ρ(sparsevec([dim2], [-1.0], ndim), r), ρ(sparsevec([dim2], [1.0], ndim), r)]
+                if sen
+                    Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=color, leg=legend, lab="S" * string(i), linealpha=la)
+                    sen = false
+                else
+                    Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=color, leg=legend, lab="", linealpha=la)
+                end
+                #plot!(r, c=cpallete[i], alpha=0.2)
+            end
+            #Plots.plot!(c=cpallete[i], lab=string(i))
+            i += 1
+        end
+    else
+        println("Cannot plot with amount of dims $amountOfDims")
+        return
+    end
+    if !isnothing(xlim)
+        xlims!(fig, xlim)
+    end
+    if !isnothing(ylim)
+        ylims!(fig, ylim)
+    end
+    return fig
 end
 
 function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime, reduceOrder=5, maxOrder=5)

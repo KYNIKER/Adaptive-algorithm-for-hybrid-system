@@ -269,7 +269,7 @@ end
 =#
 
 # TODO - For some reason the discretization of X0 as a polytope is larger than as a LazySet, even if the lazy representation is a bit larger.. 
-function ReACTDiscretizePlus(loc, X0::HPolytope, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=0, reduceOrder::Int=5, phiDict=nothing)
+function ReACTDiscretizePlusAlternative(loc, X0::HPolytope, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=0, reduceOrder::Int=5, phiDict=nothing)
     #XDim, _ = size(genmat(X0))
     #directions = CustomDirections(map(x -> x.a, constraints_list(X0)))
     #@show directions
@@ -391,7 +391,7 @@ function ReACTDiscretizePlus(loc, X0::HPolytope, δ⁻::Float64, δ⁺::Float64,
     return discritezationDict, inputDiscritezationDict
 end
 
-function ReACTDiscretizePlus(loc, X0::Zonotope, X0P::Union{Nothing,HPolytope}, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=0, reduceOrder::Int=5, phiDict=nothing)
+function ReACTDiscretizePlusAlternative(loc, X0::Zonotope, X0P::Union{Nothing,HPolytope}, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=0, reduceOrder::Int=5, phiDict=nothing)
     #XDim, _ = size(genmat(X0))
     #directions = CustomDirections(map(x -> x.a, constraints_list(X0)))
     #@show directions

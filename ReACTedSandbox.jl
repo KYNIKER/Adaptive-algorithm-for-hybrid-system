@@ -1,7 +1,7 @@
 using Plots, LazySets, LinearAlgebra, BenchmarkTools, CSV, DataFrames, Expokit, CDDLib, Profile, PProf, JuMP, HiGHS #, ProfileView #, ReachabilityAnalysis
 
 include("Utilities.jl")
-include("ReACTedAlternative.jl")
+include("ReACTed.jl")
 include("models/girardExample.jl")
 include("models/gearbox.jl")
 include("models/platoon.jl")
@@ -15,12 +15,12 @@ include("models/spacecraft.jl")
 #using Cthulhu, ProfileView
 #timeConstraintList = [(1, 0.2)] # (Loc, <time) # This is only for gearbox
 timeConstraintList = []
-clustering = false
+clustering = true
 
 reduceOrder = 5
 maxOrder = 5
 
-dirs = [1] # Which direction to plot. Empty means no plotting
+dirs = [3] # Which direction to plot. Empty means no plotting
 #dirs = []
 #δ⁺ = 10^-3 * 2
 δ⁺ = 0.03 * 2^0

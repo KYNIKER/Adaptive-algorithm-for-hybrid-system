@@ -1,6 +1,6 @@
 using LazySets, LinearAlgebra, ReachabilityAnalysis, HiGHS, SparseArrays
 using LazySets.Approximations: PolygonalOverapproximation, addapproximation!
-include("DiscretizeAlternative.jl")
+include("Discretize.jl")
 include("Utilities.jl")
 
 model = JuMP.Model(HiGHS.Optimizer)

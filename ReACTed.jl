@@ -2,8 +2,12 @@ using LazySets, LinearAlgebra, ReachabilityAnalysis
 include("Discretize.jl")
 include("Utilities.jl")
 
-
+const TIMEFUNCS = false
 const VERBOSE = false
+
+totalDiscTime = 0
+totalGuardTime = 0
+totalTouchesTime = 0
 
 function zonotopePrintDim(Z::Zonotope, dim)
     center = Z.center[dim]
@@ -52,10 +56,16 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
             push!(activeTimeConstraints, time)
         end
     end
+    recorderTimeStart = 0 # This is used for timing functions
 
     dims = size(X0.center, 1)
-
+    if TIMEFUNCS
+        recorderTimeStart = time_ns()
+    end
     discretizationDict, inputDiscritezationDict = ReACTDiscretizePlus(loc, X0, δ⁻, δ⁺, alg, maxOrder, reduceOrder, PhiDict[loc.id])
+    if TIMEFUNCS
+        global totalDiscTime += time_ns() - recorderTimeStart
+    end
 
 
     time::Float64 = minimum(interval)
@@ -76,10 +86,14 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
 
 
         #   Compute the reachset closest to the guard without intersecting it and not reaching the unsafe set. 
-
+        
+        if TIMEFUNCS
+            recorderTimeStart += time_ns()
+        end
         tempReachset, reachtime, tΦ = ReACTGuards(loc, δ⁻, δ⁺, [time, endtime], guards, setOfConstraints, dirs, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, saveResult)
-
-
+        if TIMEFUNCS
+            global totalGuardTime += time_ns() - recorderTimeStart
+        end
 
         #=
         if reachtime - time == 0.0
@@ -100,8 +114,13 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
                 push!(reachset, (tempReachset, string(time) * " - " * string(reachtime) * ": " * string(loc.id) * "->" * string(edge.targetLoc)))
             end
             # println("Current time: $time, intersecting time start: $reachtime")
+            if TIMEFUNCS
+                recorderTimeStart = time_ns()
+            end
             tryContinueFlag, _, timeNotIntersected, intersectingSetsList = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, endtime], (reachtime - time), guards, setOfConstraints, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, tΦ, nothing, reduceOrder, maxOrder)
-
+            if TIMEFUNCS
+                global totalTouchesTime += time_ns() - recorderTimeStart
+            end
             if any((timeNotIntersected >= x) for x in activeTimeConstraints)
                 handleHitConstraint(timeNotIntersected, loc.id)
             end
@@ -257,7 +276,15 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
         end
     end
 
-
+    if TIMEFUNCS
+        if minimum(interval) == 0
+            # This is the last function
+            println("Total times: 
+            Disc: $(totalDiscTime / 10^9)
+            Guards: $(totalGuardTime / 10^9) 
+            Touches: $(totalTouchesTime / 10^9)")
+        end
+    end
     return reachset
 end
 

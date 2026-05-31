@@ -25,7 +25,9 @@ end
 
 function ReACTedAlternative(hybridSystem::HybridSystemV2, initialLoc, interval, X0, U, dirs, constraint, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, timeConstraintList=[]; clustering=false, mustSemantics=false)
     loc = initialLoc
-    flowPhiDict = Dict(map(x -> x.id => PhiDict(x.A, δ⁻, δ⁺, alg), hybridSystem.locations))
+    #flowPhiDict = Dict(map(x -> x.id => PhiDict(x.A, δ⁻, δ⁺, alg), hybridSystem.locations))
+    flowPhiInputDict = Dict(map(x -> x.id => PhiInputDict(x, δ⁻, δ⁺, alg, maxOrder, reduceOrder), hybridSystem.locations))
+
     waitinglist = []
     time::Float64 = minimum(interval)
     endtime::Float64 = maximum(interval)
@@ -67,7 +69,8 @@ function ReACTedAlternative(hybridSystem::HybridSystemV2, initialLoc, interval, 
             @show LazySets.API.high(polySet) - LazySets.API.high(initialset)
             @show LazySets.API.low(polySet) - LazySets.API.low(initialset)
         end=#
-        res = auxReACTedAlternative(waitinglist, hybridSystem, hybridSystem.locations[location], edge, interval′, initialset, dirsVectors, constraint, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder, TΦ, reducedPolySet, timeConstraintList, saveResult; clustering, mustSemantics)
+        phiDict, inputDict = flowPhiInputDict[location]
+        res = auxReACTedAlternative(waitinglist, hybridSystem, hybridSystem.locations[location], edge, interval′, initialset, dirsVectors, constraint, δ⁻, δ⁺, phiDict, inputDict, alg, maxOrder, reduceOrder, TΦ, reducedPolySet, timeConstraintList, saveResult; clustering, mustSemantics)
         reachset = vcat(reachset, res)
         if transitionCount < zenoBound
             transitionCount += 1
@@ -81,7 +84,7 @@ end
 
 
 # AucReacted is called recursively each time we have a new starting location (after a transition)
-function auxReACTedAlternative(waitlist, hybridSystem, loc::Location, currentEdge, interval, X0, dirs, constraint, δ⁻::Float64, δ⁺::Float64, PhiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, Φ=missing, polyhedralSet=nothing, timeConstraintList=[], saveResult::Bool=true; clustering=false, mustSemantics=false)
+function auxReACTedAlternative(waitlist, hybridSystem, loc::Location, currentEdge, interval, X0, dirs, constraint, δ⁻::Float64, δ⁺::Float64, PhiDict, inputDiscritezationDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, Φ=missing, polyhedralSet=nothing, timeConstraintList=[], saveResult::Bool=true; clustering=false, mustSemantics=false)
     activeTimeConstraints = []
     #@show norm(X0)
     for (id, time) in timeConstraintList
@@ -96,7 +99,7 @@ function auxReACTedAlternative(waitlist, hybridSystem, loc::Location, currentEdg
     reachset = []
     setOfConstraints = vcat(loc.constraints, constraint)
 
-    discretizationDict, overapproximatedDiscretizationDict, inputDiscritezationDict = ReACTDiscretizePlusAlternative(loc, X0, polyhedralSet, δ⁻, δ⁺, alg, maxOrder, reduceOrder, PhiDict[loc.id])
+    discretizationDict, overapproximatedDiscretizationDict = ReACTDiscretizePlusAlternative(loc, X0, polyhedralSet, δ⁻, δ⁺, PhiDict, inputDiscritezationDict, alg, maxOrder, reduceOrder)
     #=
     discretizationDict, inputDiscritezationDict = ReACTDiscretizePlus(loc, X0, δ⁻, δ⁺, alg, maxOrder, reduceOrder, PhiDict[loc.id])
 
@@ -138,7 +141,7 @@ function auxReACTedAlternative(waitlist, hybridSystem, loc::Location, currentEdg
 
         #   Compute the reachset closest to the guard without intersecting it and not reaching the unsafe set. 
 
-        tempReachset, reachtime, tΦ = ReACTGuardsAlternative(loc, δ⁻, δ⁺, [time, endtime], guards, setOfConstraints, dirs, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, overapproximatedDiscretizationDict, saveResult)
+        tempReachset, reachtime, tΦ = ReACTGuardsAlternative(loc, δ⁻, δ⁺, [time, endtime], guards, setOfConstraints, dirs, 2, PhiDict, discretizationDict, inputDiscritezationDict, overapproximatedDiscretizationDict, saveResult)
 
 
 
@@ -159,7 +162,7 @@ function auxReACTedAlternative(waitlist, hybridSystem, loc::Location, currentEdg
                 push!(reachset, (tempReachset, string(time) * " - " * string(reachtime) * ": " * string(loc.id) * "->" * string(edge.targetLoc)))
             end
             # println("Current time: $time, intersecting time start: $reachtime")
-            tryContinueFlag, _, timeNotIntersected, intersectingSetsList = ReACTTouchesAlternative(loc, δ⁻, δ⁺, [reachtime, endtime], (reachtime - time), guards, setOfConstraints, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, overapproximatedDiscretizationDict, tΦ, nothing, reduceOrder, maxOrder)
+            tryContinueFlag, _, timeNotIntersected, intersectingSetsList = ReACTTouchesAlternative(loc, δ⁻, δ⁺, [reachtime, endtime], (reachtime - time), guards, setOfConstraints, 2, PhiDict, discretizationDict, inputDiscritezationDict, overapproximatedDiscretizationDict, tΦ, nothing, reduceOrder, maxOrder)
 
 
             if any((timeNotIntersected >= x) for x in activeTimeConstraints)
@@ -378,7 +381,7 @@ function auxReACTedAlternative(waitlist, hybridSystem, loc::Location, currentEdg
     if isempty(loc.edges) # This means it is just a continous system from here
         # println("No edges? call ReACT")
 
-        tempReachset, reachtime, _ = ReACTAlternative(loc, δ⁻, δ⁺, [time, endtime], setOfConstraints, dirs, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, saveResult)
+        tempReachset, reachtime, _ = ReACTAlternative(loc, δ⁻, δ⁺, [time, endtime], setOfConstraints, dirs, 2, PhiDict, discretizationDict, inputDiscritezationDict, saveResult)
 
         if saveResult
             reachset = vcat(reachset, (tempReachset, string(time) * " - " * string(reachtime) * ": " * string(loc.id) * "->" * string(loc.id)))

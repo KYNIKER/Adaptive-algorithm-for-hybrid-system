@@ -295,9 +295,13 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
     while time < endtime
         tempSet = minkowski_sum(newRR, Vs)
 
-        if all((ρ(x, tempSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
-           all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) &&
-           all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
+        #if all((ρ(x, tempSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
+        #   all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) &&
+        #   all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
+        if !any((ρ(x, tempSet)) > y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
+           !any(((-ρ(-x, tempSet)) > y) for (x, y) in zip(guardProjVectors, guardProjBounds)) &&
+           !any((-ρ(-x, tempSet)) > y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
+            #if touchesCheck(tempSet, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, invarientProjVectors, invarientProjBounds)
             #if mapreduce(x -> intersects(newRR, x), &, guard)
             #@show time
             push!(intersectingSetsList, copy(tempSet))
@@ -545,10 +549,13 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
 
             # #println(any((input + ρ(-x, newRR)) > y for (input, x, y) in zip(Sρ, invarientProjVectors, invarientProjBounds)))
             #println(all((input + ρ(x, newRR)) <= y for (input, x, y) in zip(Sρ, invarientProjVectors, invarientProjBounds)))
-            if isnothing(guards) || (all((input + ρ(x, newR)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) &&
+
+            if isnothing(guards) || (!any((input + ρ(x, newR)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) &&
                                      #any(sign(y) >= 0 ? (input + ρ(-x, newR)) <= y : !((input + ρ(x, newR)) < y) for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) &&
-                                     any((input + -ρ(-x, newR)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) &&
-                                     all((input - ρ(-x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)))
+                                     any((input - ρ(-x, newR)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) &&
+                                     !any((input - ρ(-x, newR)) > y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)))
+
+                #if isnothing(guards) || guardCheck(newR, Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds) #; solver=model
                 #(any((input + ρ(-x, newRR)) > y for (input, x, y) in zip(-Sρ, invarientProjVectors, invarientProjBounds)) && all((input + ρ(x, newRR)) <= y for (input, x, y) in zip(Sρ, invarientProjVectors, invarientProjBounds)))
                 #all(((ρ(x, tempSet)) <= y) for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Subset
                 #(isnothing(loc.invarient) || intersects(tempSet, loc.invarient))
@@ -760,4 +767,79 @@ function handleHitConstraint(time, locationId)
             We have hit a constraint at loc: $locationId time: $time\n\n
             ERROR!!!\n
             ERROR!!!\n")
+end
+
+
+function guardCheck(newR::Zonotope, Sρ::Vector{Float64}, constraintProjVectors::Vector{SparseArrays.SparseVector{Float64,Int}}, constraintProjBounds::Vector{Float64}, Gρ::Vector{Float64}, guardProjVectors::Vector{SparseArrays.SparseVector{Float64,Int}}, guardProjBounds::Vector{Float64}, Iρ::Vector{Float64}, invarientProjVectors::Vector{SparseArrays.SparseVector{Float64,Int}}, invarientProjBounds::Vector{Float64}) #; solver=model
+    #cache = map((input, x, y) -> input + ρ(x, newR) <= y, Sρ, constraintProjVectors, constraintProjBounds)
+    abssum = 0.0
+    c = newR.center
+    G = transpose(genmat(newR))
+    tc = Vector{Float64}(undef, size(G, 1))
+    #a = sum(abs, transpose(a) * G)
+
+    res = all(input + tsupfunc(x, tc, abssum, c, G) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
+
+    res = res && any((input - tsupfunc(-x, tc, abssum, c, G)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds))
+
+    res = res && all((input - tsupfunc(-x, tc, abssum, c, G)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
+
+    return res
+end
+
+function guardCheck(newR::Zonotope, Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds) #; solver=model
+    #cache = map((input, x, y) -> input + ρ(x, newR) <= y, Sρ, constraintProjVectors, constraintProjBounds)
+    abssum = 0.0
+    c = newR.center
+    G = transpose(genmat(newR))
+    tc = Vector{Float64}(undef, size(G, 1))
+    #a = sum(abs, transpose(a) * G)
+    res = all(input + tsupfunc(x, tc, abssum, c, G) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
+
+    res = res && any((input - tsupfunc(-x, tc, abssum, c, G)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds))
+
+    res = res && all((input - tsupfunc(-x, tc, abssum, c, G)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
+
+    return res
+end
+
+function tsupfunc(d, Z, Ab, c, G)
+    #c = center(Z)
+    #G = genmat(Z)
+    mul!(Z, G, d)
+    Ab = sum(abs, Z)
+    #c = dot(center(Z), d)
+    return dot(c, d) + Ab
+end
+
+function touchesCheck(newR::Zonotope, constraintProjVectors::Vector{SparseArrays.SparseVector{Float64,Int}}, constraintProjBounds::Vector{Float64}, guardProjVectors::Vector{SparseArrays.SparseVector{Float64,Int}}, guardProjBounds::Vector{Float64}, invarientProjVectors::Vector{SparseArrays.SparseVector{Float64,Int}}, invarientProjBounds::Vector{Float64})
+    #abssum = 0.0
+    #c = newR.center
+    #G = transpose(genmat(newR))
+    #tc = Vector{Float64}(undef, size(G, 1))
+    #@show all(-ρ(-x, newR) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds))
+    return all(ρ(x, newR) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
+           !any((-ρ(-x, newR) >= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) &&
+           all(-ρ(-x, newR) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
+
+    #=
+    return all(tsupfunc(x, tc, abssum, c, G) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
+           all((-tsupfunc(-x, tc, abssum, c, G) >= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) &&
+           all(-tsupfunc(-x, tc, abssum, c, G) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
+    =#
+end
+
+function touchesCheck(newR::Zonotope, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, invarientProjVectors, invarientProjBounds)
+    #abssum = 0.0
+    #c = newR.center
+    #G = transpose(genmat(newR))
+    #tc = Vector{Float64}(undef, size(G, 1))
+    return all(ρ(x, newR) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
+           !any((-ρ(-x, newR) >= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) &&
+           all(-ρ(-x, newR) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
+    #=
+    return all(tsupfunc(x, tc, abssum, c, G) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
+        all((-tsupfunc(-x, tc, abssum, c, G) >= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) &&
+        all(-tsupfunc(-x, tc, abssum, c, G) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
+    =#
 end

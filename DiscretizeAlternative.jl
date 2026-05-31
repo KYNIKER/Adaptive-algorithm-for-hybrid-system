@@ -612,3 +612,151 @@ function PhiDict(A, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Ex
         return phiDict
     end
 end
+
+function PhiInputDict(loc, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=0, reduceOrder::Int=5,)
+    let A = loc.A
+        ϕ::Matrix{Float64} = ReachabilityAnalysis.Exponentiation._exp(A, δ⁻, alg)
+        phiDict = Dict{Float64,Matrix{Float64}}()
+        d = δ⁻
+        phiDict[d] = copy(ϕ)
+        tempM = similar(ϕ)
+        inputDiscritezationDict = Dict()
+        XDim = size(A, 2)
+        U = isnothing(loc.B) ? (isnothing(loc.u) ? Zonotope(zeros(XDim), zeros(XDim, 1)) : loc.u) : LinearMap(loc.B, loc.u)
+        if !isnothing(loc.c)
+            U = concretize(U)
+            U = Zonotope(U.center, genmat(U)) #Zonotope(U.center + loc.c, genmat(U))
+        end
+
+        #U = overapproximate(U, BoxDirections(XDim))
+        dia::Matrix{Float64} = diagm(δ⁻ * ones(XDim))
+        isInvA = false #isinvertible(A)
+        #Φ = copy(ϕ)
+        A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(A)
+        Φcache = sum(A) == abs(sum(A)) ? ϕ : nothing
+        P2A_abs = ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, isInvA, Φcache)
+
+        inputDiscritezationDict[0] = U
+
+        dU = linear_map(dia, U) #overapproximate(LinearMap(δ⁻, U), Zonotope)#
+        E_ψ = SymmetricIntervalHull(linear_map(P2A_abs, SymmetricIntervalHull(LazySets.linear_map(A, U))))
+
+        P = minkowski_sum(dU, E_ψ) #
+        if !isnothing(loc.c)
+            cP = ReachabilityAnalysis.Exponentiation.Φ₁(A, δ⁻, alg, false, nothing) * loc.c
+            P = minkowski_sum(P, Singleton(cP))
+        end
+        #inputDiscritezationDict[d] = P
+
+        while d < δ⁺
+            phiDict[d] = copy(ϕ)
+            inputDiscritezationDict[d] = P
+
+            if maxOrder > 0
+                if LazySets.order(P) > maxOrder
+                    P = reduce_order(P, reduceOrder)
+                end
+            end
+            #P = P ⊕ LinearMap(phiDict[d], P)
+            P = minkowski_sum(P, LazySets.linear_map(ϕ, P))
+            mul!(tempM, ϕ, ϕ)
+            copy!(ϕ, tempM)
+            # LinearMap!(tempM, ϕ, ϕ)
+            # copy!(ϕ, tempM)
+            d = d * 2
+        end
+        phiDict[δ⁺] = copy(ϕ)
+        if maxOrder > 0
+            if LazySets.order(P) > maxOrder
+                P = reduce_order(P, reduceOrder)
+            end
+        end
+        inputDiscritezationDict[d] = P
+        return phiDict, inputDiscritezationDict
+    end
+end
+
+function ReACTDiscretizePlusAlternative(loc, X0::Zonotope, X0P::Union{Nothing,HPolytope}, δ⁻::Float64, δ⁺::Float64, phiDict, inputDiscritezationDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=0, reduceOrder::Int=5)
+    #XDim, _ = size(genmat(X0))
+    #directions = CustomDirections(map(x -> x.a, constraints_list(X0)))
+    #@show directions
+    #  discritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
+    discritezationDict = Dict()
+    PdiscritezationDict = Dict()
+
+    A = loc.A
+    XDim = size(A, 1)
+
+    #U = overapproximate(U, BoxDirections(XDim))
+    d = δ⁻
+    dia::Matrix{Float64} = diagm(δ⁻ * ones(XDim))
+    isInvA = false #isinvertible(A)
+    Φ = copy(phiDict[d])
+    A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(A)
+    Φcache = sum(A) == abs(sum(A)) ? Φ : nothing
+    P2A_abs = ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, isInvA, Φcache)
+
+    if !isnothing(X0P)
+
+        Plt = MinkowskiSum(LinearMap(phiDict[d], X0), inputDiscritezationDict[d])  #minkowski_sum(convert(Zonotope, phiDict[d] * X0), dU)
+        PE⁺ = SymmetricIntervalHull(LinearMap(P2A_abs, SymmetricIntervalHull(LinearMap(A * A, X0))))
+        Pf = MinkowskiSum(Plt, PE⁺)
+
+        lt = minkowski_sum(LazySets.linear_map(phiDict[d], X0), inputDiscritezationDict[d])  #minkowski_sum(convert(Zonotope, phiDict[d] * X0), dU)
+        E⁺ = SymmetricIntervalHull(LazySets.linear_map(P2A_abs, SymmetricIntervalHull(LazySets.linear_map(A * A, X0))))
+        f = minkowski_sum(lt, E⁺)
+
+
+
+        disc = overapproximate(CH(X0, f), Zonotope) #CH(X0, f)
+        Pdisc = overapproximatedCH(X0P, Pf)
+
+        while d < δ⁺
+            discritezationDict[d] = copy(disc)
+            PdiscritezationDict[d] = Pdisc
+            if maxOrder > 0
+                if LazySets.order(disc) > maxOrder
+                    disc = reduce_order(disc, reduceOrder)
+                end
+            end
+
+            disc = overapproximate(CH(disc, minkowski_sum(inputDiscritezationDict[d], LazySets.linear_map(phiDict[d], disc))), Zonotope)
+
+            tset = MinkowskiSum(inputDiscritezationDict[d], linear_map(phiDict[d], disc))
+            Pdisc = overapproximatedCH(reducePolytopeFromBounding(Pdisc), tset)
+
+            d = d * 2
+        end
+
+        discritezationDict[δ⁺] = disc
+        PdiscritezationDict[d] = Pdisc
+
+    else
+        lt = minkowski_sum(LazySets.linear_map(phiDict[d], X0), inputDiscritezationDict[d])  #minkowski_sum(convert(Zonotope, phiDict[d] * X0), dU)
+        E⁺ = SymmetricIntervalHull(LazySets.linear_map(P2A_abs, SymmetricIntervalHull(LazySets.linear_map(A * A, X0))))
+        f = minkowski_sum(lt, E⁺)
+
+        disc = overapproximate(CH(X0, f), Zonotope) # overapproximate(CH(X0, minkowski_sum(f, PZ)), Zonotope) #
+        Pdisc = copy(overapproximate(disc, BoxDirections(XDim)))
+
+        while d < δ⁺
+            discritezationDict[d] = disc
+            PdiscritezationDict[d] = Pdisc
+
+            if maxOrder > 0
+                if LazySets.order(disc) > maxOrder
+                    disc = reduce_order(disc, reduceOrder)
+                end
+            end
+            tset = CH(disc, minkowski_sum(inputDiscritezationDict[d], LazySets.linear_map(phiDict[d], disc)))
+            disc = overapproximate(tset, Zonotope)
+            Pdisc = overapproximate(tset, BoxDirections(XDim))
+
+            d = d * 2
+        end
+
+        discritezationDict[δ⁺] = disc
+        PdiscritezationDict[d] = Pdisc
+    end
+    return discritezationDict, PdiscritezationDict
+end

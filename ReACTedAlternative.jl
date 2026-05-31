@@ -14,6 +14,11 @@ set_attribute(model, "primal_feasibility_tolerance", 1e-10)
 #set_attribute(model, "eps_rel", 1e-5)
 set_silent(model)
 const VERBOSE = false
+const TIMEFUNCS = true
+
+totalDiscTime = 0
+totalGuardTime = 0
+totalTouchesTime = 0
 
 function zonotopePrintDim(Z::Zonotope, dim)
     center = Z.center[dim]
@@ -83,6 +88,7 @@ end
 # AucReacted is called recursively each time we have a new starting location (after a transition)
 function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval, X0, dirs, constraint, δ⁻::Float64, δ⁺::Float64, PhiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, Φ=missing, polyhedralSet=nothing, timeConstraintList=[], saveResult::Bool=true; clustering=false, mustSemantics=false)
     activeTimeConstraints = []
+    recorderTimeStart = 0
     #@show norm(X0)
     for (id, time) in timeConstraintList
         if id == loc.id
@@ -96,7 +102,14 @@ function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval
     reachset = []
     setOfConstraints = vcat(loc.constraints, constraint)
 
+    if TIMEFUNCS
+        recorderTimeStart = time_ns()
+    end
+
     discretizationDict, overapproximatedDiscretizationDict, inputDiscritezationDict = ReACTDiscretizePlus(loc, X0, polyhedralSet, δ⁻, δ⁺, alg, maxOrder, reduceOrder, PhiDict[loc.id])
+    if TIMEFUNCS
+        global totalDiscTime += time_ns() - recorderTimeStart
+    end
     #=
     discretizationDict, inputDiscritezationDict = ReACTDiscretizePlus(loc, X0, δ⁻, δ⁺, alg, maxOrder, reduceOrder, PhiDict[loc.id])
 
@@ -137,9 +150,13 @@ function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval
 
 
         #   Compute the reachset closest to the guard without intersecting it and not reaching the unsafe set. 
-
+        if TIMEFUNCS
+            recorderTimeStart = time_ns()
+        end
         tempReachset, reachtime, tΦ = ReACTGuards(loc, δ⁻, δ⁺, [time, endtime], guards, setOfConstraints, dirs, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, overapproximatedDiscretizationDict, saveResult)
-
+        if TIMEFUNCS
+            global totalGuardTime += time_ns() - recorderTimeStart
+        end
 
 
 
@@ -159,8 +176,14 @@ function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval
                 push!(reachset, (tempReachset, string(time) * " - " * string(reachtime) * ": " * string(loc.id) * "->" * string(edge.targetLoc)))
             end
             # println("Current time: $time, intersecting time start: $reachtime")
+            
+            if TIMEFUNCS
+                recorderTimeStart = time_ns()
+            end
             tryContinueFlag, _, timeNotIntersected, intersectingSetsList = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, endtime], (reachtime - time), guards, setOfConstraints, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, overapproximatedDiscretizationDict, tΦ, nothing, reduceOrder, maxOrder)
-
+            if TIMEFUNCS
+                global totalTouchesTime += time_ns() - recorderTimeStart
+            end
 
             if any((timeNotIntersected >= x) for x in activeTimeConstraints)
                 handleHitConstraint(timeNotIntersected, loc.id)
@@ -382,6 +405,17 @@ function auxReACTed(waitlist, hybridSystem, loc::Location, currentEdge, interval
 
         if saveResult
             reachset = vcat(reachset, (tempReachset, string(time) * " - " * string(reachtime) * ": " * string(loc.id) * "->" * string(loc.id)))
+        end
+    end
+
+
+    if TIMEFUNCS
+        if minimum(interval) == 0
+            println("Total Times:
+            Disc: $(totalDiscTime / 10^9)
+            Guards: $(totalGuardTime / 10^9)
+            Touches: $(totalTouchesTime / 10^9)")
+            
         end
     end
 

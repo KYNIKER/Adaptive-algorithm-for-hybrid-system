@@ -56,13 +56,25 @@ function JuliaReachTest(name)
 
     alg = algCheckDict[name]
 
-    sol, df = run_algs(alg, name, true)
-
+    sol, df = run_algs(alg, name, false)
+    polys = Vector{VPolygon{Float64, Vector{Float64}}}()
+    for fp in sol
+        for (j, Rj) in enumerate(fp)
+            #sfpos, sfneg = ρ(eₓ, Rj), ρ(-eₓ, Rj)
+            #dt = tspan(fp, j)
+            #ti, tf = inf(dt), sup(dt)
+            p = VPolygon([[1., 1.], [1., -1.], [1., 1.], [1., -1.]])
+            push!(polys, p)
+        end
+    end
+    len = length(polys)
+    dfSteps = DataFrame(name=name, steps=len)
     # Get amonut of steps taken
     # println(length(sol))
 
     # Save timed data 
     filename = "results/JuliaReach/" * name * ".csv"
+    filename2 = "results/JuliaReach/" * name * "Steps.csv"
     if isfile(filename)
         open(filename, "a") do File
             CSV.write(File, df, delim=";", append=true)
@@ -70,6 +82,15 @@ function JuliaReachTest(name)
     else
         open(filename, "w") do File
             CSV.write(File, df, delim=";", writeheader=true)
+        end
+    end
+    if isfile(filename2)
+        open(filename2, "a") do File
+            CSV.write(File, dfSteps, delim=";", append=true)
+        end
+    else
+        open(filename2, "w") do File
+            CSV.write(File, dfSteps, delim=";", writeheader=true)
         end
     end
 end
@@ -130,8 +151,8 @@ function runEMBrake(alg, case, doPlot)
 
         # reset tolerance
         LazySets.set_tolerance(Float64)
-
-end
+        return polys, df
+    end
     
     return sol, df
 end

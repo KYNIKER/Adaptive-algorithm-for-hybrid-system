@@ -19,6 +19,11 @@ const REDUCE_ORDER = 5
 function RunAdaptive(name, δ⁻, δ⁺, load_func)
     clustering = true
     timeConstraintList = []
+    if occursin("spacecraft", lowercase(name))
+        println("Deteced SpaceCraft")
+        clustering = false
+    end
+
     if occursin("gearbox", lowercase(name))
         println("Deteced Gearbox")
         clustering = false

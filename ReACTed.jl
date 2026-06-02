@@ -86,7 +86,7 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
 
 
         #   Compute the reachset closest to the guard without intersecting it and not reaching the unsafe set. 
-        
+
         if TIMEFUNCS
             recorderTimeStart += time_ns()
         end
@@ -233,6 +233,8 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
             # If we are not encountering an invarient, try continue
             if tryContinueFlag
                 # println("Continuing from previous run at time $timeNotIntersected")
+
+
                 branchedRun = auxReACTed(hybridSystem, loc, edge, [timeNotIntersected, endtime], latestSet, dirs, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, tΦ, clustering, timeConstraintList, saveResult)
                 if saveResult
                     reachset = vcat(reachset, branchedRun)
@@ -346,11 +348,37 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
             #end
 
             continueAfter = true
-            if all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds))
+
+
+            if all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) || !all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds))
                 # If we stop because we are no longer intersect guards, 
                 # but still intersect the invariant we try continue
+
+                #@show all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds))
                 continueAfter = false
             end
+
+            if all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
+                intersectionSet = LazySets.Intersection(tempSet, loc.invarient)
+                if !all((ρ(x, intersectionSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
+                   handleHitConstraint(time, loc.id)
+                end
+            end
+
+            #=if all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) && continueAfter
+
+                intersectSet = zonotopeStripIntersection(tempSet, loc.invarient)
+                @show isSubSet(tempSet, loc.invarient)
+                tem = intersection(overapproximate(tempSet, BoxDirections(LazySets.dim(newR))), loc.invarient)
+                #@show map((x, y) -> ρ(x, tem) <= y, zip(constraintProjVectors, constraintProjBounds))
+                @show all((ρ(x, tempSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) # IsSubSet
+                @show all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds))
+                @show all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
+                @show minimum(interval) - time
+                @show LazySets.API.high(tempSet)
+                @show LazySets.API.low(tempSet)
+                !(all((ρ(x, tem)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds))) && handleHitConstraint(time, loc.id)
+            end=#
 
             return continueAfter, Φ, time, intersectingSetsList
         end

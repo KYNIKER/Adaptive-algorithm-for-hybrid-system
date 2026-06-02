@@ -185,15 +185,15 @@ plot!([4.5, 10.5], [6, 5.6], arrow=true, color=:black, linewidth=1, lab="")
 
 
 # ALGORITHM 1
-plot!([16, 14.5], [6, 4.5], arrow=true, color=:black, linewidth=1, annotations=(16.5, 6.5, text("Alg 1", font(12, "Times"))), lab="")
+plot!([16, 14.5], [6, 4.5], arrow=true, color=:black, linewidth=1, annotations=(16.5, 6.5, text("Algorithm 2", font(12, "Times"))), lab="")
 
 # ALGORITHM 2
-plot!([16, 18.5], [-1.5, 0.7], arrow=true, color=:black, linewidth=1, annotations=(16.5, -2.0, text("Alg 2", font(12, "Times"))), lab="")
+plot!([16, 18.5], [-1.5, 0.7], arrow=true, color=:black, linewidth=1, annotations=(16.5, -2.0, text("Algorithm 4", font(12, "Times"))), lab="")
 
 
 #xlims!(fig, (-5.0, 20.0))
 #ylims!(fig, (-3.0, 9.0))
 #println(rest)
-default(fmt=:png)
-display(fig)
-#savefig(fig, "plots/" * "HybridSystemIllustration.pdf")
+#default(fmt=:png)
+#display(fig)
+savefig(fig, "plots/" * "HybridSystemIllustration.pdf")

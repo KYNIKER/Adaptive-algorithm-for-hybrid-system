@@ -216,7 +216,7 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
                 else # No clustering. Do individual runningset
                     for (index, jumpSet) in enumerate(jumpSetsList)
                         # Note that we only do steps of size δ⁻ in touches
-                        timeStart = reachtime + (index + 1) * δ⁻
+                        timeStart = reachtime + (index - 1) * δ⁻
                         branchedRun = auxReACTed(hybridSystem, hybridSystem.locations[edge.targetLoc], nothing, [timeStart, endtime], jumpSet, dirs, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, tΦ, clustering, timeConstraintList, saveResult)
 
                         if saveResult
@@ -232,9 +232,9 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
 
             # If we are not encountering an invarient, try continue
             if tryContinueFlag
-                # println("Continuing from previous run at time $timeNotIntersected")
+                #println("Continuing from previous run at time $timeNotIntersected $reachtime $(length(intersectingSetsList))")
 
-
+                latestSet = zonotopeStripIntersection(latestSet, loc.invarient)
                 branchedRun = auxReACTed(hybridSystem, loc, edge, [timeNotIntersected, endtime], latestSet, dirs, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, tΦ, clustering, timeConstraintList, saveResult)
                 if saveResult
                     reachset = vcat(reachset, branchedRun)
@@ -358,10 +358,10 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
                 continueAfter = false
             end
 
-            if all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
+            if continueAfter && all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
                 intersectionSet = LazySets.Intersection(tempSet, loc.invarient)
-                if !all((ρ(x, intersectionSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
-                   handleHitConstraint(time, loc.id)
+                if !all((ρ(x, intersectionSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds))  # IsSubSet
+                    handleHitConstraint(time, loc.id)
                 end
             end
 

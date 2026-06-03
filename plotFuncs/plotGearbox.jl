@@ -1,12 +1,15 @@
+using Plots, LaTeXStrings, Plots.PlotMeasures
+
 include("../models/gearbox.jl")
 include("../ReACTed.jl")
+
 
 ### --- MODEL PARAMETERS --- ###
 timeConstraintList = [(1, 0.2)]
 reduceOrder = 5
 maxOrder = 5
 dirs = [3,4]
-δ⁻ = 0.0008
+δ⁻ = 0.0004
 δ⁺ = δ⁻ * 2^4
 clustering = false
 
@@ -31,7 +34,14 @@ for (x, y) in res
         d2 = [r[3], -r[4]]
         sen = true
         if sen
-            Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=cpallete[i], leg=false, linealpha=0)
+            Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=cpallete[i], leg=false, linealpha=0,
+            xlab=L"x_3", 
+            ylab=L"x_4", 
+            bottom_margin=2mm,
+            left_margin=5mm,
+            right_margin=5mm,
+            top_margin=2mm,
+            guidefontsize=25)
             sen = false
         else
             Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=cpallete[i], leg=false, linealpha=0)

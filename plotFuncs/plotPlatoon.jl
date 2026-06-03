@@ -1,4 +1,4 @@
-using Plots
+using Plots, LaTeXStrings, Plots.PlotMeasures
 
 include("../models/platoon.jl")
 include("../ReACTed.jl")
@@ -30,9 +30,16 @@ global i = 1
 for (x, y) in res 
     sen = true
     for (d, t) in x 
-
+        sen = true
         if sen
-            Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], leg=false, linealpha=0)
+            Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], leg=false, linealpha=0, 
+            xlab=L"time(s)", 
+            ylab=L"x_1", 
+            bottom_margin=2mm,
+            left_margin=5mm,
+            right_margin=5mm,
+            top_margin=2mm,
+            guidefontsize=25)
             sen = false
         else
             Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], leg=false, linealpha=0)

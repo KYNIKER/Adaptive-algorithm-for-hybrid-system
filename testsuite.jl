@@ -116,7 +116,7 @@ end
 
 
 names = ["brake", "gearbox", "platoon", "spaceCraft"]
-minδ = [2*10^-7, 0.0008, 0.03, 0.04]
+minδ = [2*10^-7, 0.0004, 0.03, 0.04]
 loadFunctions = [loadembrake, loadGearBox, loadPlatoon, () -> loadSpacecraft(abort_time=120.)]
 
 # Long Versions

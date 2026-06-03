@@ -172,7 +172,7 @@ end
 # Draw the curved arrow
 x, y = curved_arrow(-0.15π, 0.9π)
 
-plot!((-1 * x) .+ 9.7, y .+ 4, arrow=true, linewidth=1, color=:black, ls=:dash, annotations=(6.9, 4.8, text(L"Post_D")), lab="")
+plot!((-1 * x) .+ 9.7, y .+ 4, arrow=true, linewidth=1, color=:black, ls=:dash, annotations=(6.9, 4.8, text(text(LaTeXString("post\$_d\$"), font(12, "Times")))), lab="")
 
 
 # CONSTRAINT

@@ -23,7 +23,7 @@ res = solve_embrake(sys, initialState, X0, T, δ⁺, δ⁻, maxOrder, reduceOrde
 
 ### --- PLOTTING --- ###
 
-fig = Plots.plot(xlabel="time(s)" , ylabel="x", ε=1e-6)
+fig = Plots.plot(xlabel="t" , ylabel="x", ε=1e-6)
 cpallete = palette(:roma, length(res))
 global i = 1
 for (x, y) in res 

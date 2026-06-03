@@ -24,7 +24,7 @@ res = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(
 
 ### --- PLOTTING --- ###
 
-fig = Plots.plot(xlabel="time(s)" , ylabel="d₁", ε=1e-6)
+fig = Plots.plot(xlabel="t" , ylabel="x_1", ε=1e-6)
 cpallete = palette(:roma, length(res))
 global i = 1
 for (x, y) in res 
@@ -33,7 +33,7 @@ for (x, y) in res
         sen = true
         if sen
             Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], leg=false, linealpha=0, 
-            xlab=L"time(s)", 
+            xlab=L"t", 
             ylab=L"x_1", 
             bottom_margin=2mm,
             left_margin=5mm,

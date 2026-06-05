@@ -19,18 +19,31 @@ end
 
 function ReACTed(hybridSystem::HybridSystemV2, initialLoc, interval, X0, U, dirs, constraint, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true, timeConstraintList=[]) where {N}
     loc = initialLoc
-    flowPhiDict = Dict(map(x -> x.id => PhiDict(x.A, δ⁻, δ⁺, alg), hybridSystem.locations))
+    #flowPhiDict = Dict(map(x -> x.id => PhiInputDict(x, δ⁻, δ⁺, alg, maxOrder, reduceOrder), hybridSystem.locations))
 
+    #phiDicts, inputDicts = Dict(map(x -> x.id => PhiInputDict(x, δ⁻, δ⁺, alg, maxOrder, reduceOrder), hybridSystem.locations)[1, :])
+    phiDicts = Dict()
+    inputDicts = Dict()
+    for x in hybridSystem.locations
+        pd, id = PhiInputDict(x, δ⁻, δ⁺, alg, maxOrder, reduceOrder)
+        phiDicts[x.id] = pd
+        inputDicts[x.id] = id
+    end
+
+
+    waitinglist = []
     time::Float64 = minimum(interval)
     endtime::Float64 = maximum(interval)
     reachset = []
     saveResult = true
     dirsVectors = []
+    zenoBound = 500
+    transitionCount = 0
+    dimLength = size(X0.center, 1)
 
     if isempty(dirs)
         saveResult = false
     else
-        dimLength = size(X0.center, 1)
         for dir in dirs
             template = zeros(dimLength)
             template[dir] = 1.
@@ -40,16 +53,45 @@ function ReACTed(hybridSystem::HybridSystemV2, initialLoc, interval, X0, U, dirs
         end
     end
 
-    res = auxReACTed(hybridSystem, hybridSystem.locations[loc], nothing, interval, X0, dirsVectors, constraint, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder, missing, clustering, timeConstraintList, saveResult)
+    #res = auxReACTed(hybridSystem, hybridSystem.locations[loc], nothing, interval, X0, dirsVectors, constraint, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder, missing, clustering, timeConstraintList, saveResult)
 
-    reachset = vcat(reachset, res)
+    #reachset = vcat(reachset, res)
 
-    return res
+    #return res
+    push!(waitinglist, (loc, X0, nothing, interval, diagm(ones(dimLength))))
+    while !isempty(waitinglist)
+        #GC.gc()
+
+        location, initialset, edge, interval′, TΦ = pop!(waitinglist)
+
+        #reducedPolySet = polySet #isnothing(polySet) ? polySet : reducePolytope(polySet)
+
+        #@show LazySets.API.high(initialset)
+        #@show LazySets.API.low(initialset)
+
+        #=if !isnothing(polySet)
+            @show initialset ⊆ polySet
+            @show LazySets.API.high(polySet) - LazySets.API.high(initialset)
+            @show LazySets.API.low(polySet) - LazySets.API.low(initialset)
+        end=#
+        #phiDict, inputDict = flowPhiDict[location]
+        #res = auxReACTedAlternative(waitinglist, hybridSystem, hybridSystem.locations[location], edge, interval′, initialset, dirsVectors, constraint, δ⁻, δ⁺, phiDict, inputDict, alg, maxOrder, reduceOrder, TΦ, reducedPolySet, timeConstraintList, saveResult; clustering, mustSemantics)
+        res = auxReACTed(waitinglist, hybridSystem, hybridSystem.locations[location], edge, interval′, initialset, dirsVectors, constraint, δ⁻, δ⁺, phiDicts[location], inputDicts[location], alg, maxOrder, reduceOrder, TΦ, clustering, timeConstraintList, saveResult)
+
+        reachset = vcat(reachset, res)
+        if transitionCount < zenoBound
+            transitionCount += 1
+        else
+            return reachset
+        end
+    end
+
+    return reachset
 end
 
 
 # AucReacted is called recursively each time we have a new starting location (after a transition)
-function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs, constraint, δ⁻::Float64, δ⁺::Float64, PhiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, Φ=missing, clustering=true, timeConstraintList=[], saveResult::Bool=true) where {N}
+function auxReACTed(waitinglist, hybridSystem, loc::Location, currentEdge, interval, X0, dirs, constraint, δ⁻::Float64, δ⁺::Float64, PhiDict, inputDiscritezationDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, Φ=missing, clustering=true, timeConstraintList=[], saveResult::Bool=true) where {N}
     activeTimeConstraints = []
     for (id, time) in timeConstraintList
         if id == loc.id
@@ -62,7 +104,13 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
     if TIMEFUNCS
         recorderTimeStart = time_ns()
     end
-    discretizationDict, inputDiscritezationDict = ReACTDiscretizePlus(loc, X0, δ⁻, δ⁺, alg, maxOrder, reduceOrder, PhiDict[loc.id])
+
+    #PhiDict, inputDiscritezationDict = FlowPhiDict[loc.id]
+
+    #t1 = Base.time()
+    discretizationDict = newReACTDiscretizePlus(loc, X0, δ⁻, δ⁺, PhiDict, inputDiscritezationDict, alg, maxOrder, reduceOrder)
+    #t2 = Base.time()
+    #@show t2 - t1
     if TIMEFUNCS
         global totalDiscTime += time_ns() - recorderTimeStart
     end
@@ -90,7 +138,7 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
         if TIMEFUNCS
             recorderTimeStart += time_ns()
         end
-        tempReachset, reachtime, tΦ = ReACTGuards(loc, δ⁻, δ⁺, [time, endtime], guards, setOfConstraints, dirs, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, saveResult)
+        tempReachset, reachtime, tΦ = ReACTGuards(loc, δ⁻, δ⁺, [time, endtime], guards, setOfConstraints, dirs, 2, PhiDict, discretizationDict, inputDiscritezationDict, saveResult)
         if TIMEFUNCS
             global totalGuardTime += time_ns() - recorderTimeStart
         end
@@ -117,7 +165,7 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
             if TIMEFUNCS
                 recorderTimeStart = time_ns()
             end
-            tryContinueFlag, _, timeNotIntersected, intersectingSetsList = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, endtime], (reachtime - time), guards, setOfConstraints, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, tΦ, nothing, reduceOrder, maxOrder)
+            tryContinueFlag, _, timeNotIntersected, intersectingSetsList = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, endtime], (reachtime - time), guards, setOfConstraints, 2, PhiDict, discretizationDict, inputDiscritezationDict, tΦ, nothing, reduceOrder, maxOrder)
             if TIMEFUNCS
                 global totalTouchesTime += time_ns() - recorderTimeStart
             end
@@ -207,21 +255,23 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
 
                     jumpSet = intersectedSet
                     # println("Finished intersections")
+                    push!(waitinglist, (edge.targetLoc, jumpSet, nothing, [reachtime, endtime], tΦ))
 
-                    branchedRun = auxReACTed(hybridSystem, hybridSystem.locations[edge.targetLoc], nothing, [reachtime, endtime], jumpSet, dirs, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, tΦ, clustering, timeConstraintList, saveResult)
+                    #branchedRun = auxReACTed(hybridSystem, hybridSystem.locations[edge.targetLoc], nothing, [reachtime, endtime], jumpSet, dirs, constraint, δ⁻, δ⁺, FlowPhiDict, alg, maxOrder, reduceOrder, tΦ, clustering, timeConstraintList, saveResult)
 
-                    if saveResult
-                        reachset = vcat(reachset, branchedRun)
-                    end
+                    #if saveResult
+                    #    reachset = vcat(reachset, branchedRun)
+                    #end
                 else # No clustering. Do individual runningset
                     for (index, jumpSet) in enumerate(jumpSetsList)
                         # Note that we only do steps of size δ⁻ in touches
                         timeStart = reachtime + (index - 1) * δ⁻
-                        branchedRun = auxReACTed(hybridSystem, hybridSystem.locations[edge.targetLoc], nothing, [timeStart, endtime], jumpSet, dirs, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, tΦ, clustering, timeConstraintList, saveResult)
+                        push!(waitinglist, (edge.targetLoc, jumpSet, nothing, [timeStart, endtime], nothing)) # gav tϕ foer..
+                        #branchedRun = auxReACTed(hybridSystem, hybridSystem.locations[edge.targetLoc], nothing, [timeStart, endtime], jumpSet, dirs, constraint, δ⁻, δ⁺, FlowPhiDict, alg, maxOrder, reduceOrder, tΦ, clustering, timeConstraintList, saveResult)
 
-                        if saveResult
-                            reachset = vcat(reachset, branchedRun)
-                        end
+                        #if saveResult
+                        #    reachset = vcat(reachset, branchedRun)
+                        #end
                     end
                 end
             else
@@ -235,10 +285,11 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
                 #println("Continuing from previous run at time $timeNotIntersected $reachtime $(length(intersectingSetsList))")
 
                 latestSet = zonotopeStripIntersection(latestSet, loc.invarient)
-                branchedRun = auxReACTed(hybridSystem, loc, edge, [timeNotIntersected, endtime], latestSet, dirs, constraint, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, tΦ, clustering, timeConstraintList, saveResult)
-                if saveResult
-                    reachset = vcat(reachset, branchedRun)
-                end
+                push!(waitinglist, (edge.targetLoc, latestSet, edge, [timeNotIntersected, endtime], tΦ)) # gav tϕ foer..
+                #branchedRun = auxReACTed(hybridSystem, loc, edge, [timeNotIntersected, endtime], latestSet, dirs, constraint, δ⁻, δ⁺, FlowPhiDict, alg, maxOrder, reduceOrder, tΦ, clustering, timeConstraintList, saveResult)
+                #if saveResult
+                #    reachset = vcat(reachset, branchedRun)
+                #end
             end
 
 
@@ -271,7 +322,7 @@ function auxReACTed(hybridSystem, loc::Location, currentEdge, interval, X0, dirs
 
 
         #tempReachset, _, _ = ReACT(loc, δ⁻, δ⁺, interval, constraint, 2, alg, maxOrder, reduceOrder, PhiDict[loc.id])
-        tempReachset, reachtime, _ = ReACT(loc, δ⁻, δ⁺, [time, endtime], setOfConstraints, dirs, 2, PhiDict[loc.id], discretizationDict, inputDiscritezationDict, saveResult)
+        tempReachset, reachtime, _ = ReACT(loc, δ⁻, δ⁺, [time, endtime], setOfConstraints, dirs, 2, PhiDict, discretizationDict, inputDiscritezationDict, saveResult)
 
         if saveResult
             reachset = vcat(reachset, (tempReachset, string(time) * " - " * string(reachtime) * ": " * string(loc.id) * "->" * string(loc.id)))
@@ -361,6 +412,10 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
             if continueAfter && all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
                 intersectionSet = LazySets.Intersection(tempSet, loc.invarient)
                 if !all((ρ(x, intersectionSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds))  # IsSubSet
+                    @show LazySets.API.high(tempSet)
+                    @show LazySets.API.low(tempSet)
+                    @show LazySets.API.high(Vs)
+                    @show LazySets.API.low(Vs)
                     handleHitConstraint(time, loc.id)
                 end
             end

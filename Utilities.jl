@@ -790,38 +790,48 @@ end
 function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime, reduceOrder=5, maxOrder=5)
     # We know that δ⁻ % currentTime == 0
 
-    precomputedLargestStep = log2(δ⁺ / δ⁻)
+    precomputedLargestStep = (length(inputDict) - 2)#log2(δ⁺ / δ⁻)#
+    #@show (log2(δ⁺ / δ⁻), length(inputDict))
     totalSteps = Int(round(currentTime / δ⁻))  # Steps we need to take. We round cause floats make small errors
 
 
     # Convert to bits 
     listToInclude = digits(totalSteps, base=2) # Get bit map
-
+    #@show listToInclude
+    #println(string(totalSteps, base=2))
     largestInput = copy(inputDict[δ⁺])
     ϕ = phiDict[δ⁺]
     tempM = similar(ϕ)
     outputInput = Zonotope(zeros(size(tempM, 1)), zeros(size(tempM, 1), 1))
-
+    sen = true
     precomputed = true
     i = 0 # Iterator for precomputed
     for includeFlag in (listToInclude)
         if precomputed
             if includeFlag == 1 # If we have to add
-
-                if isnothing(outputInput)
-                    outputInput = copy(inputDict[2^i*δ⁻])
+                if sen
+                    #println("first")
+                    outputInput = minkowski_sum(outputInput, inputDict[2^i*δ⁻])#copy(inputDict[2^i*δ⁻])#
+                    sen = false
                 else
+                    #println("second")
+
                     outputInput = minkowski_sum(linear_map(phiDict[2^i*δ⁻], outputInput), inputDict[2^i*δ⁻])
                 end
             end
 
+            #println("true")
             # Check if next step is also precomputed
             if !(i < precomputedLargestStep)
+                #println("false")
+
                 precomputed = false
             end
         else
             largestInput = minkowski_sum(largestInput, LazySets.linear_map(ϕ, largestInput))
             ϕ = ϕ * ϕ
+            inputDict[2^i*δ⁻] = copy(largestInput)
+            phiDict[2^i*δ⁻] = copy(ϕ)
             if includeFlag == 1 # If we have to add
                 if isnothing(outputInput)
                     outputInput = largestInput
@@ -843,6 +853,7 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime,
     #         outputInput = reduce_order(outputInput, reduceOrder)
     #     end
     # end
+    #@show LazySets.API.high(outputInput)
     return outputInput
 end
 

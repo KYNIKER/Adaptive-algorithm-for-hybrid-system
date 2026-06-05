@@ -11,38 +11,38 @@ include("models/powerTrain.jl")
 include("models/spacecraft.jl")
 
 #using Cthulhu, ProfileView
-timeConstraintList = [(1, 0.2)] # (Loc, <time) # This is only for gearbox
+#timeConstraintList = [(1, 0.2)] # (Loc, <time) # This is only for gearbox
 timeConstraintList = []
-clustering = true
+clustering = false
 
 reduceOrder = 5
 maxOrder = 5
 
-dirs = [1,2] # Which direction to plot. Empty means no plotting
-#dirs = []
-δ⁺ = 10^-3 * 2
-δ⁺ = 0.04* 2^0
-δ⁻ = δ⁺ / 2^0
+#dirs = [1,2] # Which direction to plot. Empty means no plotting
+dirs = []
+#δ⁺ = 10^-3 * 2
+δ⁻ = 0.0008#δ⁺ / 2^1
+δ⁺ = δ⁻ * 2^0
 
 #sys, initialState, X0, T = loadPlatoon()
 #sys, initialState, X0, T = loadBouncingBall()
 #sys, initialState, X0, T = loadPowertrain(θ=3, homog = true)
 sys, initialState, X0, T = loadGearBox()
-sys, initialState, X0, T = loadSpacecraft(abort_time = 120.)
-#T = 1.
+#sys, initialState, X0, T = loadSpacecraft(abort_time = 120.)
+#T = 6.
 
 n = length(X0.center)
 
 #@ProfileView.profview ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, 5, 5, saveResult)
 res = []
 
-res = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), dirs, sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder, reduceOrder, clustering, timeConstraintList)
+@time res = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), dirs, sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder, reduceOrder, clustering, timeConstraintList)
 
 
 
-amountOfSteps = foldr(+, [length(x) for (x, _) in res])
+#amountOfSteps = foldr(+, [length(x) for (x, _) in res])
 
-@show amountOfSteps
+#@show amountOfSteps
 
 # @show length(res)
 

@@ -165,7 +165,7 @@ function auxReACTed(waitinglist, hybridSystem, loc::Location, currentEdge, inter
             if TIMEFUNCS
                 recorderTimeStart = time_ns()
             end
-            tryContinueFlag, _, timeNotIntersected, intersectingSetsList = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, endtime], (reachtime - time), guards, setOfConstraints, 2, PhiDict, discretizationDict, inputDiscritezationDict, tΦ, nothing, reduceOrder, maxOrder)
+            tryContinueFlag, _, timeNotIntersected, intersectingSetsList = ReACTTouches(loc, δ⁻, [reachtime, endtime], (reachtime - time), guards, setOfConstraints, 2, PhiDict, discretizationDict, inputDiscritezationDict, tΦ, nothing, reduceOrder, maxOrder)
             if TIMEFUNCS
                 global totalTouchesTime += time_ns() - recorderTimeStart
             end
@@ -341,7 +341,7 @@ function auxReACTed(waitinglist, hybridSystem, loc::Location, currentEdge, inter
     return reachset
 end
 
-function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime::Float64, guard, constraint, STRATEGY::Integer, PhiDict, discritezationDict, inputDiscritezationDict, Φ, accInput, reduce_order, max_order)
+function ReACTTouches(loc, δ⁻::Float64, interval, initialTime::Float64, guard, constraint, STRATEGY::Integer, PhiDict, discritezationDict, inputDiscritezationDict, Φ, accInput, reduce_order, max_order)
     # Note that in touches we always use δ⁻
     # That is, we do not adjust timestep sizes
 
@@ -355,7 +355,7 @@ function ReACTTouches(loc, δ⁻::Float64, δ⁺::Float64, interval, initialTime
     endtime::Float64 = maximum(interval)
 
 
-    Vs = nestedInputDiscCalculate(inputDiscritezationDict, PhiDict, δ⁺, δ⁻, initialTime, reduce_order, max_order)
+    Vs = nestedInputDiscCalculate(inputDiscritezationDict, PhiDict, δ⁻, initialTime, reduce_order, max_order)
     # i = 1
 
     if ismissing(Φ)

@@ -787,10 +787,12 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1)
     display(fig)
 end
 
-function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime, reduceOrder=5, maxOrder=5)
+function nestedInputDiscCalculate(inputDict, phiDict, δ⁻, currentTime, reduceOrder=5, maxOrder=5)
     # We know that δ⁻ % currentTime == 0
 
     precomputedLargestStep = (length(inputDict) - 2)#log2(δ⁺ / δ⁻)#
+    largestTimeStepSize = δ⁻*2^precomputedLargestStep
+
     #@show (log2(δ⁺ / δ⁻), length(inputDict))
     totalSteps = Int(round(currentTime / δ⁻))  # Steps we need to take. We round cause floats make small errors
 
@@ -799,8 +801,8 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁺, δ⁻, currentTime,
     listToInclude = digits(totalSteps, base=2) # Get bit map
     #@show listToInclude
     #println(string(totalSteps, base=2))
-    largestInput = copy(inputDict[δ⁺])
-    ϕ = phiDict[δ⁺]
+    largestInput = copy(inputDict[largestTimeStepSize])
+    ϕ = phiDict[largestTimeStepSize]
     tempM = similar(ϕ)
     outputInput = Zonotope(zeros(size(tempM, 1)), zeros(size(tempM, 1), 1))
     sen = true

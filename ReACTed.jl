@@ -216,8 +216,9 @@ function auxReACTed(waitinglist, hybridSystem, loc::Location, currentEdge, inter
                     # Apply jump Matrix
                     jumpSet = linear_map(edge.jumpMatrix, jumpSet)
                     if !isnothing(edge.jumpVector)
-                        jumpSet = concretize(LazySets.translate(jumpSet, edge.jumpVector))
+                        LazySets.translate!(jumpSet, edge.jumpVector)
                     end
+
                     if !isa(hybridSystem.locations[edge.targetLoc].invarient, Nothing)
                         jumpSet = zonotopeStripIntersection(jumpSet, hybridSystem.locations[edge.targetLoc].invarient)
                         #=
@@ -241,38 +242,39 @@ function auxReACTed(waitinglist, hybridSystem, loc::Location, currentEdge, inter
                 end
 
                 len = length(jumpSetsList)
-                if len == 0
-                    continue
-                end
-                if clustering
-                    intersectedSet = nothing
-                    if len == 1
-                        intersectedSet = jumpSetsList[1]
-                    else
-                        tempIntersect = foldl(ConvexHull, jumpSetsList)
-                        intersectedSet = convert(Zonotope, box_approximation(tempIntersect))
-                    end
+                if len != 0
+                    if clustering
+                        intersectedSet = nothing
+                        if len == 1
+                            intersectedSet = jumpSetsList[1]
+                        else
+                            tempIntersect = foldl(ConvexHull, jumpSetsList)
+                            intersectedSet = convert(Zonotope, box_approximation(tempIntersect))
+                        end
 
-                    jumpSet = intersectedSet
-                    # println("Finished intersections")
-                    push!(waitinglist, (edge.targetLoc, jumpSet, nothing, [reachtime, endtime], tΦ))
+                        jumpSet = intersectedSet
+                        # println("Finished intersections")
+                        push!(waitinglist, (edge.targetLoc, jumpSet, nothing, [reachtime, endtime], tΦ))
 
-                    #branchedRun = auxReACTed(hybridSystem, hybridSystem.locations[edge.targetLoc], nothing, [reachtime, endtime], jumpSet, dirs, constraint, δ⁻, δ⁺, FlowPhiDict, alg, maxOrder, reduceOrder, tΦ, clustering, timeConstraintList, saveResult)
-
-                    #if saveResult
-                    #    reachset = vcat(reachset, branchedRun)
-                    #end
-                else # No clustering. Do individual runningset
-                    for (index, jumpSet) in enumerate(jumpSetsList)
-                        # Note that we only do steps of size δ⁻ in touches
-                        timeStart = reachtime + (index - 1) * δ⁻
-                        push!(waitinglist, (edge.targetLoc, jumpSet, nothing, [timeStart, endtime], nothing)) # gav tϕ foer..
-                        #branchedRun = auxReACTed(hybridSystem, hybridSystem.locations[edge.targetLoc], nothing, [timeStart, endtime], jumpSet, dirs, constraint, δ⁻, δ⁺, FlowPhiDict, alg, maxOrder, reduceOrder, tΦ, clustering, timeConstraintList, saveResult)
+                        #branchedRun = auxReACTed(hybridSystem, hybridSystem.locations[edge.targetLoc], nothing, [reachtime, endtime], jumpSet, dirs, constraint, δ⁻, δ⁺, FlowPhiDict, alg, maxOrder, reduceOrder, tΦ, clustering, timeConstraintList, saveResult)
 
                         #if saveResult
                         #    reachset = vcat(reachset, branchedRun)
                         #end
+                    else # No clustering. Do individual runningset
+                        for (index, jumpSet) in enumerate(jumpSetsList)
+                            # Note that we only do steps of size δ⁻ in touches
+                            #timeStart = reachtime + (index - 1) * δ⁻
+                            push!(waitinglist, (edge.targetLoc, jumpSet, nothing, [reachtime + (index - 1) * δ⁻, endtime], nothing)) # gav tϕ foer..
+                            #branchedRun = auxReACTed(hybridSystem, hybridSystem.locations[edge.targetLoc], nothing, [timeStart, endtime], jumpSet, dirs, constraint, δ⁻, δ⁺, FlowPhiDict, alg, maxOrder, reduceOrder, tΦ, clustering, timeConstraintList, saveResult)
+
+                            #if saveResult
+                            #    reachset = vcat(reachset, branchedRun)
+                            #end
+                        end
                     end
+                else
+                    continue
                 end
             else
                 tryContinueFlag = false

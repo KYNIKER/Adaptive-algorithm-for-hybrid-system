@@ -136,7 +136,7 @@ function auxReACTed(waitinglist, hybridSystem, loc::Location, currentEdge, inter
         #   Compute the reachset closest to the guard without intersecting it and not reaching the unsafe set. 
 
         if TIMEFUNCS
-            recorderTimeStart += time_ns()
+            recorderTimeStart = time_ns()
         end
         tempReachset, reachtime, tΦ = ReACTGuards(loc, δ⁻, δ⁺, [time, endtime], guards, setOfConstraints, dirs, 2, PhiDict, discretizationDict, inputDiscritezationDict, saveResult)
         if TIMEFUNCS
@@ -639,6 +639,8 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
                 #if all((input + ρ(x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)) && any((input + ρ(x, newR)) > y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
                 #    handleHitConstraint(time, loc.id)
                 #end
+                #return (dirVals, time, missing)
+
                 return (dirVals, time, Φ)
             end
 

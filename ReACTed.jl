@@ -5,6 +5,7 @@ include("Utilities.jl")
 const TIMEFUNCS = false
 const VERBOSE = false
 
+
 totalDiscTime = 0
 totalGuardTime = 0
 totalTouchesTime = 0
@@ -59,6 +60,11 @@ function ReACTed(hybridSystem::HybridSystemV2, initialLoc, interval, X0, U, dirs
 
     #return res
     push!(waitinglist, (loc, X0, nothing, interval, diagm(ones(dimLength))))
+
+    if TIMEFUNCS
+        recorderTimeStart = time_ns()
+    end
+
     while !isempty(waitinglist)
         #GC.gc()
 
@@ -84,6 +90,14 @@ function ReACTed(hybridSystem::HybridSystemV2, initialLoc, interval, X0, U, dirs
         else
             return reachset
         end
+    end
+    
+    if TIMEFUNCS
+        println("Total times: 
+        TotalAux: $((time_ns() - recorderTimeStart - totalDiscTime - totalGuardTime - totalTouchesTime) / 10^9)
+        Disc: $(totalDiscTime / 10^9)
+        Guards: $(totalGuardTime / 10^9) 
+        Touches: $(totalTouchesTime / 10^9)")
     end
 
     return reachset
@@ -331,15 +345,6 @@ function auxReACTed(waitinglist, hybridSystem, loc::Location, currentEdge, inter
         end
     end
 
-    if TIMEFUNCS
-        if minimum(interval) == 0
-            # This is the last function
-            println("Total times: 
-            Disc: $(totalDiscTime / 10^9)
-            Guards: $(totalGuardTime / 10^9) 
-            Touches: $(totalTouchesTime / 10^9)")
-        end
-    end
     return reachset
 end
 

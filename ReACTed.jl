@@ -38,7 +38,7 @@ function ReACTed(hybridSystem::HybridSystemV2, initialLoc, interval, X0, U, dirs
     reachset = []
     saveResult = true
     dirsVectors = []
-    zenoBound = 500
+    zenoBound = 2000
     transitionCount = 0
     dimLength = size(X0.center, 1)
 
@@ -88,6 +88,7 @@ function ReACTed(hybridSystem::HybridSystemV2, initialLoc, interval, X0, U, dirs
         if transitionCount < zenoBound
             transitionCount += 1
         else
+            println("Nuh Uh")
             return reachset
         end
     end
@@ -98,6 +99,7 @@ function ReACTed(hybridSystem::HybridSystemV2, initialLoc, interval, X0, U, dirs
         Disc: $(totalDiscTime / 10^9)
         Guards: $(totalGuardTime / 10^9) 
         Touches: $(totalTouchesTime / 10^9)")
+        println("Amount of calls to auxreacted: $transitionCount")
     end
 
     return reachset
@@ -188,7 +190,6 @@ function auxReACTed(waitinglist, hybridSystem, loc::Location, currentEdge, inter
             end
 
 
-            timeIntersected = timeNotIntersected - reachtime
             latestSet = nothing
             #
             #   Here we should check whether we have reached endtime. If true we should only push the jumpSet
@@ -200,7 +201,6 @@ function auxReACTed(waitinglist, hybridSystem, loc::Location, currentEdge, inter
                     latestSet = copy(last(intersectingSetsList))
                 end
                 # Afterwards we process the intersecting set
-
                 intersectedSet = nothing
                 plottingList = []
                 jumpSetsList = Vector{Zonotope}()

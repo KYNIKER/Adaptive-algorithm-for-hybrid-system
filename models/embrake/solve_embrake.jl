@@ -4,7 +4,7 @@ include("../../Utilities.jl")
 include("../../ReACTed.jl")
 include("embrake.jl")
 
-function solve_embrake(sys, initialState, X0, T, δ⁺ = 2*10^-7, δ⁻ = 2*10^-7, maxOrder = 5, reduceOrder = 5, dirs = [], saveResult = true)
+function solve_embrake(sys, initialState, X0, T, δ⁺=2 * 10^-7, δ⁻=2 * 10^-7, maxOrder=5, reduceOrder=5, dirs=[], saveResult=true)
     time = 0
     x0 = 0.05
     Tsample = 1e-4
@@ -12,7 +12,7 @@ function solve_embrake(sys, initialState, X0, T, δ⁺ = 2*10^-7, δ⁻ = 2*10^-
     n = length(X0.center)
     reachset = []
     phiDict = Dict()
-    
+
     dirsVectors = []
     dimLength = size(X0.center, 1)
     for dir in dirs
@@ -31,7 +31,7 @@ function solve_embrake(sys, initialState, X0, T, δ⁺ = 2*10^-7, δ⁻ = 2*10^-
     flowPhiDict = Dict(map(x -> x.id => PhiDict(x.A, δ⁻, δ⁺, alg), sys.locations))
     phiDict = flowPhiDict[loc.id]
     discretizationDict, inputDiscretizationDict = ReACTDiscretizePlus(loc, X0, δ⁻, δ⁺, alg, maxOrder, reduceOrder, phiDict)
-    
+
 
     res = run_embrake(sys, loc, time, Tsample, ζ, x0, T, discretizationDict, inputDiscretizationDict, sys.globalConstraints, dirsVectors, δ⁻, δ⁺, phiDict, alg, maxOrder, reduceOrder, missing, saveResult)
 
@@ -50,20 +50,20 @@ function run_embrake(hybridSystem, loc::Location, time, Tsample, ζ, x0, T, disc
     #JumpSupport(X, dir) = ρ(transpose(edge.jumpMatrix)*dir, X) + ρ(dir, edge.jumpVector) # TODO: This is not correct
     JumpZonotope(X) = minkowski_sum(linear_map(edge.jumpMatrix, X), Singleton(edge.jumpVector))
 
-    tempReachset, reachtime, tΦ = ReACTGuards(loc, δ⁻, δ⁺, [time, time+guardTime], nothing, setOfConstraints, dirs, 2, PhiDict, discretizationDict, inputDiscretizationDict, saveResult)
-  
+    tempReachset, reachtime, tΦ = ReACTGuardsBrake(loc, δ⁻, δ⁺, [time, time + guardTime], nothing, setOfConstraints, dirs, 2, PhiDict, discretizationDict, inputDiscretizationDict, saveResult)
+
     #println(ρ(dirs[1], discretizationDict[δ⁺]))
-    if reachtime < T 
+    if reachtime < T
         if saveResult
             push!(reachset, (tempReachset, string(time) * " - " * string(reachtime) * ": " * string(loc.id) * "->" * string(edge.targetLoc)))
         end
         #_, _, timeNotIntersected = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, time+invariantTime], (reachtime - time),
         #                                                                    nothing, setOfConstraints, 2, PhiDict, 
         #                                                                    discretizationDict, discretizationDict, inputDiscretizationDict, tΦ, nothing)
-        timeIntersected =  invariantTime - guardTime
+        timeIntersected = invariantTime - guardTime
         time = reachtime
         println("time = ", time)
-        λ = ceil(timeIntersected/(δ⁺))
+        λ = ceil(timeIntersected / (δ⁺))
         i = 0
         jumpΦ = tΦ
         while i < λ
@@ -72,7 +72,7 @@ function run_embrake(hybridSystem, loc::Location, time, Tsample, ζ, x0, T, disc
             d = δ⁻
             jumpDiscDict = Dict()
             while d <= δ⁺
-                tempSet = linear_map(jumpΦ, discretizationDict[d]) 
+                tempSet = linear_map(jumpΦ, discretizationDict[d])
                 #tempJump = JumpSupport(discretizationDict[d], tempPhi*dir)
                 tempJump = JumpZonotope(tempSet)
                 if (ρ(dirs[1], tempJump) > x0) || (ρ(dirs[1], tempSet) > x0)
@@ -80,18 +80,18 @@ function run_embrake(hybridSystem, loc::Location, time, Tsample, ζ, x0, T, disc
                 else
                     jumpDiscDict[d] = tempJump
                 end
-                d = 2*d
+                d = 2 * d
             end
-            jumpΦ = jumpΦ* PhiDict[δ⁺]
+            jumpΦ = jumpΦ * PhiDict[δ⁺]
             if time < T
                 branchedRun = run_embrake(hybridSystem, loc, time, Tsample, ζ, x0, T, jumpDiscDict, inputDiscretizationDict, hybridSystem.globalConstraints, dirs, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, missing, saveResult)
             end
             time = time + min(δ⁺, maxTime)
             maxTime = maxTime - δ⁺
-            i = i+1
+            i = i + 1
             if saveResult && !isnothing(branchedRun)
                 reachset = vcat(reachset, branchedRun)
-            end 
+            end
         end
     end
     return reachset

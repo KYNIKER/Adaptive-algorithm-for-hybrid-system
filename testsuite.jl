@@ -2,6 +2,7 @@ using LazySets, LinearAlgebra, BenchmarkTools, CSV, DataFrames, Expokit, Reachab
 
 include("Utilities.jl")
 include("ReACTed.jl")
+include("ReACTedReachability.jl")
 include("models/gearbox.jl")
 include("models/platoon.jl")
 include("models/bouncingBall.jl")
@@ -10,7 +11,7 @@ include("models/spacecraft.jl")
 include("models/embrake/solve_embrake.jl")
 include("models/embrake/embrake.jl")
 
-const RUN_FIXED = true
+const RUN_FIXED = false
 const RUN_ADAPTIVE = true
 
 const MAX_ORDER = 5
@@ -40,10 +41,14 @@ function RunAdaptive(name, δ⁻, δ⁺, load_func)
     GC.gc()
 
     # Warmup
-    _ = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), [], sys.globalConstraints, δ⁻, δ⁺ , ReachabilityAnalysis.Exponentiation.BaseExp, MAX_ORDER, REDUCE_ORDER, clustering, timeConstraintList)
+    #_ = ReACTed(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), [], sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, MAX_ORDER, REDUCE_ORDER, clustering, timeConstraintList)
 
     # Actual Test
-    b = @benchmarkable _ = ReACTed($sys, $initialState, [0., $T], $X0, $Zonotope(zeros(Float64, $n), $zeros(Float64, $n, 1)), [], $sys.globalConstraints, $δ⁻, $δ⁺ , ReachabilityAnalysis.Exponentiation.BaseExp, $MAX_ORDER, $REDUCE_ORDER, $clustering, $timeConstraintList)
+    #b = @benchmarkable _ = ReACTed($sys, $initialState, [0., $T], $X0, $Zonotope(zeros(Float64, $n), $zeros(Float64, $n, 1)), [], $sys.globalConstraints, $δ⁻, $δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, $MAX_ORDER, $REDUCE_ORDER, $clustering, $timeConstraintList)
+    _ = ReACTedFast(sys, initialState, [0., T], X0, Zonotope(zeros(Float64, n), zeros(Float64, n, 1)), sys.globalConstraints, δ⁻, δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, MAX_ORDER, REDUCE_ORDER, clustering, timeConstraintList)
+
+    # Actual Test
+    b = @benchmarkable _ = ReACTedFast($sys, $initialState, [0., $T], $X0, $Zonotope(zeros(Float64, $n), $zeros(Float64, $n, 1)), $sys.globalConstraints, $δ⁻, $δ⁺, ReachabilityAnalysis.Exponentiation.BaseExp, $MAX_ORDER, $REDUCE_ORDER, $clustering, $timeConstraintList)
 
     y = run(b; verbose=true)
     println("Run completed.")
@@ -115,9 +120,12 @@ function RunFixed(name, δ, load_func)
 end
 
 
-names = ["brake", "gearbox", "platoon", "spaceCraft"]
-minδ = [2*10^-7, 0.0004, 0.03, 0.04]
-loadFunctions = [loadembrake, loadGearBox, loadPlatoon, () -> loadSpacecraft(abort_time=120.)]
+#names = ["brake", "gearbox", "platoon", "spaceCraft"]
+#minδ = [2 * 10^-7, 0.0004, 0.03, 0.04]
+#loadFunctions = [loadembrake, loadGearBox, loadPlatoon, () -> loadSpacecraft(abort_time=120.)]
+names = ["gearbox", "platoon", "spaceCraft"]
+minδ = [0.0004, 0.03, 0.04]
+loadFunctions = [loadGearBox, loadPlatoon, () -> loadSpacecraft(abort_time=120.)]
 
 # Long Versions
 # names = ["gearbox-01", "gearbox-02", "platoon", "powerTrain", "spaceCraft-0", "spaceCraft-120", "spaceCraft-240"]

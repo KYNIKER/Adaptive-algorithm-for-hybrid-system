@@ -60,12 +60,12 @@ function loadSpacecraft(; abort_time::Union{Float64,Vector{Float64}}=-1.)
     A1[vy, y] = -0.0665123984901026
     A1[vy, vx] = -0.00875351105536225
     A1[vy, vy] = -2.90300269286856
-    invariant1 = HPolyhedron([LazySets.HalfSpace(SingleEntryVector(x, n, 1.), -100.)])  # x <= -100
+    invariant1 = sparseHPolyhedronToDense(HPolyhedron([LazySets.HalfSpace(SingleEntryVector(x, n, 1.), -100.)]))  # x <= -100
     if aborting
-        invariant1 = HPolyhedron([
+        invariant1 = sparseHPolyhedronToDense(HPolyhedron([
             LazySets.HalfSpace(SingleEntryVector(x, n, 1.), -100.),  # x <= -100
             LazySets.HalfSpace(SingleEntryVector(t, n, 1.), t_abort_upper)  # t <= t_abort_upper
-        ])
+        ]))
     end
 
     #m_1 = @system(x' = Ax + b, x ∈ invariant)
@@ -82,7 +82,7 @@ function loadSpacecraft(; abort_time::Union{Float64,Vector{Float64}}=-1.)
     A2[vy, y] = -0.575999940191886
     A2[vy, vx] = -0.00876276068239993
     A2[vy, vy] = -19.2299765959399
-    invariant2 = HPolyhedron([
+    invariant2 = sparseHPolyhedronToDense(HPolyhedron([
         LazySets.HalfSpace(sparsevec([x], [-1.], n), 100.),           # x >= -100
         LazySets.HalfSpace(sparsevec([x], [1.], n), 100.),            # x <= 100
         LazySets.HalfSpace(sparsevec([y], [-1.], n), 100.),           # y >= -100
@@ -91,10 +91,10 @@ function loadSpacecraft(; abort_time::Union{Float64,Vector{Float64}}=-1.)
         LazySets.HalfSpace(sparsevec([x, y], [1., 1.], n), 141.1),    # x + y <= 141.1
         LazySets.HalfSpace(sparsevec([x, y], [1., -1.], n), 141.1),   # -x + y >= -141.1
         LazySets.HalfSpace(sparsevec([x, y], [-1., 1.], n), 141.1)    # -x + y <= 141.1
-    ])
+    ]))
 
     if aborting
-        invariant2 = HPolyhedron([
+        invariant2 = sparseHPolyhedronToDense(HPolyhedron([
             LazySets.HalfSpace(sparsevec([x], [-1.], n), 100.),           # x >= -100
             LazySets.HalfSpace(sparsevec([x], [1.], n), 100.),            # x <= 100
             LazySets.HalfSpace(sparsevec([y], [-1.], n), 100.),           # y >= -100
@@ -104,7 +104,7 @@ function loadSpacecraft(; abort_time::Union{Float64,Vector{Float64}}=-1.)
             LazySets.HalfSpace(sparsevec([x, y], [1., -1.], n), 141.1),   # -x + y >= -141.1
             LazySets.HalfSpace(sparsevec([x, y], [-1., 1.], n), 141.1),    # -x + y <= 141.1
             LazySets.HalfSpace(SingleEntryVector(t, n, 1.), t_abort_upper)  # t <= t_abort_upper
-        ])
+        ]))
     end
 
 
@@ -146,13 +146,13 @@ function loadSpacecraft(; abort_time::Union{Float64,Vector{Float64}}=-1.)
     ])
     #t1 = ConstrainedIdentityMap(n, guard)
 
-    push!(loc1edges, Edge(2, guard, Diagonal(ones(n)), zeros(n)))
+    push!(loc1edges, Edge(2, sparseHPolyhedronToDense(guard), Diagonal(ones(n)), zeros(n)))
 
     if aborting
         # 1 -> 3
         #add_transition!(automaton, 1, 3, 2)
-        guard = LazySets.HalfSpace(SingleEntryVector(t, n, -1.), -t_abort_lower)  # t >= t_abort_lower
-
+        guard = sparseHPolyhedronToDense(HPolyhedron([LazySets.HalfSpace(SingleEntryVector(t, n, -1.), -t_abort_lower)]))  # t >= t_abort_lower
+        #@show guard
         # TODO put this back after testing
         # TODO put this back after testing
         push!(loc1edges, Edge(3, guard, Diagonal(ones(n)), zeros(n)))

@@ -278,6 +278,7 @@ function PhiInputDict(loc, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnal
     A = loc.A
     ϕ::Matrix{Float64} = ReachabilityAnalysis.Exponentiation._exp(A, δ⁻, alg)
     phiDict = Dict{Float64,Matrix{Float64}}()
+    TphiDict = Dict{Float64,Matrix{Float64}}()
     tempM = similar(ϕ)
 
     inputDiscritezationDict = Dict{Float64,Zonotope}()
@@ -316,6 +317,7 @@ function PhiInputDict(loc, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnal
     while d < δ⁺
 
         phiDict[d] = copy(ϕ)
+        TphiDict[d] = copy(permutedims(ϕ))
         inputDiscritezationDict[d] = P
 
         if maxOrder > 0
@@ -336,5 +338,7 @@ function PhiInputDict(loc, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnal
     #end
     inputDiscritezationDict[δ⁺] = P
     phiDict[δ⁺] = copy(ϕ)
-    return phiDict, inputDiscritezationDict
+    TphiDict[d] = copy(permutedims(ϕ))
+
+    return phiDict, TphiDict, inputDiscritezationDict
 end

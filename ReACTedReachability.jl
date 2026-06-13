@@ -239,11 +239,19 @@ function auxReACTed(waitinglist, hybridSystem, loc::Location, currentEdge, inter
 
                 jumpSetsList = Vector{Zonotope}()
 
+                # intersects = !isa(loc.invarient, Nothing) ? 
+                #     (!isa(edge.guard, Nothing) ? HPolyhedron(vcat(loc.invarient.constraints, edge.guard.constraints)) : loc.invarient) : 
+                #     (!isa(edge.guard, Nothing) ? edge.guard : nothing)
+                    
 
                 for set in intersectingSetsList
                     jumpSet = set
                     #jumpSet = zonotopeStripIntersection(set, edge.guard)#set
 
+                    # if !isa(intersects, Nothing)
+                    #     jumpSet = zonotopeStripIntersection(jumpSet, intersects)
+                    # end
+                    
                     if !isa(loc.invarient, Nothing)
                         jumpSet = zonotopeStripIntersection(jumpSet, loc.invarient)
                     end

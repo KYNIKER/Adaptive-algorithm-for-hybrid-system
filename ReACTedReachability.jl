@@ -68,12 +68,36 @@ function ReACTedFast(hybridSystem::HybridSystemV2, initialLoc, interval, X0, U, 
         println((time_ns() - startTimer) / 10^9)
     end
 
+
+    projVectors = Vector{Vector{Float64}}()
+    projBounds = Vector{Float64}()
+    projRanges = Vector{UnitRange{Int64}}()
+
+    prevLocation = -1
     while !isempty(waitinglist)
         #GC.gc()
 
         location, initialset, edge, interval′ = pop!(waitinglist)
 
-        _ = auxReACTed(waitinglist, hybridSystem, hybridSystem.locations[location], edge, interval′, initialset, constraintDict[location], δ⁻, δ⁺, phiDicts[location], tphiDicts[location], inputDicts[location], dims, alg, maxOrder, reduceOrder, clustering, timeConstraintDict[location])
+        locationObject = hybridSystem.locations[location]
+
+        # if prevLocation != location # Update constraint and buffer
+        #     supportProj[1], supportBounds[1] = getHalfSpaceProjections(constraintDict[location])
+        #     supportProj[2], supportBounds[2] = getHalfSpaceProjections(locationObject.invarient)
+        # end
+
+        if prevLocation != location # Update constraints
+            constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraintDict[location])
+            invariantProjVectors, invariantProjBounds = getHalfSpaceProjections(locationObject.invarient)
+            projVectors = vcat(constraintProjVectors, invariantProjVectors)
+            projBounds = vcat(constraintProjBounds, invariantProjBounds)
+
+            amountOfConstraints = length(constraintProjBounds)
+            amountOfInvariants = length(invariantProjBounds)
+            projRanges = [1:amountOfConstraints, amountOfConstraints+1:(amountOfConstraints+amountOfInvariants)]
+        end
+
+        _ = auxReACTed(waitinglist, hybridSystem, locationObject, edge, interval′, initialset, constraintDict[location], δ⁻, δ⁺, phiDicts[location], tphiDicts[location], inputDicts[location], dims, projVectors, projBounds, projRanges, alg, maxOrder, reduceOrder, clustering, timeConstraintDict[location])
 
 
         if transitionCount < zenoBound
@@ -103,7 +127,7 @@ end
 
 
 # AucReacted is called recursively each time we have a new starting location (after a transition)
-function auxReACTed(waitinglist, hybridSystem, loc::Location, currentEdge, interval, X0, constraint, δ⁻::Float64, δ⁺::Float64, PhiDict, TPhiDict, inputDiscritezationDict, dims, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true, activeTimeConstraints=[])
+function auxReACTed(waitinglist, hybridSystem, loc::Location, currentEdge, interval, X0, constraint, δ⁻::Float64, δ⁺::Float64, PhiDict, TPhiDict, inputDiscritezationDict, dims, projVectors, projBounds, projRanges, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true, activeTimeConstraints=[])
 
 
     if TIMEFUNC
@@ -144,7 +168,7 @@ function auxReACTed(waitinglist, hybridSystem, loc::Location, currentEdge, inter
             global recorderTimeStart = time_ns()
         end
 
-        reachtime, tΦ = ReACTGuards(loc, δ⁻, δ⁺, interval, edge.guard, constraint, dims, 2, PhiDict, TPhiDict, discretizationDict, inputDiscritezationDict)
+        reachtime, tΦ = ReACTGuards(loc, δ⁻, δ⁺, interval, edge.guard, constraint, dims, 2, PhiDict, TPhiDict, discretizationDict, inputDiscritezationDict, projVectors, projBounds, projRanges)
 
         if TIMEFUNC
             global totalGuardTime += time_ns() - recorderTimeStart
@@ -171,7 +195,7 @@ function auxReACTed(waitinglist, hybridSystem, loc::Location, currentEdge, inter
                 recorderTimeStart = time_ns()
             end
 
-            tryContinueFlag, timeNotIntersected, intersectingSetsList = ReACTTouches(loc, δ⁻, [reachtime, endtime], (reachtime - time), edge.guard, constraint, PhiDict, discretizationDict[δ⁻], inputDiscritezationDict, tΦ, reduceOrder, maxOrder)
+            tryContinueFlag, timeNotIntersected, intersectingSetsList = ReACTTouches(loc, δ⁻, [reachtime, endtime], (reachtime - time), edge.guard, constraint, PhiDict, discretizationDict[δ⁻], inputDiscritezationDict, tΦ, reduceOrder, maxOrder, projVectors, projBounds, projRanges)
 
             if TIMEFUNC
                 global totalTouchesTime += time_ns() - recorderTimeStart
@@ -319,7 +343,7 @@ function auxReACTed(waitinglist, hybridSystem, loc::Location, currentEdge, inter
         if TIMEFUNC
             recorderTimeStart = time_ns()
         end
-        reachtime = ReACT(loc, δ⁻, δ⁺, [time, endtime], constraint, 2, TPhiDict, discretizationDict, inputDiscritezationDict)
+        reachtime = ReACT(loc, δ⁻, δ⁺, [time, endtime], constraint, 2, TPhiDict, discretizationDict, inputDiscritezationDict, projVectors, projBounds, projRanges)
         if TIMEFUNC
             global totalReACTTime += time_ns() - recorderTimeStart
         end
@@ -328,15 +352,27 @@ function auxReACTed(waitinglist, hybridSystem, loc::Location, currentEdge, inter
 
 end
 
-function ReACTTouches(loc, δ⁻::Float64, interval, initialTime::Float64, guard, constraint, PhiDict, newR, inputDiscritezationDict, Φ, reduce_order, max_order)
+function ReACTTouches(loc, δ⁻::Float64, interval, initialTime::Float64, guard, constraint, PhiDict, newR, inputDiscritezationDict, Φ, reduce_order, max_order, projVectors, projBounds, projRanges)
     # Note that in touches we always use δ⁻
     # That is, we do not adjust timestep sizes
 
     #phiDict = PhiDict
+    guardProjVectors, guardProjBounds = getHalfSpaceProjections(guard) 
+    allProjVectors = vcat(projVectors, guardProjVectors)
+    allProjBounds = vcat(projBounds, guardProjBounds)
+    amountBeforeGuards = length(projBounds)
+    amountTotal = length(guardProjBounds) + amountBeforeGuards
 
-    constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint)
-    guardProjVectors, guardProjBounds = getHalfSpaceProjections(guard)
-    invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(loc.invarient)
+    constraintProjVectors = view(allProjVectors, projRanges[1])
+    constraintProjBounds = view(allProjBounds, projRanges[1])
+    invarientProjVectors = view(allProjVectors, projRanges[2])
+    invarientProjBounds = view(allProjBounds, projRanges[2])
+    guardProjVectors = view(allProjVectors, amountBeforeGuards+1:amountTotal)
+    guardProjBounds = view(allProjBounds, amountBeforeGuards+1:amountTotal)
+
+    # constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint)
+    # guardProjVectors, guardProjBounds = getHalfSpaceProjections(guard)
+    # invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(loc.invarient)
 
     time::Float64 = interval[1]
     endtime::Float64 = interval[2]
@@ -441,7 +477,7 @@ function ReACTTouches(loc, δ⁻::Float64, interval, initialTime::Float64, guard
 end
 
 
-function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, constraint, dims, STRATEGY::Integer, PhiDict, permutedphiDict, discritezationDict, inputDiscritezationDict)
+function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, constraint, dims, STRATEGY::Integer, PhiDict, permutedphiDict, discritezationDict, inputDiscritezationDict, projVectors, projBounds, projRanges)
     # We calculate the reachset till we reach a guard for an intersection (or till failure)
     init1 = TIMEFUNC ? time_ns() : 0.0
 
@@ -453,10 +489,10 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
     #A = copy(loc.A)
     # constraintProjVectors = map(x -> x.a, constraint)
     # constraintProjBounds = ρ.(constraintProjVectors, constraint)
-    constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint)
+    # constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint)
     #guardProjVectors, guardProjBounds = [], []
 
-    guardProjVectors, guardProjBounds = getHalfSpaceProjections(guards)
+    # guardProjVectors, guardProjBounds = getHalfSpaceProjections(guards)
     #=
     invarientProjVectors, invarientProjBounds = [], []
     if isnothing(loc.invarient)
@@ -465,7 +501,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
         invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(loc.invarient)
     end
     =#
-    invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(loc.invarient)
+    # invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(loc.invarient)
 
     #oldConstraintProjVectors = copy(constraintProjVectors)
     #oldGuardProjVectors = copy(guardProjVectors)
@@ -477,6 +513,19 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
         permutedphiDict[key] = permutedims(PhiDict[key])
     end
     =#
+    guardProjVectors, guardProjBounds = getHalfSpaceProjections(guards) 
+
+    allProjVectors = vcat(projVectors, guardProjVectors)
+    allProjBounds = vcat(projBounds, guardProjBounds)
+    amountBeforeGuards = length(projBounds)
+    amountTotal = length(guardProjBounds) + amountBeforeGuards
+
+    constraintProjVectors = view(allProjVectors, projRanges[1])
+    constraintProjBounds = view(allProjBounds, projRanges[1])
+    invarientProjVectors = view(allProjVectors, projRanges[2])
+    invarientProjBounds = view(allProjBounds, projRanges[2])
+    guardProjVectors = view(allProjVectors, amountBeforeGuards+1:amountTotal)
+    guardProjBounds = view(allProjBounds, amountBeforeGuards+1:amountTotal)
 
     time::Float64 = minimum(interval)
     endtime::Float64 = maximum(interval)
@@ -796,7 +845,7 @@ function ReACTGuardsBrake(loc, δ⁻::Float64, δ⁺::Float64, interval, guards,
     return (dirVals, time, Φ)
 end
 =#
-function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, constraint, STRATEGY::Integer, permutedphiDict, discritezationDict, inputDiscritezationDict)
+function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, constraint, STRATEGY::Integer, permutedphiDict, discritezationDict, inputDiscritezationDict, projVectors, projBounds, projRanges)
     # We calculate the reachset till we reach a guard for an intersection (or till failure)
     #println("HUH")
 
@@ -805,8 +854,14 @@ function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, constraint, STRATE
 
     # constraintProjVectors = map(x -> x.a, constraint)
     # constraintProjBounds = ρ.(constraintProjVectors, constraint)
-    constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint)
-    invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(loc.invarient)
+    constraintProjVectors = view(projVectors, projRanges[1])
+    constraintProjBounds = view(projBounds, projRanges[1])
+    invarientProjVectors = view(projVectors, projRanges[2])
+    invarientProjBounds = view(projBounds, projRanges[2])
+
+
+    # projVectors = vcat(constraintProjVectors, constraintProjBounds)
+    # constraintProjVectors = 
 
 
     #=

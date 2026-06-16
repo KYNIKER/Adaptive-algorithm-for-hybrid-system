@@ -10,6 +10,9 @@ function solve_embrake(sys, initialState, X0, T, δ⁺ = 2*10^-7, δ⁻ = 2*10^-
     Tsample = 1e-4
     ζ = 1e-6
     n = length(X0.center)
+    guardTime = Tsample - ζ
+    invariantTime = Tsample + ζ
+
     reachset = []
     phiDict = Dict()
     
@@ -31,18 +34,19 @@ function solve_embrake(sys, initialState, X0, T, δ⁺ = 2*10^-7, δ⁻ = 2*10^-
     flowPhiDict = Dict(map(x -> x.id => PhiDict(x.A, δ⁻, δ⁺, alg), sys.locations))
     phiDict = flowPhiDict[loc.id]
     discretizationDict, inputDiscretizationDict = ReACTDiscretizePlus(loc, X0, δ⁻, δ⁺, alg, maxOrder, reduceOrder, phiDict)
-    
 
-    res = run_embrake(sys, loc, time, Tsample, ζ, x0, T, discretizationDict, inputDiscretizationDict, sys.globalConstraints, dirsVectors, δ⁻, δ⁺, phiDict, alg, maxOrder, reduceOrder, missing, saveResult)
+    closestToGuardTime = floor(guardTime/δ⁻) * δ⁻
+    tΦ = exp(closestToGuardTime * loc.A)
+    timeIntersected =  invariantTime - guardTime
+
+    res = run_embrake(sys, loc, time, Tsample, ζ, x0, T, guardTime, timeIntersected, closestToGuardTime, tΦ, discretizationDict, inputDiscretizationDict, sys.globalConstraints, dirsVectors, δ⁻, δ⁺, phiDict, alg, maxOrder, reduceOrder, missing, saveResult)
 
     reachset = vcat(reachset, res)
 
     return res
 end
 
-function run_embrake(hybridSystem, loc::Location, time, Tsample, ζ, x0, T, discretizationDict, inputDiscretizationDict, constraint, dirs, δ⁻::Float64, δ⁺::Float64, PhiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, Φ=missing, saveResult::Bool=true) where {N}
-    guardTime = Tsample - ζ
-    invariantTime = Tsample + ζ
+function run_embrake(hybridSystem, loc::Location, time, Tsample, ζ, x0, T, guardTime, timeIntersected, closestToGuardTime, tΦ, discretizationDict, inputDiscretizationDict, constraint, dirs, δ⁻::Float64, δ⁺::Float64, PhiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, Φ=missing, saveResult::Bool=true) where {N}
     reachset = []
     setOfConstraints = vcat(loc.constraints, constraint)
     edge = loc.edges[1]
@@ -50,8 +54,8 @@ function run_embrake(hybridSystem, loc::Location, time, Tsample, ζ, x0, T, disc
     #JumpSupport(X, dir) = ρ(transpose(edge.jumpMatrix)*dir, X) + ρ(dir, edge.jumpVector) # TODO: This is not correct
     JumpZonotope(X) = minkowski_sum(linear_map(edge.jumpMatrix, X), Singleton(edge.jumpVector))
 
-    tempReachset, reachtime, tΦ = ReACTGuards(loc, δ⁻, δ⁺, [time, time+guardTime], nothing, setOfConstraints, dirs, 2, PhiDict, discretizationDict, inputDiscretizationDict, saveResult)
-  
+    tempReachset, _, _ = ReACTGuards(loc, δ⁻, δ⁺, [time, time+guardTime], nothing, setOfConstraints, dirs, 2, PhiDict, discretizationDict, inputDiscretizationDict, saveResult)
+    reachtime = time + closestToGuardTime
     #println(ρ(dirs[1], discretizationDict[δ⁺]))
     if reachtime < T 
         if saveResult
@@ -60,8 +64,9 @@ function run_embrake(hybridSystem, loc::Location, time, Tsample, ζ, x0, T, disc
         #_, _, timeNotIntersected = ReACTTouches(loc, δ⁻, δ⁺, [reachtime, time+invariantTime], (reachtime - time),
         #                                                                    nothing, setOfConstraints, 2, PhiDict, 
         #                                                                    discretizationDict, discretizationDict, inputDiscretizationDict, tΦ, nothing)
-        timeIntersected =  invariantTime - guardTime
         time = reachtime
+
+
         println("time = ", time)
         λ = ceil(timeIntersected/(δ⁺))
         i = 0
@@ -84,7 +89,7 @@ function run_embrake(hybridSystem, loc::Location, time, Tsample, ζ, x0, T, disc
             end
             jumpΦ = jumpΦ* PhiDict[δ⁺]
             if time < T
-                branchedRun = run_embrake(hybridSystem, loc, time, Tsample, ζ, x0, T, jumpDiscDict, inputDiscretizationDict, hybridSystem.globalConstraints, dirs, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, missing, saveResult)
+                branchedRun = run_embrake(hybridSystem, loc, time, Tsample, ζ, x0, T, guardTime, timeIntersected, closestToGuardTime, tΦ, jumpDiscDict, inputDiscretizationDict, hybridSystem.globalConstraints, dirs, δ⁻, δ⁺, PhiDict, alg, maxOrder, reduceOrder, missing, saveResult)
             end
             time = time + min(δ⁺, maxTime)
             maxTime = maxTime - δ⁺

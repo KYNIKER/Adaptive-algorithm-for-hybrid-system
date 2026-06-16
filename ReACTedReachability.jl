@@ -239,28 +239,28 @@ function auxReACTed(waitinglist, hybridSystem, loc::Location, currentEdge, inter
 
                 jumpSetsList = Vector{Zonotope}()
 
-                # intersects = !isa(loc.invarient, Nothing) ? 
-                #     (!isa(edge.guard, Nothing) ? HPolyhedron(vcat(loc.invarient.constraints, edge.guard.constraints)) : loc.invarient) : 
-                #     (!isa(edge.guard, Nothing) ? edge.guard : nothing)
+                intersects = !isa(loc.invarient, Nothing) ? 
+                    (!isa(edge.guard, Nothing) ? HPolyhedron(vcat(loc.invarient.constraints, edge.guard.constraints)) : loc.invarient) : 
+                    (!isa(edge.guard, Nothing) ? edge.guard : nothing)
                     
 
                 for set in intersectingSetsList
                     jumpSet = set
                     #jumpSet = zonotopeStripIntersection(set, edge.guard)#set
 
-                    # if !isa(intersects, Nothing)
-                    #     jumpSet = zonotopeStripIntersection(jumpSet, intersects)
-                    # end
+                    if !isa(intersects, Nothing)
+                        jumpSet = zonotopeStripIntersection(jumpSet, intersects)
+                    end
                     
-                    if !isa(loc.invarient, Nothing)
-                        jumpSet = zonotopeStripIntersection(jumpSet, loc.invarient)
-                    end
+                    # if !isa(loc.invarient, Nothing)
+                    #     jumpSet = zonotopeStripIntersection(jumpSet, loc.invarient)
+                    # end
 
-                    #any(x -> ρ(x.a, jumpSet) > x.b, setOfConstraints) && handleHitConstraint(reachtime + δ⁻ * i, loc.id)
+                    # #any(x -> ρ(x.a, jumpSet) > x.b, setOfConstraints) && handleHitConstraint(reachtime + δ⁻ * i, loc.id)
 
-                    if !isa(edge.guard, Nothing)
-                        jumpSet = zonotopeStripIntersection(jumpSet, edge.guard)
-                    end
+                    # if !isa(edge.guard, Nothing)
+                    #     jumpSet = zonotopeStripIntersection(jumpSet, edge.guard)
+                    # end
 
                     # Check invarient
                     # Push to reachset

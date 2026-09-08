@@ -33,7 +33,7 @@ function RunAdaptive(name, δ⁻, δ⁺, load_func)
 
     sys, initialState, X0, T = load_func()
     n = length(X0.center)
-    LazySets.load_expokit()
+    #LazySets.load_expokit()
     println("Running benchmark for: ", name)
     BenchmarkTools.DEFAULT_PARAMETERS.samples = 50
 

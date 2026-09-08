@@ -30,3 +30,7 @@ JuliaLocalPreferences.toml
 # Results
 results/*
 results/.gitkeep
+
+# Plotting Results
+plotResults/*
+plotResults/.gitkeep

@@ -6,11 +6,21 @@ using LazySets
 include("../Utilities.jl")
 
 
-function loadGearBox()
+function loadGearBox(GRBX=1)
+
+    # Two modes to select from
     X0 = Hyperrectangle(low=[0, 0, -0.0168, 0.0029, 0, 1],
         high=[0, 0, -0.0166, 0.0031, 0, 1])
+    if GRBX == 2
+        X0 = Hyperrectangle(low=[0, 0, -0.01675, 0.00285, 0, 1],
+            high=[0, 0, -0.01665, 0.00315, 0, 1])
+    elseif GRBX != 1
+        throw("Invalid input for gearbox. Must choose either 1 og 2. Choose $GRBX")
+    end
+
     X0 = convert(Zonotope, X0)
     X0 = Zonotope(X0.center, X0.generators)
+
 
     # variables
     vx = 1  # x velocity
@@ -74,7 +84,7 @@ function loadGearBox()
     A = copy(A_template)
     #t1 = ConstrainedLinearMap(A, guard)
 
-    push!(edgeListLoc1, Edge(1, guard, A, zeros(n)))
+    push!(edgeListLoc1, Edge(1, sparseHPolyhedronToDense(guard), A, zeros(n)))
 
     # transition l1 -> l1
     # TODO same remark as with the other guard
@@ -88,10 +98,10 @@ function loadGearBox()
     A[I, vy] *= -1.
     #t2 = ConstrainedLinearMap(A, guard)
 
-    push!(edgeListLoc1, Edge(1, guard, A, zeros(n)))
+    push!(edgeListLoc1, Edge(1, sparseHPolyhedronToDense(guard), A, zeros(n)))
 
     # transition l1 -> l2
-    guard = LazySets.HalfSpace(SingleEntryVector(px, n, -1.), -Δp)  # px >= Δp
+    guard = LazySets.HalfSpace(Vector(sparsevec([px], [-1.], n)), -Δp)  # px >= Δp
     A = copy(A_template)
     A[vx, vx] = 0.
     A[vx, vy] = 0.
@@ -121,17 +131,17 @@ function loadGearBox()
 
 
     push!(locations, Location(1,                        # ID
-        HPolyhedron([   # Invaariant
+        sparseHPolyhedronToDense(HPolyhedron([   # Invaariant
             LazySets.HalfSpace(sparsevec([px], [1.], n), Δp),  # px <= Δp
             LazySets.HalfSpace(sparsevec([px, py], [tan(θ), 1.], n), 0.),    # py <= -px * tan(θ)
-            LazySets.HalfSpace(sparsevec([px, py], [tan(θ), -1.], n), 0.)]),  # py >= px * tan(θ)
+            LazySets.HalfSpace(sparsevec([px, py], [tan(θ), -1.], n), 0.)])),  # py >= px * tan(θ)
         Aext,           # Flow matrix
         nothing, # B input
         nothing, # u
         nothing, # constant input
         edgeListLoc1,
         []
-        )
+    )
     )
 
     #m_1 = @system(x' = Aext * x, x ∈ invariant)
@@ -142,13 +152,13 @@ function loadGearBox()
     #m_2 = @system(x' = A0 * x, x ∈ Universe(n))
 
     # Global constraint
-    property = LazySets.HalfSpace(sparsevec([5], [1.], n), 20.) 
+    property = LazySets.HalfSpace(sparsevec([5], [1.], n), 20.)
 
     H = HybridSystemV2(locations, [property])
 
 
     # Constraint
-    
+
     T = 0.21
 
     return H, 1, X0, T

@@ -109,15 +109,16 @@ function box(grid::Grid, state)
 
 end
 
-#=function fastbox(grid::Grid, state)
-    indices = zeros(Int, grid.dimension)
-    if all(grid.lower[i] <= state[i] < grid.upper[i] for i in eachindex(state))
-        indices = (state - grid.lower) ./ grid.granularity .+ 1
-        return grid.array[CartesianIndex(indices...)]
-    else
+function fastbox(grid::Grid, state)
+    difTuple = CartesianIndex(NTuple{length(state),Int64}(LinearAlgebra.BLAS.scal(1 / grid.granularity, state - grid.lower)))
+    try
+        return grid.array[difTuple]
+
+        #return grid.array[CartesianIndex(difTuple)]
+    catch
         throw(ArgumentError("State is out of bounds of the grid."))
     end
-end=#
+end
 
 function get_cell_bounds(grid::Grid, cell::Cell)
     lb = grid.lower + (car2vec(cell.id) .- 1) .* grid.granularity
@@ -177,7 +178,7 @@ grid = Grid(S, granularity)
 #initialize_safe_cells!(grid)  # Initialize the safe cells in the grid
 
 @time box(grid, [0.5, 0.5])  # Example state to find the corresponding cell
-#@time fastbox(grid, [0.5, 0.5])  # Example state to find the corresponding cell using fastbox
+@time fastbox(grid, [0.5, 0.5])  # Example state to find the corresponding cell using fastbox
 #get_cell_bounds(grid, box(grid, [-0., -1.]))  # Example to get the bounds of the corresponding cell
 #@show get_touching_cells(grid, Zonotope([0., 0.], [0.5 0.0; 0.0 0.5]))
 #@show get_contained_cells(grid, Zonotope([0., 0.], [0.5 0.0; 0.0 0.5]))

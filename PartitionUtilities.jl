@@ -110,7 +110,14 @@ function box(grid::Grid, state)
 end
 
 function fastbox(grid::Grid, state)
+    #t = zeros(Int, length(state))
+    #axpy!(1 / grid.granularity, state - grid.lower, t)
+    #difTuplet = CartesianIndex(NTuple{length(state),Int64}(t))
+    #@show t
+    #@show difTuplet
     difTuple = CartesianIndex(NTuple{length(state),Int64}(LinearAlgebra.BLAS.scal(1 / grid.granularity, state - grid.lower)))
+    #@show difTuple
+
     try
         return grid.array[difTuple]
 
@@ -178,8 +185,8 @@ grid = Grid(S, granularity)
 #initialize_safe_cells!(grid)  # Initialize the safe cells in the grid
 
 @time box(grid, [0.5, 0.5])  # Example state to find the corresponding cell
-@time fastbox(grid, [0.5, 0.5])  # Example state to find the corresponding cell using fastbox
-#get_cell_bounds(grid, box(grid, [-0., -1.]))  # Example to get the bounds of the corresponding cell
+@time fastbox(grid, [0, 1])  # Example state to find the corresponding cell using fastbox
+#@time get_cell_bounds(grid, fastbox(grid, [0., -1.]))  # Example to get the bounds of the corresponding cell
 #@show get_touching_cells(grid, Zonotope([0., 0.], [0.5 0.0; 0.0 0.5]))
 #@show get_contained_cells(grid, Zonotope([0., 0.], [0.5 0.0; 0.0 0.5]))
 

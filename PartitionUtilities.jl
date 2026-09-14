@@ -1,4 +1,5 @@
-using LazySets, LinearAlgebra
+using LazySets, LinearAlgebra, Plots
+using Plots.PlotMeasures
 
 ### Following code is adapted from "https://github.com/AstridHornBrorholt/Shielded-Learning-for-Hybrid-Systems/blob/main/Shared%20Code/Squares.jl"
 # Assumed that partitioning is axis-aligned, i.e., the partitioning is done along the axes of the state space. The Grid struct represents a grid in the state space with specified granularity and bounds.
@@ -91,8 +92,19 @@ function initialize_safe_cells!(grid::Grid, safeSetDict::Dict{CartesianIndex,Vec
         neg = collect(eachcol(Diagonal((offset .- 1) * grid.granularity) + ldiag))
 
         safeSet = AAPolytope(collect(Iterators.flatten(zip(pos, neg))))
-
+        safeSetDict[cell.id] = [safeSet]
     end
+end
+
+function initialize_zonotope_array(grid::Grid)
+    zonotopeArray = Array{Zonotope}(undef, (grid.numCells...))
+    generators = Diagonal(fill(grid.granularity / 2, grid.dimension))
+    for cell in grid
+        offset = car2vec(cell.id)
+        center = (offset .- 0.5) * grid.granularity .+ grid.lower
+        zonotopeArray[cell.id] = Zonotope(center, generators)
+    end
+    return zonotopeArray
 end
 
 function box(grid::Grid, state)
@@ -138,13 +150,13 @@ end
 function get_touching_cells(grid::Grid, convexSet::LazySet)
     touching_cells = []
 
-    lower_bounds, upper_bounds = LazySets.low(convexSet), LazySets.high(convexSet)
+    lower_bounds, upper_bounds = clamp.(LazySets.low(convexSet), grid.lower, grid.upper), clamp.(LazySets.high(convexSet), grid.lower, grid.upper)
 
+    #lower_bounds = Int.(floor.(abs.(max.(lower_bounds, grid.lower) .- grid.lower) ./ grid.granularity) .+ 1)
+    lower_bounds = Int.(floor.(abs.(lower_bounds .- grid.lower) ./ grid.granularity) .+ 1)
 
-    lower_bounds = Int.(floor.(abs.(max.(lower_bounds, grid.lower) .- grid.lower) ./ grid.granularity))
-    upper_bounds = Int.(ceil.(abs.(min.(upper_bounds, grid.upper) .- grid.lower) ./ grid.granularity)) #floor.(min.(upper_bounds, grid.upper) .- grid.lower) ./ grid.granularity
+    upper_bounds = Int.(ceil.(abs.(upper_bounds .- grid.lower) ./ grid.granularity)) #floor.(min.(upper_bounds, grid.upper) .- grid.lower) ./ grid.granularity
 
-    #steps = Int.(upper_bounds .- lower_bounds)
     ranges = [lower_bounds[i]:upper_bounds[i] for i in 1:grid.dimension]
 
     idxs = CartesianIndices((ranges...,))
@@ -178,21 +190,69 @@ function get_contained_cells(grid::Grid, convexSet::LazySet)
 end
 
 
-S = Zonotope(zeros(2), [1.0 0.0; 0.0 1.0])  # Example zonotope in 2D
-granularity = 0.25  # Example granularity
+S = Zonotope([7.5, 0.0], [7.5 0.0; 0.0 15.0])  # Example zonotope in 2D
+granularity = 0.01  # Example granularity
 grid = Grid(S, granularity)
+
+@time zonotopeArray = initialize_zonotope_array(grid)  # Initialize the zonotope array for the grid
+#@show zonotopeArray
+
+A = [0.5 0.0; -0.5 1.0]
+
+plt = plot(dpi=1200, thickness_scaling=1, guidefontsize=25, minorgrid=true,
+    legendfont=font(12, "Times"),
+    legend_position=:topright,
+    tickfont=font(8, "Times"),
+    xguidefont=font(12, "Times"),
+    yguidefont=font(12, "Times"),
+    bottom_margin=2mm,
+    left_margin=5mm,
+    right_margin=5mm,
+    top_margin=2mm,
+    xlabel="x", ylabel="y")
+
+#=
+for idx in eachindex(zonotopeArray)
+    if idx % 2 == 0
+        plot!(plt, zonotopeArray[idx], vars=(1, 2), c=:red, alpha=0.3, lw=0.65, label="")
+    else
+        plot!(plt, zonotopeArray[idx], vars=(1, 2), c=:blue, alpha=0.3, lw=0.65, label="")
+    end
+end
+=#
+
+eA = exp(A * 0.75)
+
+plot!(plt, eA * Zonotope([0.0, 0.0], Diagonal(fill(grid.granularity * 3.5, grid.dimension))), vars=(1, 2), c=:black, label="")
+#=
+    for idx in eachindex(zonotopeArray)
+        if idx % 2 == 0
+            plot!(plt, eA * zonotopeArray[idx], vars=(1, 2), c=:red, alpha=0.3, lw=0.65, label="")
+        else
+            plot!(plt, eA * zonotopeArray[idx], vars=(1, 2), c=:blue, alpha=0.3, lw=0.65, label="")
+        end
+    end
+=#
 
 #initialize_safe_cells!(grid)  # Initialize the safe cells in the grid
 
 @time box(grid, [0.5, 0.5])  # Example state to find the corresponding cell
-@time fastbox(grid, [0, 1])  # Example state to find the corresponding cell using fastbox
+@time fastbox(grid, [0.1, 1])  # Example state to find the corresponding cell using fastbox
 #@time get_cell_bounds(grid, fastbox(grid, [0., -1.]))  # Example to get the bounds of the corresponding cell
-#@show get_touching_cells(grid, Zonotope([0., 0.], [0.5 0.0; 0.0 0.5]))
-#@show get_contained_cells(grid, Zonotope([0., 0.], [0.5 0.0; 0.0 0.5]))
+for idx in get_touching_cells(grid, eA * zonotopeArray[16])
+    @show zonotopeArray[idx.id]
+end
+
+for idx in get_contained_cells(grid, eA * Zonotope([0.0, 0.0], Diagonal(fill(grid.granularity * 3.5, grid.dimension))))
+    plot!(plt, zonotopeArray[idx.id], vars=(1, 2), c=:white, alpha=0.3, lw=0.65, label="")
+end
+@time get_contained_cells(grid, Zonotope([0.0, 0.0], Diagonal(fill(grid.granularity * 3, grid.dimension))))
+
 
 #AA = AAPolytope([[1.0, 0.0], [0.0, 1.0], [-1.0, 0.0], [0.0, -1.0]])  # Example axis-aligned polytope in 2D
 #@show convert(HPolytope, AA)  # Convert the axis-aligned polytope to an HPolytope
 
+display(plt)  # Display the plot
 
 
 

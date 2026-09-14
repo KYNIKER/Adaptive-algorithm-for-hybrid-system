@@ -3,10 +3,10 @@ ENV["GKSwstype"] = "100"
 
 
 
-sys, initialState, X0, T = loadBouncingBall()
-T = 7
+sys, initialState, X0, T = loadBouncingBallNoEdges()
+T = 3
 timeConstraintList = []
-clustering = true
+clustering = false
 n = length(X0.center)
 reduceOrder = 5
 maxOrder = 5
@@ -39,13 +39,13 @@ p = plot(dpi=1200, thickness_scaling=1, guidefontsize=25, minorgrid=true,
     tickfont=font(8, "Times"),
     xguidefont=font(12, "Times"),
     yguidefont=font(12, "Times"),
-    xtick=([0, 8], [L"0", L"T"]),
+    xtick=([0, 8], ["0", "T"]),
     ytick=([], []),
     bottom_margin=2mm,
     left_margin=5mm,
     right_margin=5mm,
     top_margin=2mm,
-    ylims=(minVal, maxVal), xlims=(0, maximum(T)), xlabel=L"Time", ylabel=L"x")
+    ylims=(minVal, maxVal), xlims=(0, maximum(T)), xlabel="Time", ylabel="x")
 
 
 
@@ -69,7 +69,7 @@ for i in eachindex(shapes2)
 end
 
 
-savefig(p, "plotResults/" * "Introduction.pdf")
+#savefig(p, "plotResults/" * "Introduction.pdf")
 savefig(p, "plotResults/" * "Introduction.png")
 display(p)
 

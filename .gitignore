@@ -34,3 +34,4 @@ results/.gitkeep
 # Plotting Results
 plotResults/*
 plotResults/.gitkeep
+gr-temp/*

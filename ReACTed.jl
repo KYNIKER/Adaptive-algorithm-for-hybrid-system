@@ -90,7 +90,7 @@ function ReACTed(hybridSystem::HybridSystemV2, initialLoc, interval, X0, U, dirs
         #res = auxReACTedAlternative(waitinglist, hybridSystem, hybridSystem.locations[location], edge, interval′, initialset, dirsVectors, constraint, δ⁻, δ⁺, phiDict, inputDict, alg, maxOrder, reduceOrder, TΦ, reducedPolySet, timeConstraintList, saveResult; clustering, mustSemantics)
         res = auxReACTed(waitinglist, hybridSystem, hybridSystem.locations[location], edge, interval′, initialset, dirsVectors, constraint, δ⁻, δ⁺, phiDicts[location], tphiDicts[location], inputDicts[location], alg, maxOrder, reduceOrder, clustering, timeConstraintList, saveResult)
 
-        #reachset = vcat(reachset, res)
+        reachset = vcat(reachset, res)
         if transitionCount < zenoBound
             transitionCount += 1
         else
@@ -638,7 +638,7 @@ function ReACTGuards(loc, δ⁻::Float64, δ⁺::Float64, interval, guards, cons
             # If attemptsrecorder past 4 are successes, double timestep
             if currentTimeStep < δ⁺
                 lowest = min(4, i - 1)
-                window = @view attemptsRecorder[i-lowest:i-1]
+                window = @view attemptsRecorder[(i-lowest):(i-1)]
                 if all(window .== 1)
                     currentTimeStep = currentTimeStep * 2
                     #changedTimeStep = true
@@ -818,7 +818,7 @@ function ReACTGuardsBrake(loc, δ⁻::Float64, δ⁺::Float64, interval, guards,
             # If attemptsrecorder past 4 are successes, double timestep
             if currentTimeStep < initialTimeStep
                 lowest = min(4, i - 1)
-                window = @view attemptsRecorder[i-lowest:i-1]
+                window = @view attemptsRecorder[(i-lowest):(i-1)]
                 if all(window .== 1)
                     currentTimeStep = currentTimeStep * 2
                     #changedTimeStep = true
@@ -955,7 +955,7 @@ function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, constraint, dirs, 
             # If attemptsrecorder past 4 are successes, double timestep
             if currentTimeStep < initialTimeStep
                 lowest = min(4, i - 1)
-                window = @view attemptsRecorder[i-lowest:i-1]
+                window = @view attemptsRecorder[(i-lowest):(i-1)]
                 if all(window .== 1)
                     currentTimeStep = currentTimeStep * 2
                     changedTimeStep = true

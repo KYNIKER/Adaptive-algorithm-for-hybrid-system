@@ -127,7 +127,10 @@ function fastbox(grid::Grid, state)
     #difTuplet = CartesianIndex(NTuple{length(state),Int64}(t))
     #@show t
     #@show difTuplet
-    difTuple = CartesianIndex(NTuple{length(state),Int64}(LinearAlgebra.BLAS.scal(1 / grid.granularity, state - grid.lower)))
+    @show map(x -> floor(Int64, x), (LinearAlgebra.BLAS.scal(1 / grid.granularity, state - grid.lower)))
+    #t=NTuple{length(state),Integer}(LinearAlgebra.BLAS.scal(1 / grid.granularity, state - grid.lower))
+    t=NTuple{length(state),Integer}(map(x -> floor(Int64, x), (LinearAlgebra.BLAS.scal(1 / grid.granularity, state - grid.lower))))
+    difTuple = CartesianIndex(t)
     #@show difTuple
 
     try
@@ -151,7 +154,7 @@ function get_touching_cells(grid::Grid, convexSet::LazySet)
     touching_cells = []
 
     lower_bounds, upper_bounds = clamp.(LazySets.low(convexSet), grid.lower, grid.upper), clamp.(LazySets.high(convexSet), grid.lower, grid.upper)
-
+    #lower_bounds = LazySets.low(convexSet)
     #lower_bounds = Int.(floor.(abs.(max.(lower_bounds, grid.lower) .- grid.lower) ./ grid.granularity) .+ 1)
     lower_bounds = Int.(floor.(abs.(lower_bounds .- grid.lower) ./ grid.granularity) .+ 1)
 
@@ -177,21 +180,45 @@ end
 function get_contained_cells(grid::Grid, convexSet::LazySet)
     contained_cells = []
 
+
     for cell in get_touching_cells(grid, convexSet)
         lower_bounds, upper_bounds = get_cell_bounds(grid, cell)
         cell_box = Hyperrectangle((lower_bounds + upper_bounds) / 2, (upper_bounds - lower_bounds) / 2)
 
         if issubset(cell_box, convexSet)
             push!(contained_cells, cell)
+
         end
     end
 
     return contained_cells
 end
 
+function get_contained_edge_cells(grid::Grid, convexSet::LazySet)
+    contained_cells = []
+    perimeter_cells = []
 
-S = Zonotope([7.5, 0.0], [7.5 0.0; 0.0 15.0])  # Example zonotope in 2D
-granularity = 0.01  # Example granularity
+    for cell in get_touching_cells(grid, convexSet)
+        lower_bounds, upper_bounds = get_cell_bounds(grid, cell)
+        cell_box = Hyperrectangle((lower_bounds + upper_bounds) / 2, (upper_bounds - lower_bounds) / 2)
+
+        if issubset(cell_box, convexSet)
+            push!(contained_cells, cell)
+        else
+            push!(perimeter_cells, cell)
+        end
+    end
+
+    return contained_cells, perimeter_cells
+end
+
+#=function get_perimeter_cells(grid::Grid, convexSet)
+    return setdiff(get_touching_cells(grid, convexSet), get_contained_cells(grid, convexSet))
+end=#
+
+
+S = Zonotope([7.5, 0.0], [8.5 0.0; 0.0 15.0])  # Example zonotope in 2D
+granularity = 0.04  # Example granularity
 grid = Grid(S, granularity)
 
 @time zonotopeArray = initialize_zonotope_array(grid)  # Initialize the zonotope array for the grid
@@ -236,18 +263,29 @@ plot!(plt, eA * Zonotope([0.0, 0.0], Diagonal(fill(grid.granularity * 3.5, grid.
 
 #initialize_safe_cells!(grid)  # Initialize the safe cells in the grid
 
-@time box(grid, [0.5, 0.5])  # Example state to find the corresponding cell
-@time fastbox(grid, [0.1, 1])  # Example state to find the corresponding cell using fastbox
+#@time box(grid, [0.5, 0.5])  # Example state to find the corresponding cell
+@time box(grid, [-0.195, -0.195])  # Example state to find the corresponding cell using fastbox
+@time fastbox(grid, [-0.195, -0.195])  # Example state to find the corresponding cell using fastbox
 #@time get_cell_bounds(grid, fastbox(grid, [0., -1.]))  # Example to get the bounds of the corresponding cell
-for idx in get_touching_cells(grid, eA * zonotopeArray[16])
-    @show zonotopeArray[idx.id]
-end
 
+for idx in get_touching_cells(grid, eA * Zonotope([0.0, 0.0], Diagonal(fill(grid.granularity * 3.5, grid.dimension))))
+
+    plot!(plt, zonotopeArray[idx.id], vars=(1, 2), c=:blue, alpha=0.3, lw=0.65, label="")
+end
 for idx in get_contained_cells(grid, eA * Zonotope([0.0, 0.0], Diagonal(fill(grid.granularity * 3.5, grid.dimension))))
     plot!(plt, zonotopeArray[idx.id], vars=(1, 2), c=:white, alpha=0.3, lw=0.65, label="")
 end
+
+
 @time get_contained_cells(grid, Zonotope([0.0, 0.0], Diagonal(fill(grid.granularity * 3, grid.dimension))))
 
+_, edgeCells = get_contained_edge_cells(grid, eA * Zonotope([0.0, 0.0], Diagonal(fill(grid.granularity * 3.5, grid.dimension))))
+
+for idx in edgeCells #get_perimeter_cells(grid, eA * Zonotope([0.0, 0.0], Diagonal(fill(grid.granularity * 3.5, grid.dimension))))
+    plot!(plt, zonotopeArray[idx.id], vars=(1, 2), c=:orange, alpha=0.3, lw=0.65, label="")
+end
+#=
+=#
 
 #AA = AAPolytope([[1.0, 0.0], [0.0, 1.0], [-1.0, 0.0], [0.0, -1.0]])  # Example axis-aligned polytope in 2D
 #@show convert(HPolytope, AA)  # Convert the axis-aligned polytope to an HPolytope

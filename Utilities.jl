@@ -9,6 +9,13 @@ struct Edge
     jumpVector::Vector{Float64}
 end
 
+struct Action
+    id::Int
+    guard::Union{HPolyhedron,Nothing}
+    jumpMatrix::Matrix{Float64}
+    jumpVector::Vector{Float64}
+end
+
 Base.show(io::Core.IO, e::Edge) = print(io, "Edge going to: ", e.targetLoc)
 
 
@@ -46,6 +53,14 @@ struct HybridSystem
     Flow
     Jump
     Init
+end
+
+struct EuclideanHybridSystem
+    statespace::LazySet
+    globalConstraints::Vector{LazySet}
+    flowMatrix
+    edges::Vector{Edge}
+    Act::Vector{Action}
 end
 
 function getHalfSpaceProjections(H::HPolyhedron)
@@ -518,13 +533,13 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
         #remidx = stack([false for x in HalfSpaces])
         # remidx = falses(length(HalfSpaces))
         collinear = Vector{LazySets.HalfSpaceModule.HalfSpace{Float64,Vector{Float64}}}()
-        
-        
+
+
         amountOfHalfspaces = length(HalfSpaces)
         remidx = falses(amountOfHalfspaces)
         for j in (1:amountOfHalfspaces)
             hs1 = HalfSpaces[j]
-            for i in (j+1:amountOfHalfspaces)
+            for i in ((j+1):amountOfHalfspaces)
                 hs2 = HalfSpaces[i]
                 if iscollinear(hs1.a, hs2.a)
                     @inbounds remidx[i] = true

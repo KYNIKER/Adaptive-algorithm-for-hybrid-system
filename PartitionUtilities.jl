@@ -83,6 +83,14 @@ end
 
 Base.convert(::Type{HPolytope}, poly::AAPolytope) = HPolytope(collect(Iterators.flatten((HalfSpace(poly.normals[i], 1.0), HalfSpace(poly.normals[i+1], -1.0)) for i in 1:2:(length(poly.normals)-1))))
 
+#=
+function initialize_grid_cells!(grid::Grid)
+    for cell in grid
+        grid.array[cell.id] = cell
+    end
+end
+=#
+
 function initialize_safe_cells!(grid::Grid, safeSetDict::Dict{CartesianIndex,Vector{LazySet}}=Dict{CartesianIndex,Vector{LazySet}}())
     diag = Diagonal(fill(grid.granularity, grid.dimension))
     ldiag = Diagonal(grid.lower)
@@ -103,6 +111,7 @@ function initialize_zonotope_array(grid::Grid)
         offset = car2vec(cell.id)
         center = (offset .- 0.5) * grid.granularity .+ grid.lower
         zonotopeArray[cell.id] = Zonotope(center, generators)
+
     end
     return zonotopeArray
 end
@@ -212,17 +221,49 @@ function get_contained_edge_cells(grid::Grid, convexSet::LazySet)
     return contained_cells, perimeter_cells
 end
 
+function offsets(grid::Grid)
+    offsets = [Tuple(id) for id in CartesianIndices(([1:1:3 for i in 1:grid.dimension]...,))]
+    offsets = [t .- Tuple(fill(2, grid.dimension)) for t in offsets]
+    return delete!(Set(offsets), Tuple(fill(0, grid.dimension)))
+end
+
+function grow_indices(grid::Grid, idxs)
+    offset = offsets(grid)
+    res = []
+    for idx in idxs
+        union!(res, collect(Tuple(idx .+ of) for of in offset))
+    end
+
+    intersect!(res, union(Tuple(idx) for idx in CartesianIndices(grid.array)))
+    setdiff!(res, collect(Tuple(id) for id in idxs))
+    return res
+end
+
+function grow_indices(grid::Grid, idxs, offset)
+    res = []
+    for idx in idxs
+        union!(res, collect(Tuple(idx .+ of) for of in offset))
+    end
+
+    intersect!(res, union(Tuple(idx) for idx in CartesianIndices(grid.array)))
+    setdiff!(res, collect(Tuple(id) for id in idxs))
+    return res
+end
+
 #=function get_perimeter_cells(grid::Grid, convexSet)
     return setdiff(get_touching_cells(grid, convexSet), get_contained_cells(grid, convexSet))
 end=#
 
 
 S = Zonotope([7.5, 0.0], [8.5 0.0; 0.0 15.0])  # Example zonotope in 2D
-granularity = 0.04  # Example granularity
+granularity = 0.5  # Example granularity
 grid = Grid(S, granularity)
+
 
 @time zonotopeArray = initialize_zonotope_array(grid)  # Initialize the zonotope array for the grid
 #@show zonotopeArray
+
+@show CartesianIndices(grid.array)
 
 A = [0.5 0.0; -0.5 1.0]
 
@@ -292,7 +333,9 @@ end
 
 display(plt)  # Display the plot
 
+@show grow_indices(grid, [[1, 1], [1, 2]])
 
+@show offsets(grid)
 
 # Måske muligt i stedet for at genbruge koden fra Astrid, at bruge den samme funktion til at lave en grid som bare er en store af keys og så gemme values et andet sted. Hvis det er implementeret med et linært index
 # eller som en dictionary på cartisianIndex ville man nok kunne fjerne keys som er cell'er der ikke længere har safe elementer. 

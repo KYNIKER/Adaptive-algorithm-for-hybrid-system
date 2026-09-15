@@ -28,7 +28,7 @@ function Grid(convexSet::LazySet, granularity::T) where T<:Real
     # Possible to check if cells actually are within the convexSet, but for now we assume they are.
     array = Array{Cell}(undef, (numCells...))  # Create an array to hold the grid cells
 
-    deadCells = BitArray(undef, (numCells...))  # Create an array to label the dead cells
+    deadCells = falses(numCells...)#BitArray(undef, (numCells...))  # Create an array to label the dead cells
 
     for id in CartesianIndices(array)
         array[id] = Cell(id, [LinearIndices(array)[id]], [])
@@ -45,7 +45,7 @@ Base.length(grid::Grid) = length(grid.array)
 
 Base.size(grid::Grid) = size(grid.array)
 
-struct Cell
+mutable struct Cell
     id::CartesianIndex
     sidx::Vector{Int}
     uidx::Vector{Int}
@@ -81,7 +81,7 @@ struct AAPolytope
     normals::Vector{Vector{Float64}}
 end
 
-Base.convert(::Type{HPolytope}, poly::AAPolytope) = HPolytope(collect(Iterators.flatten((HalfSpace(poly.normals[i], 1.0), HalfSpace(poly.normals[i+1], -1.0)) for i in 1:2:(length(poly.normals)-1))))
+Base.convert(::Type{HPolytope}, poly::AAPolytope) = HPolytope(collect(Iterators.flatten((LazySets.HalfSpace(poly.normals[i], 1.0), LazySets.HalfSpace(poly.normals[i+1], -1.0)) for i in 1:2:(length(poly.normals)-1))))
 
 #=
 function initialize_grid_cells!(grid::Grid)
@@ -90,6 +90,47 @@ function initialize_grid_cells!(grid::Grid)
     end
 end
 =#
+
+function mark_dead_cells!(grid::Grid, unsafeSet::LazySet, unsafeSetDict::Dict{CartesianIndex,Vector{LazySet}}=Dict{CartesianIndex,Vector{LazySet}}())
+    containedCells, edgeCells = get_contained_edge_cells(grid, unsafeSet)
+    for containedCell in containedCells
+        grid.deadCells[containedCell.id] = true
+    end
+    ldiag = Diagonal(grid.lower)
+    for edgeCell in edgeCells
+        if haskey(unsafeSetDict, edgeCell.id)
+            push!(edgeCell.uidx, length(edgeCell.uidx)+1)
+            offset = car2vec(edgeCell.id)
+            granularityOffset = offset * grid.granularity
+            lowerOffset = grid.lower
+            #@show vcat(collect([LazySets.HalfSpace(a, dot(a, granularityOffset)+b), LazySets.HalfSpace(-a, -dot(a, granularityOffset)+grid.granularity+b)] for (a, b) in zip(eachcol(diagm(ones(grid.dimension))), grid.lower))...)
+            hs = vcat(collect([LazySets.HalfSpace(a, dot(a, granularityOffset)+dot(a, lowerOffset)), LazySets.HalfSpace(-a, -dot(a, granularityOffset)-dot(a, lowerOffset)+grid.granularity)] for a in eachcol(diagm(ones(grid.dimension))))...)
+            #hs = vcat(collect([LazySets.HalfSpace(a, dot(a, granularityOffset)), LazySets.HalfSpace(-a, -dot(a, granularityOffset)+grid.granularity)] for a in eachcol(diagm(ones(grid.dimension))))...)
+
+            #pos = collect(eachcol(Diagonal(offset * grid.granularity) + ldiag))
+            #neg = collect(eachcol(Diagonal((offset .- 1) * grid.granularity) + ldiag))
+
+            safeSet = HPolytope(hs)
+            push!(unsafeSetDict[edgeCell.id], LazySets.API.intersection(unsafeSet, safeSet))
+        else
+            edgeCell.uidx = [1]
+            offset = car2vec(edgeCell.id)
+            granularityOffset = offset * grid.granularity
+            lowerOffset = grid.lower
+            #@show vcat(collect([LazySets.HalfSpace(a, dot(a, granularityOffset)+b), LazySets.HalfSpace(-a, -dot(a, granularityOffset)+grid.granularity+b)] for (a, b) in zip(eachcol(diagm(ones(grid.dimension))), grid.lower))...)
+            hs = vcat(collect([LazySets.HalfSpace(a, dot(a, granularityOffset)+dot(a, lowerOffset)), LazySets.HalfSpace(-a, -dot(a, granularityOffset)-dot(a, lowerOffset)+grid.granularity)] for a in eachcol(diagm(ones(grid.dimension))))...)
+            #hs = vcat(collect([LazySets.HalfSpace(a, dot(a, granularityOffset)), LazySets.HalfSpace(-a, -dot(a, granularityOffset)+grid.granularity)] for a in eachcol(diagm(ones(grid.dimension))))...)
+
+            #pos = collect(eachcol(Diagonal(offset * grid.granularity) + ldiag))
+            #neg = collect(eachcol(Diagonal((offset .- 1) * grid.granularity) + ldiag))
+
+            safeSet = HPolytope(hs)
+            #@show LazySets.API.isdisjoint(safeSet, unsafeSet)
+            #safeSet = convert(HPolytope, AAPolytope(collect(Iterators.flatten(zip(pos, neg)))))
+            unsafeSetDict[edgeCell.id] = [LazySets.API.intersection(unsafeSet, safeSet)]
+        end
+    end
+end
 
 function initialize_safe_cells!(grid::Grid, safeSetDict::Dict{CartesianIndex,Vector{LazySet}}=Dict{CartesianIndex,Vector{LazySet}}())
     diag = Diagonal(fill(grid.granularity, grid.dimension))
@@ -250,6 +291,10 @@ function grow_indices(grid::Grid, idxs, offset)
     return res
 end
 
+
+
+
+
 #=function get_perimeter_cells(grid::Grid, convexSet)
     return setdiff(get_touching_cells(grid, convexSet), get_contained_cells(grid, convexSet))
 end=#
@@ -259,6 +304,7 @@ S = Zonotope([7.5, 0.0], [8.5 0.0; 0.0 15.0])  # Example zonotope in 2D
 granularity = 0.5  # Example granularity
 grid = Grid(S, granularity)
 
+unsafeDict = Dict{CartesianIndex,Vector{LazySet}}()
 
 @time zonotopeArray = initialize_zonotope_array(grid)  # Initialize the zonotope array for the grid
 #@show zonotopeArray
@@ -331,11 +377,18 @@ end
 #AA = AAPolytope([[1.0, 0.0], [0.0, 1.0], [-1.0, 0.0], [0.0, -1.0]])  # Example axis-aligned polytope in 2D
 #@show convert(HPolytope, AA)  # Convert the axis-aligned polytope to an HPolytope
 
-display(plt)  # Display the plot
 
 @show grow_indices(grid, [[1, 1], [1, 2]])
 
 @show offsets(grid)
+
+mark_dead_cells!(grid, eA * Zonotope([0.0, 0.0], Diagonal(fill(grid.granularity * 3.5, grid.dimension))), unsafeDict)
+
+for v in values(unsafeDict)
+    #@show v
+    plot!(plt, v[1], c=:green)
+end
+display(plt)  # Display the plot
 
 # Måske muligt i stedet for at genbruge koden fra Astrid, at bruge den samme funktion til at lave en grid som bare er en store af keys og så gemme values et andet sted. Hvis det er implementeret med et linært index
 # eller som en dictionary på cartisianIndex ville man nok kunne fjerne keys som er cell'er der ikke længere har safe elementer. 

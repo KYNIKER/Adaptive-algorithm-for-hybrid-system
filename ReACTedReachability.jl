@@ -225,7 +225,11 @@ function auxReACTed(waitinglist, hybridSystem, loc::Location, currentEdge, inter
                     end
 
                     #any(x -> ρ(x.a, jumpSet) > x.b, setOfConstraints) && handleHitConstraint(reachtime + δ⁻ * i, loc.id)
-
+                    #=
+                    if LazySets.isdisjoint(jumpSet, edge.guard)
+                        break
+                    end
+                    =#
                     if !isa(edge.guard, Nothing)
                         jumpSet = zonotopeStripIntersection(jumpSet, edge.guard)
                     end
@@ -974,8 +978,13 @@ function guardCheck(newR::Zonotope, Sρ, constraintProjVectors, constraintProjBo
     #any((input + -ρ(-x, discritezationDict[currentTimeStep])) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) &&
     #all((input - ρ(-x, discritezationDict[currentTimeStep])) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)))
     #return all((input + ρ(x, newR)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) && any((input + -ρ(-x, newR)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) && all((input - ρ(-x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
-    return allunder(newR, Sρ, constraintProjVectors, constraintProjBounds) && someoutside(newR, Gρ, guardProjVectors, guardProjBounds) && someunder(newR, Iρ, invarientProjVectors, invarientProjBounds)#all((input - ρ(-x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
-
+    if allunder(newR, Sρ, constraintProjVectors, constraintProjBounds) && someunder(newR, Iρ, invarientProjVectors, invarientProjBounds)
+        if someoutside(newR, Gρ, guardProjVectors, guardProjBounds)
+            return true
+        else
+            return LazySets.API.isdisjoint(newR, HPolyhedron(HalfSpace(a, b+c) for (a, b, c) in zip(guardProjVectors, guardProjBounds, Gρ)))
+        end
+    end
 end
 
 function touchesCheck(newR::Zonotope, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, invarientProjVectors, invarientProjBounds) #; solver=model
@@ -1017,19 +1026,20 @@ function allunder(set, offset, dir, bound)
 end
 
 function someunder(set, offset, dir, bound)
-    res = true
-    @inbounds @simd for i in eachindex(offset, dir, bound)
-        res = res && (offset[i] - ρ(-dir[i], set) <= bound[i])
-    end
+    #res = true
+    res = !LazySets.API.isdisjoint(set, HPolyhedron(HalfSpace(a, b+c) for (a, b, c) in zip(dir, bound, offset)))
+    #@inbounds @simd for i in eachindex(offset, dir, bound)
+    #    res = res && (offset[i] - ρ(-dir[i], set) <= bound[i])
+    #end
     return res
 end
 
 function someoutside(set, offset, dir, bound)
-    res = false
+    #=res = false
     @inbounds @simd for i in eachindex(offset, dir, bound)
         res = res || (offset[i] - ρ(-dir[i], set) > bound[i])
-    end
-    return res
+    end=#
+    return !allunder(set, offset, dir, bound)
 end
 
 function allunder(set, dir, bound)
@@ -1041,19 +1051,19 @@ function allunder(set, dir, bound)
 end
 
 function someunder(set, dir, bound)
-    res = true
+    #=res = true
     @inbounds @simd for i in eachindex(dir, bound)
         res = res && (-ρ(-dir[i], set) <= bound[i])
-    end
-    return res
+    end=#
+    return !LazySets.API.isdisjoint(set, HPolyhedron(HalfSpace(a, b) for (a, b) in zip(dir, bound)))
 end
 
 function someoutside(set, dir, bound)
-    res = false
+    #=res = false
     @inbounds @simd for i in eachindex(dir, bound)
         res = res || (-ρ(-dir[i], set) > bound[i])
-    end
-    return res
+    end=#
+    return !allunder(set, dir, bound)
 end
 
 

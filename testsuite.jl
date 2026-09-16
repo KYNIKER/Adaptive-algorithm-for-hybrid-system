@@ -147,7 +147,8 @@ if RUN_FIXED
 end
 
 if RUN_ADAPTIVE
-    δ⁺arr = [2^1, 2^2, 2^3, 2^4, 2^6, 2^8, 2^10, 2^12]
+    #δ⁺arr = [2^1, 2^2, 2^3, 2^4, 2^6, 2^8, 2^10, 2^12]
+    δ⁺arr = [2^1, 2^2, 2^3]
     for d in δ⁺arr
         for (name, δ⁻, loadFunction) in zip(names, minδ, loadFunctions)
             δ⁺ = δ⁻ * d

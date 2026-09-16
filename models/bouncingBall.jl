@@ -37,7 +37,7 @@ end
 
 function loadBouncingBallShielded()
     A = [0.0 1.0 0.0; 0.0 0.0 -(9.82/ℯ); 0. 0. 0.]
-    S = Hyperrectangle([7.5, 0.0], [8.5, 15.0])
+    S = Hyperrectangle([7.5, 0.0, 1.0], [8.5, 15.0, 0])
 
     guard = HPolyhedron([
         LazySets.HalfSpace(sparsevec([1], [1.], 3), 0.0), # x <= 0
@@ -56,16 +56,18 @@ function loadBouncingBallShielded()
         LazySets.HalfSpace(sparsevec([2], [-1.], 3), 1e-5)  # y <= 0
     ])
 
+    #constraint = LazySets.API.intersection(constraint, S)
+
     act1 = Action(1, HPolyhedron([
-            LazySets.HalfSpace(sparsevec([1], [-1.], 3), -4.0), # x >= 4
-            LazySets.HalfSpace(sparsevec([2], [1.], 3), 0.0),  # y <= 0
-            LazySets.HalfSpace(sparsevec([2], [-1.], 3), 4.0)  # y > -4
-        ]), diagm([1.0, 0.0, 1.0]), [0.0, -4.0, 0.0])
+        LazySets.HalfSpace(sparsevec([1], [-1.], 3), -4.0), # x >= 4
+        LazySets.HalfSpace(sparsevec([2], [1.], 3), 0.0),  # y <= 0
+        LazySets.HalfSpace(sparsevec([2], [-1.], 3), 4.0)  # y > -4
+    ]), diagm([1.0, 0.0, 1.0]), [0.0, -4.0, 0.0])
 
     act2 = Action(2, HPolyhedron([
-            LazySets.HalfSpace(sparsevec([1], [-1.], 3), -4.0), # x >= 4
-            LazySets.HalfSpace(sparsevec([2], [-1.], 3), 0.0)  # y >= 0
-        ]), diagm([1.0, 0.9, 1.0]), [0.0, -4.0, 0.0])
+        LazySets.HalfSpace(sparsevec([1], [-1.], 3), -4.0), # x >= 4
+        LazySets.HalfSpace(sparsevec([2], [-1.], 3), 0.0)  # y >= 0
+    ]), diagm([1.0, 0.9, 1.0]), [0.0, -4.0, 0.0])
 
     Act = [act1, act2]
 

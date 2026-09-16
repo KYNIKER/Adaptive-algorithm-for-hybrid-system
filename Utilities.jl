@@ -63,6 +63,8 @@ struct EuclideanHybridSystem
     Act::Vector{Action}
 end
 
+
+
 function getHalfSpaceProjections(H::HPolyhedron)
     getHalfSpaceProjections(H.constraints) # Convert to halfspace list
 end

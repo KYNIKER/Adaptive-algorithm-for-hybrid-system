@@ -7,13 +7,13 @@ mutable struct LPWorkspace
     x::Vector{Float64}
 end
 
-function LPWorkspace(A::Matrix{Float64}, b::Vector{Float64}, c::Vector{Float64})
+function LPWorkspace(A::Matrix{Float64}, b::Vector{Float64}, c::Vector{Float64}, objSense=kHighsObjSenseMaximize)
     m, n = size(A)
 
     h = Highs_create()
 
     Highs_setBoolOptionValue(h, "output_flag", false)
-    Highs_changeObjectiveSense(h, -1)
+    Highs_changeObjectiveSense(h, objSense)
 
     for j in 1:n
         Highs_addCol(h, c[j], -Inf, Inf, 0, C_NULL, C_NULL)
@@ -86,6 +86,46 @@ function update!(
     end
 
     return nothing
+end
+
+# https://github.com/JuliaReach/LazySets.jl/blob/54f65f2da50d70fe3c4f091418c5a2bea24c30d5/src/ConcreteOperations/isdisjoint.jl#L575
+function disjointness_check(lpMinimizer::LPWorkspace, G::Matrix{Float64}, c::Vector{Float64}, A::Matrix{Float64}, b::Vector{Float64})
+    n = size(c)
+    if n <= 2
+        # this implementation is slower for low-dimensional sets
+        #return _isdisjoint_polyhedron(Z, P, witness; solver=solver)
+    end
+
+    h = lpMinimizer.highs
+
+    p = size(G, 2)
+    m = length(d)
+
+    @inbounds for i in 1:size(A, 1)
+        for j in 1:size(A, 2)
+            Highs_changeCoeff(h, i - 1, j - 1, A[i, j])
+        end
+        for n in size(A, 2):lpMinimizer.n
+            Highs_changeCoeff(h, i - 1, n - 1, 0)
+        end
+    end
+
+    @inbounds for i in 1:n
+        HiGHS_changeCoeff(h, size(A, 1)+i-1, i - 1, 1)
+
+        for j in 1:size(G, 1)
+            HiGHS_changeCoeff(h, size(A, 1)+i-1, n + j - 1, G[i, j])
+        end
+    end
+
+    @inbounds for i in 1:size(b)
+        Highs_changeRowBounds(h, i - 1, -Inf, Inf)
+    end
+
+    @inbounds for i in 1:size(c)
+        Highs_changeRowBounds(h, size(b) + i - 1, -1, 1)
+    end
+
 end
 
 A = rand(Float64, (5, 5))

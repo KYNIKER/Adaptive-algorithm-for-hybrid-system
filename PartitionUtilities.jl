@@ -1,5 +1,4 @@
-using LazySets, LinearAlgebra, Plots
-using Plots.PlotMeasures
+using LazySets, LinearAlgebra, ReachabilityAnalysis
 
 ### Following code is adapted from "https://github.com/AstridHornBrorholt/Shielded-Learning-for-Hybrid-Systems/blob/main/Shared%20Code/Squares.jl"
 # Assumed that partitioning is axis-aligned, i.e., the partitioning is done along the axes of the state space. The Grid struct represents a grid in the state space with specified granularity and bounds.
@@ -22,7 +21,7 @@ function Grid(convexSet::LazySet, granularity::T) where T<:Real
     numCells = zeros(Int, dimension)
 
     for (i, (lb, ub)) in enumerate(zip(lower_bounds, upper_bounds))
-        numCells[i] = ceil((ub-lb)/granularity)
+        numCells[i] = max(ceil((ub-lb)/granularity), 1)
     end
 
     # Possible to check if cells actually are within the convexSet, but for now we assume they are.
@@ -49,6 +48,11 @@ mutable struct Cell
     id::CartesianIndex
     sidx::Vector{Int}
     uidx::Vector{Int}
+    pCells::Vector{CartesianIndex}
+end
+
+function Cell(id, sidx, uidx)
+    return Cell(id, sidx, uidx, [])
 end
 
 Base.show(io::IO, cell::Cell) = println(io,
@@ -98,18 +102,13 @@ function mark_dead_cells!(grid::Grid, unsafeSet::LazySet, unsafeSetDict::Dict{Ca
     end
     ldiag = Diagonal(grid.lower)
     for edgeCell in edgeCells
+        # Two cases for such that multiple unsafeSets can be added. 
         if haskey(unsafeSetDict, edgeCell.id)
             push!(edgeCell.uidx, length(edgeCell.uidx)+1)
             offset = car2vec(edgeCell.id)
             granularityOffset = offset * grid.granularity
             lowerOffset = grid.lower
-            #@show vcat(collect([LazySets.HalfSpace(a, dot(a, granularityOffset)+b), LazySets.HalfSpace(-a, -dot(a, granularityOffset)+grid.granularity+b)] for (a, b) in zip(eachcol(diagm(ones(grid.dimension))), grid.lower))...)
             hs = vcat(collect([LazySets.HalfSpace(a, dot(a, granularityOffset)+dot(a, lowerOffset)), LazySets.HalfSpace(-a, -dot(a, granularityOffset)-dot(a, lowerOffset)+grid.granularity)] for a in eachcol(diagm(ones(grid.dimension))))...)
-            #hs = vcat(collect([LazySets.HalfSpace(a, dot(a, granularityOffset)), LazySets.HalfSpace(-a, -dot(a, granularityOffset)+grid.granularity)] for a in eachcol(diagm(ones(grid.dimension))))...)
-
-            #pos = collect(eachcol(Diagonal(offset * grid.granularity) + ldiag))
-            #neg = collect(eachcol(Diagonal((offset .- 1) * grid.granularity) + ldiag))
-
             safeSet = HPolytope(hs)
             push!(unsafeSetDict[edgeCell.id], LazySets.API.intersection(unsafeSet, safeSet))
         else
@@ -117,16 +116,8 @@ function mark_dead_cells!(grid::Grid, unsafeSet::LazySet, unsafeSetDict::Dict{Ca
             offset = car2vec(edgeCell.id)
             granularityOffset = offset * grid.granularity
             lowerOffset = grid.lower
-            #@show vcat(collect([LazySets.HalfSpace(a, dot(a, granularityOffset)+b), LazySets.HalfSpace(-a, -dot(a, granularityOffset)+grid.granularity+b)] for (a, b) in zip(eachcol(diagm(ones(grid.dimension))), grid.lower))...)
             hs = vcat(collect([LazySets.HalfSpace(a, dot(a, granularityOffset)+dot(a, lowerOffset)), LazySets.HalfSpace(-a, -dot(a, granularityOffset)-dot(a, lowerOffset)+grid.granularity)] for a in eachcol(diagm(ones(grid.dimension))))...)
-            #hs = vcat(collect([LazySets.HalfSpace(a, dot(a, granularityOffset)), LazySets.HalfSpace(-a, -dot(a, granularityOffset)+grid.granularity)] for a in eachcol(diagm(ones(grid.dimension))))...)
-
-            #pos = collect(eachcol(Diagonal(offset * grid.granularity) + ldiag))
-            #neg = collect(eachcol(Diagonal((offset .- 1) * grid.granularity) + ldiag))
-
             safeSet = HPolytope(hs)
-            #@show LazySets.API.isdisjoint(safeSet, unsafeSet)
-            #safeSet = convert(HPolytope, AAPolytope(collect(Iterators.flatten(zip(pos, neg)))))
             unsafeSetDict[edgeCell.id] = [LazySets.API.intersection(unsafeSet, safeSet)]
         end
     end
@@ -136,13 +127,33 @@ function initialize_safe_cells!(grid::Grid, safeSetDict::Dict{CartesianIndex,Vec
     diag = Diagonal(fill(grid.granularity, grid.dimension))
     ldiag = Diagonal(grid.lower)
     for cell in grid
-        offset = car2vec(cell.id)
+        #=offset = car2vec(cell.id)
         pos = collect(eachcol(Diagonal(offset * grid.granularity) + ldiag))
         neg = collect(eachcol(Diagonal((offset .- 1) * grid.granularity) + ldiag))
 
-        safeSet = AAPolytope(collect(Iterators.flatten(zip(pos, neg))))
+        safeSet = AAPolytope(collect(Iterators.flatten(zip(pos, neg))))=#
+        offset = car2vec(cell.id)
+        granularityOffset = offset * grid.granularity
+        lowerOffset = grid.lower
+        hs = vcat(collect([LazySets.HalfSpace(a, dot(a, granularityOffset)+dot(a, lowerOffset)), LazySets.HalfSpace(-a, -dot(a, granularityOffset)-dot(a, lowerOffset)+grid.granularity)] for a in eachcol(diagm(ones(grid.dimension))))...)
+        safeSet = HPolytope(hs)
         safeSetDict[cell.id] = [safeSet]
     end
+end
+
+function car_to_HPolytope(grid, car)
+    offset = car2vec(car)
+    granularityOffset = offset * grid.granularity
+    lowerOffset = grid.lower
+    hs = vcat(collect([LazySets.HalfSpace(a, dot(a, granularityOffset)+dot(a, lowerOffset)), LazySets.HalfSpace(-a, -dot(a, granularityOffset)-dot(a, lowerOffset)+grid.granularity)] for a in eachcol(diagm(ones(grid.dimension))))...)
+    return HPolytope(hs)
+end
+
+function hyperrectangle_to_HPolytope(hyperrectangle)
+    i = ones(length(hyperrectangle.center))
+    D = diagm(i)
+    hs = vcat(collect([LazySets.HalfSpace(a, dot(hyperrectangle.center, a) + dot(hyperrectangle.radius, a)), LazySets.HalfSpace(-a, dot(hyperrectangle.center, -a) + dot(hyperrectangle.radius, a))] for a in eachcol(D))...)
+    return HPolytope(hs)
 end
 
 function initialize_zonotope_array(grid::Grid)
@@ -209,11 +220,11 @@ function get_touching_cells(grid::Grid, convexSet::LazySet)
     lower_bounds = Int.(floor.(abs.(lower_bounds .- grid.lower) ./ grid.granularity) .+ 1)
 
     upper_bounds = Int.(ceil.(abs.(upper_bounds .- grid.lower) ./ grid.granularity)) #floor.(min.(upper_bounds, grid.upper) .- grid.lower) ./ grid.granularity
-
-    ranges = [lower_bounds[i]:upper_bounds[i] for i in 1:grid.dimension]
+    #@show upper_bounds
+    ranges = [lower_bounds[i]:max(upper_bounds[i], 1) for i in 1:grid.dimension]
 
     idxs = CartesianIndices((ranges...,))
-
+    #@show idxs
     for idx in idxs
         cell = grid.array[idx]
         lower_bounds, upper_bounds = get_cell_bounds(grid, cell)
@@ -292,105 +303,3 @@ function grow_indices(grid::Grid, idxs, offset)
 end
 
 
-
-
-
-#=function get_perimeter_cells(grid::Grid, convexSet)
-    return setdiff(get_touching_cells(grid, convexSet), get_contained_cells(grid, convexSet))
-end=#
-
-
-S = Zonotope([7.5, 0.0], [8.5 0.0; 0.0 15.0])  # Example zonotope in 2D
-granularity = 0.5  # Example granularity
-grid = Grid(S, granularity)
-
-unsafeDict = Dict{CartesianIndex,Vector{LazySet}}()
-
-@time zonotopeArray = initialize_zonotope_array(grid)  # Initialize the zonotope array for the grid
-#@show zonotopeArray
-
-@show CartesianIndices(grid.array)
-
-A = [0.5 0.0; -0.5 1.0]
-
-plt = plot(dpi=1200, thickness_scaling=1, guidefontsize=25, minorgrid=true,
-    legendfont=font(12, "Times"),
-    legend_position=:topright,
-    tickfont=font(8, "Times"),
-    xguidefont=font(12, "Times"),
-    yguidefont=font(12, "Times"),
-    bottom_margin=2mm,
-    left_margin=5mm,
-    right_margin=5mm,
-    top_margin=2mm,
-    xlabel="x", ylabel="y")
-
-#=
-for idx in eachindex(zonotopeArray)
-    if idx % 2 == 0
-        plot!(plt, zonotopeArray[idx], vars=(1, 2), c=:red, alpha=0.3, lw=0.65, label="")
-    else
-        plot!(plt, zonotopeArray[idx], vars=(1, 2), c=:blue, alpha=0.3, lw=0.65, label="")
-    end
-end
-=#
-
-eA = exp(A * 0.75)
-
-plot!(plt, eA * Zonotope([0.0, 0.0], Diagonal(fill(grid.granularity * 3.5, grid.dimension))), vars=(1, 2), c=:black, label="")
-#=
-    for idx in eachindex(zonotopeArray)
-        if idx % 2 == 0
-            plot!(plt, eA * zonotopeArray[idx], vars=(1, 2), c=:red, alpha=0.3, lw=0.65, label="")
-        else
-            plot!(plt, eA * zonotopeArray[idx], vars=(1, 2), c=:blue, alpha=0.3, lw=0.65, label="")
-        end
-    end
-=#
-
-#initialize_safe_cells!(grid)  # Initialize the safe cells in the grid
-
-#@time box(grid, [0.5, 0.5])  # Example state to find the corresponding cell
-@time box(grid, [-0.195, -0.195])  # Example state to find the corresponding cell using fastbox
-@time fastbox(grid, [-0.195, -0.195])  # Example state to find the corresponding cell using fastbox
-#@time get_cell_bounds(grid, fastbox(grid, [0., -1.]))  # Example to get the bounds of the corresponding cell
-
-for idx in get_touching_cells(grid, eA * Zonotope([0.0, 0.0], Diagonal(fill(grid.granularity * 3.5, grid.dimension))))
-
-    plot!(plt, zonotopeArray[idx.id], vars=(1, 2), c=:blue, alpha=0.3, lw=0.65, label="")
-end
-for idx in get_contained_cells(grid, eA * Zonotope([0.0, 0.0], Diagonal(fill(grid.granularity * 3.5, grid.dimension))))
-    plot!(plt, zonotopeArray[idx.id], vars=(1, 2), c=:white, alpha=0.3, lw=0.65, label="")
-end
-
-
-@time get_contained_cells(grid, Zonotope([0.0, 0.0], Diagonal(fill(grid.granularity * 3, grid.dimension))))
-
-_, edgeCells = get_contained_edge_cells(grid, eA * Zonotope([0.0, 0.0], Diagonal(fill(grid.granularity * 3.5, grid.dimension))))
-
-for idx in edgeCells #get_perimeter_cells(grid, eA * Zonotope([0.0, 0.0], Diagonal(fill(grid.granularity * 3.5, grid.dimension))))
-    plot!(plt, zonotopeArray[idx.id], vars=(1, 2), c=:orange, alpha=0.3, lw=0.65, label="")
-end
-#=
-=#
-
-#AA = AAPolytope([[1.0, 0.0], [0.0, 1.0], [-1.0, 0.0], [0.0, -1.0]])  # Example axis-aligned polytope in 2D
-#@show convert(HPolytope, AA)  # Convert the axis-aligned polytope to an HPolytope
-
-
-@show grow_indices(grid, [[1, 1], [1, 2]])
-
-@show offsets(grid)
-
-mark_dead_cells!(grid, eA * Zonotope([0.0, 0.0], Diagonal(fill(grid.granularity * 3.5, grid.dimension))), unsafeDict)
-
-for v in values(unsafeDict)
-    #@show v
-    plot!(plt, v[1], c=:green)
-end
-display(plt)  # Display the plot
-
-# Måske muligt i stedet for at genbruge koden fra Astrid, at bruge den samme funktion til at lave en grid som bare er en store af keys og så gemme values et andet sted. Hvis det er implementeret med et linært index
-# eller som en dictionary på cartisianIndex ville man nok kunne fjerne keys som er cell'er der ikke længere har safe elementer. 
-# Så ville man stadig kunne bruge bounds funktioner til at finde de tætteste celler til constraints.
-# Man kunne tjekke at når en cell ikke længere er safe så fjerner man de eventuelle constraints den har medført og bytter dem ud med cell da den nok er simplere

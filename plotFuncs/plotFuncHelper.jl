@@ -2,15 +2,16 @@ using Plots, LazySets, LinearAlgebra, BenchmarkTools, CSV, DataFrames, Expokit, 
 using LaTeXStrings, Plots.PlotMeasures
 
 include("../Utilities.jl")
+#=
 include("../ReACTed.jl")
 include("../models/gearbox.jl")
 include("../models/platoon.jl")
 include("../models/bouncingBall.jl")
 include("../models/spacecraft.jl")
-
+=#
 
 function getShapesForPlot(flowpipe, dims, alpha=1)
-    
+
     amountOfDims = length(dims)
 
     shapesList = Vector()
@@ -19,11 +20,11 @@ function getShapesForPlot(flowpipe, dims, alpha=1)
     minX = Inf
     minY = Inf
 
-    
+
     if amountOfDims == 1
 
         dim2 = dims[1]
-        
+
         i = 1
         k = 0
 
@@ -99,3 +100,35 @@ function getShapesForPlot(flowpipe, dims, alpha=1)
     return shapesList, maxX, minX, maxY, minY
 end
 
+
+#function get_grid_shapes()
+function get_grid_shapes(sets, dims, alpha=1)
+
+    amountOfDims = length(dims)
+
+    shapesList = Vector()
+    #=
+    maxX = -Inf
+    maxY = -Inf
+    minX = Inf
+    minY = Inf
+    =#
+
+
+    dim1 = dims[1]
+    dim2 = dims[2]
+
+    i = 1
+    k = 0
+    for x in sets
+        #println(y)
+
+        pc = x.center[[dim1, dim2]]
+        #pG = [view(genmat(x), :, dim1), view(genmat(x), :, dim1)]
+        pG = genmat(x)[[dim1, dim2], :]#[genmat(x)[:, [dim1]]', genmat(x)[:, [dim2]]']
+        push!(shapesList, Zonotope(pc, pG))
+    end
+
+
+    return shapesList #, maxX, minX, maxY, minY
+end

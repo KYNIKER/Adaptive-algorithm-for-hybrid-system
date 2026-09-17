@@ -4,13 +4,17 @@ include("PartitionUtilities.jl")
 include("plotFuncs/plotFuncHelper.jl")
 include("Utilities.jl")
 include("models/bouncingBall.jl")
+include("ReACTedShielding.jl")
 
 
 euclideanHybridSystem, timePeriod = loadBouncingBallShielded()
 granularity = 0.025  # Example granularity
 
+@time _ = ReACTedShieldingK(euclideanHybridSystem, timePeriod, 1, granularity, 0.001, 0.002)
+
 dirs = [1, 2]
 
+#=
 grid = Grid(euclideanHybridSystem.statespace, granularity)
 
 unsafeDict = Dict{CartesianIndex,Vector{LazySet}}()
@@ -158,7 +162,7 @@ for v in shapes
 end
 
 =#
-
+=#
 # Måske muligt i stedet for at genbruge koden fra Astrid, at bruge den samme funktion til at lave en grid som bare er en store af keys og så gemme values et andet sted. Hvis det er implementeret med et linært index
 # eller som en dictionary på cartisianIndex ville man nok kunne fjerne keys som er cell'er der ikke længere har safe elementer. 
 # Så ville man stadig kunne bruge bounds funktioner til at finde de tætteste celler til constraints.

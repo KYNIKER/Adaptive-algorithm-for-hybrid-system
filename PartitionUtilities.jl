@@ -158,13 +158,14 @@ end
 
 function initialize_zonotope_array(grid::Grid)
     zonotopeArray = Array{Zonotope}(undef, (grid.numCells...))
-    generators = Diagonal(fill(grid.granularity / 2, grid.dimension))
+    generators = diagm(fill(grid.granularity / 2, grid.dimension))
     for cell in grid
         offset = car2vec(cell.id)
         center = (offset .- 0.5) * grid.granularity .+ grid.lower
         zonotopeArray[cell.id] = Zonotope(center, generators)
 
     end
+    @show typeof(zonotopeArray[1])
     return zonotopeArray
 end
 

@@ -208,6 +208,46 @@ function newReACTDiscretizePlus(loc, X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻:
     return discritezationDict
 end
 
+function newReACTDiscretizePlus(X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Float64, δ⁺::Float64, A, phiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}
+    discritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
+
+    d = δ⁻
+    #dia::Matrix{Float64} = diagm(δ⁻ * ones(XDim))
+    isInvA = isinvertible(A)
+    #Φ = copy(phiDict[d])
+    A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(A)
+    Φcache = A == A_abs ? phiDict[d] : nothing
+    P2A_abs = ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, isInvA, Φcache)
+
+
+    E⁺ = SymmetricIntervalHull(LazySets.linear_map(P2A_abs, SymmetricIntervalHull(LazySets.linear_map(A * A, X0))))
+    f = minkowski_sum(LazySets.linear_map(phiDict[d], X0), E⁺)
+
+    disc = overapproximate(CH(X0, f), Zonotope)
+
+    while d < δ⁺
+        discritezationDict[d] = disc
+
+        if maxOrder > 0
+            if LazySets.order(disc) > maxOrder
+                disc = reduce_order(disc, reduceOrder)
+            end
+        end
+
+        disc = overapproximate(CH(disc, LazySets.linear_map(phiDict[d], disc)), Zonotope)
+
+        d = d * 2
+    end
+    #if maxOrder > 0
+    #    if LazySets.order(disc) > maxOrder
+    #disc = reduce_order(disc, reduceOrder)
+    #    end
+    #end
+    discritezationDict[δ⁺] = disc
+
+    return discritezationDict
+end
+
 #=function ReACTDiscretize(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Nothing, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing) where {N}
     XDim, _ = size(genmat(X0))
     discritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()

@@ -156,6 +156,13 @@ function hyperrectangle_to_HPolytope(hyperrectangle)
     return HPolytope(hs)
 end
 
+function hyperrectangle_to_HPolyhedron(hyperrectangle)
+    i = ones(length(hyperrectangle.center))
+    D = diagm(i)
+    hs = vcat(collect([LazySets.HalfSpace(a, dot(hyperrectangle.center, a) + dot(hyperrectangle.radius, a)), LazySets.HalfSpace(-a, dot(hyperrectangle.center, -a) + dot(hyperrectangle.radius, a))] for a in eachcol(D))...)
+    return HPolyhedron(hs)
+end
+
 function initialize_zonotope_array(grid::Grid)
     zonotopeArray = Array{Zonotope}(undef, (grid.numCells...))
     generators = diagm(fill(grid.granularity / 2, grid.dimension))

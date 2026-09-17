@@ -8,19 +8,18 @@ include("ReACTedShielding.jl")
 
 
 euclideanHybridSystem, timePeriod = loadBouncingBallShielded()
-granularity = 0.025  # Example granularity
+granularity = 0.02  # Example granularity
 
 @time _ = ReACTedShieldingK(euclideanHybridSystem, timePeriod, 1, granularity, 0.001, 0.002)
 
-dirs = [1, 2]
 
 #=
+dirs = [1, 2]
 grid = Grid(euclideanHybridSystem.statespace, granularity)
 
 unsafeDict = Dict{CartesianIndex,Vector{LazySet}}()
 
 @time zonotopeArray3d = initialize_zonotope_array(grid)  # Initialize the zonotope array for the grid
-
 plt = plot(dpi=1200, thickness_scaling=1, guidefontsize=25, minorgrid=true,
     legendfont=font(12, "Times"),
     legend_position=:topright,
@@ -37,7 +36,7 @@ plt = plot(dpi=1200, thickness_scaling=1, guidefontsize=25, minorgrid=true,
 
 mark_dead_cells!(grid, euclideanHybridSystem.globalConstraints[1], unsafeDict)
 
-unsafeCells, frontierCells = get_contained_edge_cells(grid, euclideanHybridSystem.globalConstraints[1])
+unsafeCells, frontierCells = get_contained_edge_cells(grid, linear_map(exp(-0.01 * euclideanHybridSystem.flowMatrix), zonotopeArray3d[4, 24, 1]))
 #@show unsafeCells
 #@show frontierCells
 frontierZonotopes = zonotopeArray3d[collect(c.id for c in frontierCells)]
@@ -47,6 +46,15 @@ pFrontierZonotopes = get_grid_shapes(frontierZonotopes, dirs)
 for z in pFrontierZonotopes
     plot!(plt, z, c=:red)
 end
+
+#plot!(plt, LazySets.API.project(intersection(euclideanHybridSystem.globalConstraints[1], hyperrectangle_to_HPolytope(euclideanHybridSystem.statespace)), dirs))
+display(plt)  # Display the plot
+=#
+
+#=
+
+
+
 
 
 eA = exp(0.5 * euclideanHybridSystem.flowMatrix)
@@ -59,9 +67,7 @@ for z in nextPFrontierZonotopes
     plot!(plt, z, c=:blue)
 end
 
-plot!(plt, LazySets.API.project(intersection(euclideanHybridSystem.globalConstraints[1], hyperrectangle_to_HPolytope(euclideanHybridSystem.statespace)), dirs))
 
-display(plt)  # Display the plot
 
 #=
 S = Zonotope([7.5, 0.0], [8.5 0.0; 0.0 15.0])  # Example zonotope in 2D

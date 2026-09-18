@@ -172,7 +172,7 @@ function initialize_zonotope_array(grid::Grid)
         zonotopeArray[cell.id] = Zonotope(center, generators)
 
     end
-    @show typeof(zonotopeArray[1])
+
     return zonotopeArray
 end
 
@@ -279,6 +279,23 @@ function get_contained_edge_cells(grid::Grid, convexSet::LazySet)
     end
 
     return contained_cells, perimeter_cells
+end
+
+function get_contained_perimeter_cells(grid::Grid, convexSet::LazySet)
+    contained_cells = []
+    touching_cells = get_touching_cells(grid, convexSet)
+    for cell in touching_cells
+        lower_bounds, upper_bounds = get_cell_bounds(grid, cell)
+        cell_box = Hyperrectangle((lower_bounds + upper_bounds) / 2, (upper_bounds - lower_bounds) / 2)
+
+        if issubset(cell_box, convexSet)
+            push!(contained_cells, cell)
+
+        end
+    end
+    touching_cell_neighbour_ids = grow_indices(grid, collect(car2vec(c.id) for c in touching_cells))
+    perimeter_cell_ids = setdiff(touching_cell_neighbour_ids, c.id for c in contained_cells)
+    return collect(grid.array[CartesianIndex(x)] for x in perimeter_cell_ids)
 end
 
 function offsets(grid::Grid)

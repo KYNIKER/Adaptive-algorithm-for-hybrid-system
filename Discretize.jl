@@ -208,17 +208,9 @@ function newReACTDiscretizePlus(loc, X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻:
     return discritezationDict
 end
 
-function newReACTDiscretizePlus(X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Float64, δ⁺::Float64, A, phiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}
-    discritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
-
+function newReACTDiscretizePlus(X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Float64, δ⁺::Float64, A, P2A_abs, phiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}
     d = δ⁻
-    #dia::Matrix{Float64} = diagm(δ⁻ * ones(XDim))
-    isInvA = isinvertible(A)
-    #Φ = copy(phiDict[d])
-    A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(A)
-    Φcache = A == A_abs ? phiDict[d] : nothing
-    P2A_abs = ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, isInvA, Φcache)
-
+    discritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
 
     E⁺ = SymmetricIntervalHull(LazySets.linear_map(P2A_abs, SymmetricIntervalHull(LazySets.linear_map(A * A, X0))))
     f = minkowski_sum(LazySets.linear_map(phiDict[d], X0), E⁺)

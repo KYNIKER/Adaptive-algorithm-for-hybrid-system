@@ -5,17 +5,26 @@ include("Utilities.jl")
 export ReACTedShieldingK
 
 
-function ReACTedShieldingK(system::EuclideanHybridSystem, p, k, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true)
+function ReACTed_reachable_cell(system::EuclideanHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true)
     grid = Grid(system.statespace, granularity)
-    unsafeDict = Dict{CartesianIndex,Vector{LazySet}}()
+    #unsafeDict = Dict{CartesianIndex,Vector{LazySet}}()
 
-    zonotopeArray = initialize_zonotope_array(grid)
+    #zonotopeArray = initialize_zonotope_array(grid)
 
-    mark_dead_cells!(grid, system.globalConstraints[1], unsafeDict)
+    #mark_dead_cells!(grid, system.globalConstraints[1], unsafeDict)
 
-    unsafeCells, frontierCells = get_contained_edge_cells(grid, system.globalConstraints[1])
-    frontierN = grow_indices(grid, map(x -> car2vec(x.id), frontierCells))
+    #
+    #   Take union with frontier of guards( and Act?)
+    #
+    #unsafeCells, cFrontierCells = get_contained_edge_cells(grid, system.globalConstraints[1])
+    #cFrontierN = grow_indices(grid, map(x -> car2vec(x.id), cFrontierCells))
     #@show frontierCells
+    #guardCells, gFrontierCells = get_contained_edge_cells(grid, system.edges[1].guard)
+    #gFrontierCells = get_contained_perimeter_cells(grid, system.edges[1].guard)
+    #@show guardCells
+    #@show gFrontierCells
+    #gFrontierN = grow_indices(grid, map(x -> car2vec(x.id), gFrontierCells))
+    #@show gFrontierN
     phiDicts = Dict()
     tphiDicts = Dict()
 
@@ -33,14 +42,149 @@ function ReACTedShieldingK(system::EuclideanHybridSystem, p, k, granularity, δ�
     phiDict = PhiDict(system.flowMatrix, δ⁻, δ⁺, alg)
     tPhiDict = Dict(collect((k, permutedims(copy(v))) for (k, v) in pairs(phiDict)))
 
-    frontierZonotopes = zonotopeArray[collect(CartesianIndex(c) for c in frontierN)]#zonotopeArray[collect(c.id for c in frontierN)]
-    push!(frontierZonotopes, zonotopeArray[40, 40, 1])
-    reachtimes = map(z -> propagate_set(z, [0.0, p], δ⁻, δ⁺, system, phiDict, tPhiDict, alg, maxOrder, reduceOrder), frontierZonotopes)
+    d = δ⁻
+    #dia::Matrix{Float64} = diagm(δ⁻ * ones(XDim))
+    isInvA = isinvertible(system.flowMatrix)
+    #Φ = copy(phiDict[d])
+    A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(system.flowMatrix)
+    Φcache = system.flowMatrix == A_abs ? phiDict[d] : nothing
+    P2A_abs = ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, isInvA, Φcache)
+
+    #frontierZonotopes = zonotopeArray[collect(CartesianIndex(c) for c in [gFrontierN; cFrontierN])]#zonotopeArray[collect(c.id for c in frontierN)]
+    #push!(frontierZonotopes, zonotopeArray[40, 40, 1])
+    #reachtimes = map(z -> propagate_set(z, [0.0, p], δ⁻, δ⁺, system, phiDict, tPhiDict, alg, maxOrder, reduceOrder), frontierZonotopes)
+
+    #
+    #   0: Didnt hit either constraint, guard or invariant
+    #   1: Hit constraint
+    #   2: Hit guard
+    #   3: Hit invariant surface
+    #
+
+    # TODO reusing the zonotope with translations presents a problem when we have degenerate dimensions.. 
+    Z = Zonotope([0.0, 0.0, 1.0], diagm(fill(granularity/2, LazySets.API.dim(system.statespace))))
+    for idx in CartesianIndices(grid.array)
+        of = car2vec(idx) .* (granularity/2)
+        LazySets.API.translate!(Z, of)
+
+        z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, alg, maxOrder, reduceOrder)
+
+        if f == 1
+            grid.deadCells[idx] = true
+            grid.array[idx].sidx[1] = 0
+            println("so deads")
+        else
+            grid.array[idx].pCells = collect(c.id for c in get_touching_cells(grid, z))
+            grid.array[idx].sidx[1] = copy(f)
+        end
+        LazySets.API.translate!(Z, -of)
+    end
+    return grid
+    reachtimes = map(z -> propagate_set(z, [0.0, p], δ⁻, δ⁺, system, phiDict, tPhiDict, alg, maxOrder, reduceOrder), zonotopeArray)
 
     #@time newReACTDiscretizePlus(zonotopeArray[40, 40, 1], δ⁻, δ⁺, system.flowMatrix, phiDict, alg, maxOrder, reduceOrder)
     #@time propagate_set(zonotopeArray[40, 40, 1], [0.0, p], δ⁻, δ⁺, system, phiDict, tPhiDict, alg, maxOrder, reduceOrder)
-    @show reachtimes
-    return 0
+    #@show reachtimes
+    return reachtimes
+
+    waitinglist = []
+    zenoBound = 20
+    transitionCount = 0
+
+    dims = size(X0.center, 1)
+
+    #res = auxReACTed(hybridSystem, hybridSystem.locations[loc], nothing, interval, X0, dirsVectors, constraint, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder, missing, clustering, timeConstraintList, saveResult)
+
+    #reachset = vcat(reachset, res)
+
+    #return res
+    push!(waitinglist, (loc, X0, nothing, interval))
+
+
+    if TIMEFUNC
+        println((time_ns() - startTimer) / 10^9)
+    end
+
+    while !isempty(waitinglist)
+        #GC.gc()
+
+        location, initialset, edge, interval′ = pop!(waitinglist)
+
+        _ = auxReACTed(waitinglist, hybridSystem, hybridSystem.locations[location], edge, interval′, initialset, constraintDict[location], δ⁻, δ⁺, phiDicts[location], tphiDicts[location], inputDicts[location], dims, alg, maxOrder, reduceOrder, clustering, timeConstraintDict[location])
+
+
+        if transitionCount < zenoBound
+            transitionCount += 1
+        else
+            throw(error("Reached zeno bound"))
+
+        end
+    end
+
+    if TIMEFUNC
+        total = (time_ns() - startTimer) / 10^9
+        println("Total times: 
+        Total: $(total)
+        TotalNotAux: $((totalDiscTime / 10^9) + (totalGuardTime / 10^9) + (totalTouchesTime / 10^9) + (totalReACTTime / 10^9))
+        Disc: $(totalDiscTime / 10^9)
+        Guards: $(totalGuardTime / 10^9) 
+        Init Guards: $(totalInitGuardTime / 10^9) 
+        Touches: $(totalTouchesTime / 10^9)
+        ReACT: $(totalReACTTime / 10^9)
+        Init ReACT: $(totalInitReACTTime / 10^9)")
+        println("Amount of calls to auxreacted: $transitionCount")
+    end
+
+    return []
+end
+
+function ReACTedShieldingK(system::EuclideanHybridSystem, p, k, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true)
+    grid = Grid(system.statespace, granularity)
+    unsafeDict = Dict{CartesianIndex,Vector{LazySet}}()
+
+    zonotopeArray = initialize_zonotope_array(grid)
+
+    mark_dead_cells!(grid, system.globalConstraints[1], unsafeDict)
+
+    #
+    #   Take union with frontier of guards( and Act?)
+    #
+    #unsafeCells, cFrontierCells = get_contained_edge_cells(grid, system.globalConstraints[1])
+    #cFrontierN = grow_indices(grid, map(x -> car2vec(x.id), cFrontierCells))
+    #@show frontierCells
+    #guardCells, gFrontierCells = get_contained_edge_cells(grid, system.edges[1].guard)
+    #gFrontierCells = get_contained_perimeter_cells(grid, system.edges[1].guard)
+    #@show guardCells
+    #@show gFrontierCells
+    #gFrontierN = grow_indices(grid, map(x -> car2vec(x.id), gFrontierCells))
+    #@show gFrontierN
+    phiDicts = Dict()
+    tphiDicts = Dict()
+
+    #=
+    for x in hybridSystem.locations
+        pd, tpd, id = PhiInputDict(x, δ⁻, δ⁺, alg, maxOrder, reduceOrder)
+        phiDicts[x.id] = pd
+        tphiDicts[x.id] = tpd
+        inputDicts[x.id] = id
+        timeConstraintDict[x.id] = []
+        constraintDict[x.id] = vcat(x.constraints, constraint)
+    end
+    =#
+
+    phiDict = PhiDict(system.flowMatrix, δ⁻, δ⁺, alg)
+    tPhiDict = Dict(collect((k, permutedims(copy(v))) for (k, v) in pairs(phiDict)))
+
+    #frontierZonotopes = zonotopeArray[collect(CartesianIndex(c) for c in [gFrontierN; cFrontierN])]#zonotopeArray[collect(c.id for c in frontierN)]
+    #push!(frontierZonotopes, zonotopeArray[40, 40, 1])
+    #reachtimes = map(z -> propagate_set(z, [0.0, p], δ⁻, δ⁺, system, phiDict, tPhiDict, alg, maxOrder, reduceOrder), frontierZonotopes)
+    reachtimes = map(z -> propagate_set(z, [0.0, p], δ⁻, δ⁺, system, phiDict, tPhiDict, alg, maxOrder, reduceOrder), zonotopeArray)
+
+    #@time newReACTDiscretizePlus(zonotopeArray[40, 40, 1], δ⁻, δ⁺, system.flowMatrix, phiDict, alg, maxOrder, reduceOrder)
+    #@time propagate_set(zonotopeArray[40, 40, 1], [0.0, p], δ⁻, δ⁺, system, phiDict, tPhiDict, alg, maxOrder, reduceOrder)
+    #@show reachtimes
+    return reachtimes
+
     waitinglist = []
     zenoBound = 20
     transitionCount = 0
@@ -95,8 +239,9 @@ end
 #
 #   Right now this makes quite a bit of allocations.
 #
-function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, PhiDict, TPhiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5)
-    discretizationDict = newReACTDiscretizePlus(X0, δ⁻, δ⁺, system.flowMatrix, PhiDict, alg, maxOrder, reduceOrder)
+function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ₂, PhiDict, TPhiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5)
+
+    discretizationDict = newReACTDiscretizePlus(X0, δ⁻, δ⁺, system.flowMatrix, Φ₂, PhiDict, alg, maxOrder, reduceOrder)
     time::Float64 = minimum(interval)
     endtime::Float64 = maximum(interval)
     constraint = system.globalConstraints[1]
@@ -105,13 +250,23 @@ function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Phi
         #   Compute the reachset closest to the guard without intersecting it and not reaching the unsafe set. 
         reachtime, tΦ, flag = ReACT_guards(δ⁻, δ⁺, interval, system.statespace, edge.guard, constraint, hyperrectangle_to_HPolyhedron(system.statespace), 2, PhiDict, TPhiDict, discretizationDict)
 
+
+        #
+        #   0: Didnt hit either constraint, guard or invariant
+        #   1: Hit constraint
+        #   2: Hit guard
+        #   3: Hit invariant surface
+        #
+
         if flag == 0
-            return linear_map(tΦ, X0), 0
-        elseif flag == 1
-            subsetFlag, timeDisjoint = ReACT_time_touches_set(linear_map(tΦ, X0), constraint, δ⁻, δ⁺, [reachtime, endtime], PhiDict, tΦ)
-            return subsetFlag, timeDisjoint-reachtime
+            return (linear_map(tΦ, X0), 0)
+        elseif flag == 1 # Hit constraint
+            return (nothing, 1)
+
+        elseif flag == 2
+            return (linear_map(tΦ, X0), 2)
         end
-        return reachtime, flag
+        return (linear_map(tΦ, X0), 3)
 
 
 
@@ -609,6 +764,122 @@ function ReACT_time_touches_set(X0, set, δ⁻::Float64, δ⁺::Float64, interva
     return (LazySets.API.issubset(tempSet, set), time)
 end
 
+function ReACT_touches_set(X0, set, δ⁻::Float64, δ⁺::Float64, interval, PhiDict, Φ)
+    # Note that in touches we always use δ⁻
+    # That is, we do not adjust timestep sizes
+
+    #phiDict = PhiDict
+    #=
+    constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint)
+    guardProjVectors, guardProjBounds = getHalfSpaceProjections(guard)
+    invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(loc.invarient)
+    =#
+    time::Float64 = interval[1]
+    endtime::Float64 = interval[2]
+
+
+    #Vs = nestedInputDiscCalculate(inputDiscritezationDict, PhiDict, δ⁻, initialTime, reduce_order, max_order)
+    # i = 1
+
+    #if ismissing(Φ)
+    #    Φ::Matrix{Float64} = exp(initialTime .* loc.A)
+    #end
+
+    #ϕ = similar(Φ)
+    #ϕ = phiDict[δ⁻]
+
+    # Compute current sets
+    #newR = discritezationDict[δ⁻]
+    #newRR = linear_map(Φ, newR)
+    #V = copy(inputDiscritezationDict[δ⁻])
+    #V = linear_map(Φ, V)
+    intersectingSetsList = Vector{Zonotope}() # This will store all of our sets
+
+    tempSet = linear_map(Φ, X0)
+    while time < endtime
+
+        #if all((ρ(x, tempSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
+        #   all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) &&
+        #   all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
+        if !LazySets.API.isdisjoint(set, tempSet) #touchesCheck(tempSet, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, invarientProjVectors, invarientProjBounds)
+            #if mapreduce(x -> intersects(newRR, x), &, guard)
+            #@show time
+            push!(intersectingSetsList, copy(tempSet))
+
+            # Main calculation. No longer changing timesteps
+            #Vs = minkowski_sum(Vs, V) #Update input
+            #newRR = linear_map(ϕ, newRR)
+            #V = linear_map(ϕ, V)
+            tempSet = linear_map(PhiDict[δ⁻], tempSet)
+            # i = i + 1
+            time += δ⁻
+        else
+            break
+        end
+        #=
+        else # Handle hit something. We do not reduce anymore!
+            #@show all((ρ(x, tempSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds))
+            #@show all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds))
+            #@show all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds))
+            #if all((ρ(x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) && any(((ρ(x, tempSet)) > y) for (x, y) in zip(constraintProjVectors, constraintProjBounds))
+            #    handleHitConstraint(time, loc.id)
+            #end
+
+            #continueAfter = true
+            #=
+            if !((all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) || !all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds))) == (!someunder(tempSet, guardProjVectors, guardProjBounds) || !someunder(tempSet, invarientProjVectors, invarientProjBounds)))
+                println((all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) || !all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds))))
+                @show someunder(tempSet, guardProjVectors, guardProjBounds)
+                @show all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds))
+                @show !someunder(tempSet, invarientProjVectors, invarientProjBounds)
+            end
+            =#
+            if someunder(tempSet, guardProjVectors, guardProjBounds) || !someunder(tempSet, invarientProjVectors, invarientProjBounds)
+                # If we stop because we are no longer intersect guards, 
+                # but still intersect the invariant we try continue
+
+                #@show all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds))
+                #continueAfter = false
+                return false, time, intersectingSetsList
+            end
+
+            if allunder(tempSet, constraintProjVectors, constraintProjBounds)#all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
+                return true, time, intersectingSetsList
+            else
+                intersectionSet = LazySets.Intersection(tempSet, loc.invarient)
+                if !all((ρ(x, intersectionSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds))  # IsSubSet
+                    @show LazySets.API.high(tempSet)
+                    @show LazySets.API.low(tempSet)
+                    @show LazySets.API.high(Vs)
+                    @show LazySets.API.low(Vs)
+                    handleHitConstraint(time, loc.id)
+                end
+                return true, time, intersectingSetsList
+            end
+
+            #=if all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) && continueAfter
+
+                intersectSet = zonotopeStripIntersection(tempSet, loc.invarient)
+                @show isSubSet(tempSet, loc.invarient)
+                tem = intersection(overapproximate(tempSet, BoxDirections(LazySets.dim(newR))), loc.invarient)
+                #@show map((x, y) -> ρ(x, tem) <= y, zip(constraintProjVectors, constraintProjBounds))
+                @show all((ρ(x, tempSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) # IsSubSet
+                @show all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds))
+                @show all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
+                @show minimum(interval) - time
+                @show LazySets.API.high(tempSet)
+                @show LazySets.API.low(tempSet)
+                !(all((ρ(x, tem)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds))) && handleHitConstraint(time, loc.id)
+            end=#
+
+            #return continueAfter, time, intersectingSetsList
+        end
+        =#
+    end
+    #continueAfter = false # We are at the end time horizon, therefore no continuing
+    return (LazySets.API.issubset(tempSet, set), intersectingSetsList, time)
+end
+
 
 function ReACT_guards(δ⁻::Float64, δ⁺::Float64, interval, statespace, guards, constraint, invariant, STRATEGY::Integer, PhiDict, permutedphiDict, discritezationDict)
 
@@ -663,7 +934,7 @@ function ReACT_guards(δ⁻::Float64, δ⁺::Float64, interval, statespace, guar
                     attempts += 1
                 end
             else
-
+                #@show check
                 return (time, Φ, check)
             end
         end
@@ -860,7 +1131,9 @@ function guardCheck(newR::Zonotope, Sρ::Vector{Float64}, constraintProjVectors:
     return res
 end
 =#
+#=
 function guardCheck(newR::Zonotope, Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds) #; solver=model
+
 
 
     if !someunder(newR, Sρ, constraintProjVectors, constraintProjBounds) && someunder(newR, Iρ, invarientProjVectors, invarientProjBounds)
@@ -876,14 +1149,25 @@ function guardCheck(newR::Zonotope, Sρ, constraintProjVectors, constraintProjBo
         return 2
     end
 end
+=#
 
 function guardCheck(newR::Zonotope, constraint, guard, invariant) #; solver=model
+    #
+    #   0: Didnt hit either constraint, guard or invariant
+    #   1: Hit constraint
+    #   2: Hit guard
+    #   3: Hit invariant surface
+    #
+    if !LazySets.API.isdisjoint(newR, guard)
+        @show LazySets.API.isdisjoint(newR, constraint)
+        println("GUARD TOUCHED")
+    end
     if LazySets.API.isdisjoint(newR, constraint)
         if LazySets.API.isdisjoint(newR, guard)
-            if LazySets.API.issubset(newR, invariant)
-                return 0
+            if LazySets.API.isdisjoint(newR, invariant)
+                return 1
             else
-                return 3
+                return 0
             end
         else
             return 2

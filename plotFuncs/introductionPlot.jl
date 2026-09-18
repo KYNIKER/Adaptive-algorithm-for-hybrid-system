@@ -1,9 +1,10 @@
 include("plotFuncHelper.jl") # This also loads everything relevant
+include("../ReACTed.jl")
 ENV["GKSwstype"] = "100"
 
 
 
-sys, initialState, X0, T = loadBouncingBallNoEdges()
+sys, initialState, X0, T = loadBouncingBall()
 T = 3
 timeConstraintList = []
 clustering = false
@@ -11,7 +12,7 @@ n = length(X0.center)
 reduceOrder = 5
 maxOrder = 5
 
-dirs = [1]
+dirs = [2, 1]
 
 δ⁻ = 0.01
 δ⁺ = δ⁻ * 2^5
@@ -39,13 +40,14 @@ p = plot(dpi=1200, thickness_scaling=1, guidefontsize=25, minorgrid=true,
     tickfont=font(8, "Times"),
     xguidefont=font(12, "Times"),
     yguidefont=font(12, "Times"),
-    xtick=([0, 8], ["0", "T"]),
-    ytick=([], []),
+    #xtick=([0, 8], ["0", "T"]),
+    #ytick=([], []),
     bottom_margin=2mm,
     left_margin=5mm,
     right_margin=5mm,
     top_margin=2mm,
-    ylims=(minVal, maxVal), xlims=(0, maximum(T)), xlabel="Time", ylabel="x")
+    #ylims=(minVal, maxVal), xlims=(0, maximum(T)), xlabel="Time", ylabel="x"
+)
 
 
 

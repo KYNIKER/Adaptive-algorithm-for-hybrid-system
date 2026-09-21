@@ -12,6 +12,8 @@ struct Grid{T<:Real}
     array
 end
 
+
+
 function Grid(convexSet::LazySet, granularity::T) where T<:Real
     dimension = LazySets.dim(convexSet)
 
@@ -327,4 +329,52 @@ function grow_indices(grid::Grid, idxs, offset)
     return res
 end
 
+# https://github.com/AstridHornBrorholt/Shielded-Learning-for-Hybrid-Systems/blob/22c9fc220ef40d55877ff1360be7286a7a506620/Shared%20Code/ShieldSynthesis.jl#L88
+function make_shield(grid::Grid, action_set, max_steps, Act)
+    i = max_steps
+    grid´ = nothing
+    while i > 0
+        grid´ = shield_step!(grid, action_set, Act)
+        if grid´.array == grid
+            break
+        end
+        grid = grid´
+        i -= 1
 
+    end
+    return (grid, max_steps - i)
+end
+
+function shield_step!(grid::Grid, action_set, Act)
+    grid´ = deepcopy(grid)
+    pop_keys = []
+    new_dead_cells=[]
+    for cell in grid.array
+        if !grid.deadCells[cell.id]
+            #no_action_bad = any(i -> i == 0, collect(grid.array[nc].sidx[1] for nc in cell.pCells))
+            #no_action_bad = any(i -> i == 0, collect(grid.deadCells[nc] for nc in cell.pCells))
+
+            can_act = 0
+            for act in Act
+                if haskey(action_set, (act, cell.id))
+                    can_act += 1
+                    if any(i -> i == 0, collect(nc.sidx[1] for nc in action_set[(act, cell.id)]))
+                        push!(pop_keys, (act, cell.id))
+                        can_act -= 1
+                    end
+                end
+            end
+            #@show no_action_bad, can_act
+            #@show can_act, isempty(cell.pCells)
+            if can_act == 0 && isempty(cell.pCells) && cell.sidx[1] == 0#no_action_bad && can_act == 0
+                grid´.array[cell.id].sidx[1] = 0
+                grid´.deadCells[cell.id] = true
+                #push!(new_dead_cells, cell.id)
+            end
+        end
+    end
+    #grid´.deadCells[new_dead_cells...] = true
+    @show grid.deadCells == grid´.deadCells
+    filter!(k -> !in(k, pop_keys), action_set)
+    return grid´
+end

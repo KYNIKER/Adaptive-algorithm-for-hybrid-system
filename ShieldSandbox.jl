@@ -8,7 +8,7 @@ include("ReACTedShielding.jl")
 
 
 euclideanHybridSystem, timePeriod = loadBouncingBallShieldedWithInput()
-granularity = 0.5  # Example granularity
+granularity = 1.25  # Example granularity
 
 δ⁻ = 0.001
 
@@ -17,18 +17,21 @@ granularity = 0.5  # Example granularity
 @show length(keys(reach_by_Act))
 #sets = ReACTedShieldingK(euclideanHybridSystem, 2 * timePeriod, 1, granularity, 0.001, 0.004)
 
+@time shield, iters = make_shield(grid, reach_by_Act, 6, euclideanHybridSystem.Act)
+#@show reach_by_Act
 unsafe = []
 jumping = []
 noAct = []
-
-zonotopeArray3d = initialize_zonotope_array(grid)  # Initialize the zonotope array for the grid
-for cell in grid.array
+@show grid.deadCells == shield.deadCells
+zonotopeArray3d = initialize_zonotope_array(shield)  # Initialize the zonotope array for the grid
+for cell in shield.array
     #@show cell.pCells
 
-    if grid.deadCells[cell.id]
+    if shield.deadCells[cell.id]
         push!(unsafe, zonotopeArray3d[cell.id])
     end
-    if cell.sidx[1] == 2
+    #@show any(x -> haskey(reach_by_Act, (x, cell.id)), euclideanHybridSystem.Act)
+    if any(x -> haskey(reach_by_Act, (x, cell.id)), euclideanHybridSystem.Act)
         #@show zonotopeArray3d[cell.id]
         push!(jumping, zonotopeArray3d[cell.id])
         #=if !isempty(cell.pCells)
@@ -36,16 +39,7 @@ for cell in grid.array
                 push!(jumping, zonotopeArray3d[pcell])
             end
         end=#
-    elseif cell.sidx[1] == 3
-        #=
-        push!(jumping, zonotopeArray3d[cell.id])
-        if !isempty(cell.pCells)
-            for pcell in cell.pCells
-                push!(jumping, zonotopeArray3d[pcell])
-            end
-        end
-        =#
-    elseif cell.sidx[1] == 0
+    else
         push!(noAct, zonotopeArray3d[cell.id])
     end
 end
@@ -69,7 +63,7 @@ plt = plot(dpi=1200, thickness_scaling=1, guidefontsize=25, minorgrid=true,
     left_margin=5mm,
     right_margin=5mm,
     top_margin=2mm,
-    xlabel="x", ylabel="y")
+    xlabel="v", ylabel="p")
 
 
 
@@ -99,7 +93,7 @@ end
 
 #@show jumping
 eA = exp(timePeriod * euclideanHybridSystem.flowMatrix)
-gFrontierZonotopes = [get_grid_shapes(jumping, dirs); get_grid_shapes(map(x -> linear_map(eA, x), jumping), dirs)]#get_grid_shapes(jumping, dirs)
+gFrontierZonotopes = get_grid_shapes(jumping, dirs)#[get_grid_shapes(jumping, dirs); get_grid_shapes(map(x -> linear_map(eA, x), jumping), dirs)]#get_grid_shapes(jumping, dirs)
 
 for z in gFrontierZonotopes
     plot!(plt, z, c=:green)

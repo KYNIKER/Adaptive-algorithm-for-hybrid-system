@@ -57,6 +57,7 @@ end
 
 struct EuclideanHybridSystem
     statespace::LazySet
+    input::LazySet
     globalConstraints::Vector{LazySet}
     flowMatrix
     edges::Vector{Edge}

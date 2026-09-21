@@ -7,13 +7,13 @@ include("models/bouncingBall.jl")
 include("ReACTedShielding.jl")
 
 
-euclideanHybridSystem, timePeriod = loadBouncingBallShielded()
-granularity = 0.5  # Example granularity
+euclideanHybridSystem, timePeriod = loadBouncingBallShieldedWithInput()
+granularity = 1.0  # Example granularity
 
 δ⁻ = 0.001
 
 @time grid = ReACTed_reachable_cell(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^0 * δ⁻)
-@show grid.deadCells
+#@show grid.deadCells
 
 #sets = ReACTedShieldingK(euclideanHybridSystem, 2 * timePeriod, 1, granularity, 0.001, 0.004)
 
@@ -29,9 +29,22 @@ for cell in grid.array
         push!(unsafe, zonotopeArray3d[cell.id])
     end
     if cell.sidx[1] == 2
+        #@show zonotopeArray3d[cell.id]
         push!(jumping, zonotopeArray3d[cell.id])
+        #=if !isempty(cell.pCells)
+            for pcell in cell.pCells
+                push!(jumping, zonotopeArray3d[pcell])
+            end
+        end=#
     elseif cell.sidx[1] == 3
-        #push!(jumping, zonotopeArray3d[cell.id])
+        #=
+        push!(jumping, zonotopeArray3d[cell.id])
+        if !isempty(cell.pCells)
+            for pcell in cell.pCells
+                push!(jumping, zonotopeArray3d[pcell])
+            end
+        end
+        =#
     elseif cell.sidx[1] == 0
         push!(noAct, zonotopeArray3d[cell.id])
     end
@@ -40,7 +53,7 @@ end
 @show length(unsafe)
 @show length(jumping)
 @show length(noAct)
-dirs = [2, 1]
+dirs = [1, 2]
 #grid = Grid(euclideanHybridSystem.statespace, granularity)
 
 #unsafeDict = Dict{CartesianIndex,Vector{LazySet}}()
@@ -70,7 +83,7 @@ plt = plot(dpi=1200, thickness_scaling=1, guidefontsize=25, minorgrid=true,
 pFrontierZonotopes = get_grid_shapes(unsafe, dirs)
 
 for z in pFrontierZonotopes
-    plot!(plt, z, c=:black)
+    plot!(plt, z, alpha=0.9, c=:black)
 end
 
 nFrontierZonotopes = get_grid_shapes(noAct, dirs)
@@ -81,15 +94,17 @@ end
 
 
 #@show jumping
-#=gFrontierZonotopes = get_grid_shapes(jumping, dirs)
+eA = exp(timePeriod * euclideanHybridSystem.flowMatrix)
+gFrontierZonotopes = [get_grid_shapes(jumping, dirs); get_grid_shapes(map(x -> linear_map(eA, x), jumping), dirs)]#get_grid_shapes(jumping, dirs)
 
 for z in gFrontierZonotopes
     plot!(plt, z, c=:green)
 end
-=#
-#plot!(plt, LazySets.API.project(intersection(euclideanHybridSystem.globalConstraints[1], hyperrectangle_to_HPolytope(euclideanHybridSystem.statespace)), dirs), c=:white, lw=1.0)
+#@show intersection(euclideanHybridSystem.globalConstraints[1], hyperrectangle_to_HPolytope(euclideanHybridSystem.statespace))
+plot!(plt, intersection(euclideanHybridSystem.globalConstraints[1], hyperrectangle_to_HPolytope(euclideanHybridSystem.statespace)), c=:black, lw=5.0, fillstyle=://, lab="unsafe")
 #plot!(plt, LazySets.API.project(LinearMap(exp(-timePeriod * euclideanHybridSystem.flowMatrix), intersection(euclideanHybridSystem.globalConstraints[1], hyperrectangle_to_HPolytope(euclideanHybridSystem.statespace))), dirs), c=:white)
-plot!(plt, LazySets.API.project(intersection(euclideanHybridSystem.edges[1].guard, hyperrectangle_to_HPolytope(euclideanHybridSystem.statespace)), dirs), c=:green)
+plot!(plt, intersection(euclideanHybridSystem.edges[1].guard, hyperrectangle_to_HPolytope(euclideanHybridSystem.statespace)), c=:green)
+#plot!(plt, euclideanHybridSystem.edges[1].guard, c=:green)
 
 display(plt)  # Display the plot
 
@@ -99,7 +114,6 @@ display(plt)  # Display the plot
 
 #=
 
-eA = exp(0.5 * euclideanHybridSystem.flowMatrix)
 
 nextFrontierZonotopes = map(z -> linear_map(eA, z), frontierZonotopes)
 

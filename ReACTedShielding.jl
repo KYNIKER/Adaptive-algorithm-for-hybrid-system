@@ -7,6 +7,7 @@ export ReACTedShieldingK
 
 function ReACTed_reachable_cell(system::EuclideanHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true)
     grid = Grid(system.statespace, granularity)
+    @show foldl(*, grid.numCells), grid.numCells
     #unsafeDict = Dict{CartesianIndex,Vector{LazySet}}()
 
     #zonotopeArray = initialize_zonotope_array(grid)
@@ -39,9 +40,9 @@ function ReACTed_reachable_cell(system::EuclideanHybridSystem, p, granularity, �
     end
     =#
 
-    phiDict = PhiDict(system.flowMatrix, δ⁻, δ⁺, alg)
-    tPhiDict = Dict(collect((k, permutedims(copy(v))) for (k, v) in pairs(phiDict)))
-
+    #phiDict = PhiDict(system.flowMatrix, δ⁻, δ⁺, alg)
+    #tPhiDict = Dict(collect((k, permutedims(copy(v))) for (k, v) in pairs(phiDict)))
+    phiDict, tPhiDict, inputDict = PhiInputDict(system.flowMatrix, system.input, δ⁻, δ⁺, alg, maxOrder, reduceOrder)
     d = δ⁻
     #dia::Matrix{Float64} = diagm(δ⁻ * ones(XDim))
     isInvA = isinvertible(system.flowMatrix)
@@ -61,15 +62,25 @@ function ReACTed_reachable_cell(system::EuclideanHybridSystem, p, granularity, �
     #   3: Hit invariant surface
     #
 
-    # TODO reusing the zonotope with translations presents a problem when we have degenerate dimensions.. 
-    Z = Zonotope([0.0, 0.0, 1.0], diagm(fill(granularity/2, LazySets.API.dim(system.statespace))))
-    for idx in CartesianIndices(grid.array)
-        of = car2vec(idx) .* (granularity/2)
-        LazySets.API.translate!(Z, of)
 
-        z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, alg, maxOrder, reduceOrder)
+    degenerate_dimensions = collect(u - l == l ? l - (granularity / 2) : 0. for (l, u) in zip(grid.lower, grid.upper))
+    #@show degenerate_dimensions
+    Z = remove_zero_generators(Zonotope(degenerate_dimensions, diagm(map(x -> x == 1 ? 0. : granularity/2, grid.numCells))))
+    #dc = 0
+    #@show grid.lower
+    lower_offset = grid.lower .+ (granularity/2)
+    for idx in CartesianIndices(grid.array)
+        of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
+        LazySets.API.translate!(Z, of)
+        #@show Z, idx, of
+        z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, inputDict, alg, maxOrder, reduceOrder)
+
+        #=if !LazySets.API.isdisjoint(z, system.edges[1].guard)
+            dc += 1
+        end=#
 
         if f == 1
+            #@show LazySets.API.isdisjoint(Z, system.globalConstraints[1]), Z, idx
             grid.deadCells[idx] = true
             grid.array[idx].sidx[1] = 0
             println("so deads")
@@ -79,13 +90,14 @@ function ReACTed_reachable_cell(system::EuclideanHybridSystem, p, granularity, �
         end
         LazySets.API.translate!(Z, -of)
     end
+    #@show dc
     return grid
-    reachtimes = map(z -> propagate_set(z, [0.0, p], δ⁻, δ⁺, system, phiDict, tPhiDict, alg, maxOrder, reduceOrder), zonotopeArray)
+    #reachtimes = map(z -> propagate_set(z, [0.0, p], δ⁻, δ⁺, system, phiDict, tPhiDict, inputDict, alg, maxOrder, reduceOrder), zonotopeArray)
 
     #@time newReACTDiscretizePlus(zonotopeArray[40, 40, 1], δ⁻, δ⁺, system.flowMatrix, phiDict, alg, maxOrder, reduceOrder)
     #@time propagate_set(zonotopeArray[40, 40, 1], [0.0, p], δ⁻, δ⁺, system, phiDict, tPhiDict, alg, maxOrder, reduceOrder)
     #@show reachtimes
-    return reachtimes
+    #return reachtimes
 
     waitinglist = []
     zenoBound = 20
@@ -239,16 +251,16 @@ end
 #
 #   Right now this makes quite a bit of allocations.
 #
-function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ₂, PhiDict, TPhiDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5)
+function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ₂, PhiDict, TPhiDict, inputDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5)
 
-    discretizationDict = newReACTDiscretizePlus(X0, δ⁻, δ⁺, system.flowMatrix, Φ₂, PhiDict, alg, maxOrder, reduceOrder)
+    discretizationDict = newReACTDiscretizePlus(X0, δ⁻, δ⁺, system.flowMatrix, Φ₂, PhiDict, inputDict, alg, maxOrder, reduceOrder)
     time::Float64 = minimum(interval)
     endtime::Float64 = maximum(interval)
     constraint = system.globalConstraints[1]
     listOfEdges = system.edges
     for edge in listOfEdges
         #   Compute the reachset closest to the guard without intersecting it and not reaching the unsafe set. 
-        reachtime, tΦ, flag = ReACT_guards(δ⁻, δ⁺, interval, system.statespace, edge.guard, constraint, hyperrectangle_to_HPolyhedron(system.statespace), 2, PhiDict, TPhiDict, discretizationDict)
+        reachtime, newSet, flag = ReACT_guards(δ⁻, δ⁺, interval, system.statespace, edge.guard, constraint, hyperrectangle_to_HPolyhedron(system.statespace), 2, PhiDict, TPhiDict, discretizationDict, inputDict)
 
 
         #
@@ -257,16 +269,16 @@ function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ�
         #   2: Hit guard
         #   3: Hit invariant surface
         #
-
         if flag == 0
-            return (linear_map(tΦ, X0), 0)
+            return (newSet, 0)
         elseif flag == 1 # Hit constraint
             return (nothing, 1)
-
         elseif flag == 2
-            return (linear_map(tΦ, X0), 2)
+            #@show flag
+
+            return (newSet, 2)
         end
-        return (linear_map(tΦ, X0), 3)
+        return (newSet, 3)
 
 
 
@@ -881,7 +893,7 @@ function ReACT_touches_set(X0, set, δ⁻::Float64, δ⁺::Float64, interval, Ph
 end
 
 
-function ReACT_guards(δ⁻::Float64, δ⁺::Float64, interval, statespace, guards, constraint, invariant, STRATEGY::Integer, PhiDict, permutedphiDict, discritezationDict)
+function ReACT_guards(δ⁻::Float64, δ⁺::Float64, interval, statespace, guards, constraint, invariant, STRATEGY::Integer, PhiDict, permutedphiDict, discritezationDict, inputDiscretizationDict)
 
     #
     #   These functions should be evaluated outside ReACT_guards and passed as parameters
@@ -912,7 +924,7 @@ function ReACT_guards(δ⁻::Float64, δ⁺::Float64, interval, statespace, guar
     =#
 
     i = 1
-    #Z = copy(discritezationDict[currentTimeStep])
+    input = Zonotope(zeros(dims), zeros(dims, dims))
     while time < endtime
 
         attempts = 1
@@ -922,10 +934,11 @@ function ReACT_guards(δ⁻::Float64, δ⁺::Float64, interval, statespace, guar
             # Handle if we can no longer reduce the reachset (we keep hitting something)
             if currentTimeStep >= δ⁻
                 #linear_map!(Z, Φ, discritezationDict[currentTimeStep])
-                check = guardCheck(linear_map(Φ, discritezationDict[currentTimeStep]), constraint, guards, invariant)
+                check = guardCheck(minkowski_sum(input, linear_map(Φ, discritezationDict[currentTimeStep])), constraint, guards, invariant)
                 if 0 == check
                     #if 0 == guardCheck(discritezationDict[currentTimeStep], Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds)
                     approveFlag = true
+                    input = input + linear_map(Φ, inputDiscretizationDict[currentTimeStep])
                     mul!(tempM, Φ, PhiDict[currentTimeStep])
                     copy!(Φ, tempM)
                 else
@@ -935,7 +948,7 @@ function ReACT_guards(δ⁻::Float64, δ⁺::Float64, interval, statespace, guar
                 end
             else
                 #@show check
-                return (time, Φ, check)
+                return (time, minkowski_sum(input, linear_map(Φ, discritezationDict[δ⁻])), check)
             end
         end
 
@@ -966,7 +979,7 @@ function ReACT_guards(δ⁻::Float64, δ⁺::Float64, interval, statespace, guar
         end
     end
 
-    return (time, Φ, 0)
+    return (time, minkowski_sum(input, linear_map(Φ, discritezationDict[currentTimeStep])), 0)
 end
 
 
@@ -1158,20 +1171,33 @@ function guardCheck(newR::Zonotope, constraint, guard, invariant) #; solver=mode
     #   2: Hit guard
     #   3: Hit invariant surface
     #
+    #=
     if !LazySets.API.isdisjoint(newR, guard)
         @show LazySets.API.isdisjoint(newR, constraint)
         println("GUARD TOUCHED")
     end
+    if LazySets.API.isdisjoint(newR, guard)
+        if LazySets.API.issubset(newR, invariant)
+            if LazySets.API.isdisjoint(newR, constraint)
+                return 0
+            else
+                return 1
+            end
+        else
+            return 3
+        end
+    else
+        return 2
+    end
+    =#
+
     if LazySets.API.isdisjoint(newR, constraint)
         if LazySets.API.isdisjoint(newR, guard)
-            if LazySets.API.isdisjoint(newR, invariant)
-                return 1
-            else
-                return 0
-            end
+            return 0
         else
             return 2
         end
+
     else
         return 1
     end

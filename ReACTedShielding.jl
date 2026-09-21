@@ -62,7 +62,7 @@ function ReACTed_reachable_cell(system::EuclideanHybridSystem, p, granularity, �
     #   3: Hit invariant surface
     #
 
-
+    reachable_by_action = Dict()
     degenerate_dimensions = collect(u - l == l ? l - (granularity / 2) : 0. for (l, u) in zip(grid.lower, grid.upper))
     #@show degenerate_dimensions
     Z = remove_zero_generators(Zonotope(degenerate_dimensions, diagm(map(x -> x == 1 ? 0. : granularity/2, grid.numCells))))
@@ -73,6 +73,12 @@ function ReACTed_reachable_cell(system::EuclideanHybridSystem, p, granularity, �
         of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
         LazySets.API.translate!(Z, of)
         #@show Z, idx, of
+        for act in system.Act
+            if !LazySets.API.isdisjoint(act.guard, Z)
+                reachable_by_action[(act, grid.array[idx])] = get_touching_cells(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
+            end
+        end
+
         z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, inputDict, alg, maxOrder, reduceOrder)
 
         #=if !LazySets.API.isdisjoint(z, system.edges[1].guard)
@@ -91,7 +97,7 @@ function ReACTed_reachable_cell(system::EuclideanHybridSystem, p, granularity, �
         LazySets.API.translate!(Z, -of)
     end
     #@show dc
-    return grid
+    return grid, reachable_by_action
     #reachtimes = map(z -> propagate_set(z, [0.0, p], δ⁻, δ⁺, system, phiDict, tPhiDict, inputDict, alg, maxOrder, reduceOrder), zonotopeArray)
 
     #@time newReACTDiscretizePlus(zonotopeArray[40, 40, 1], δ⁻, δ⁺, system.flowMatrix, phiDict, alg, maxOrder, reduceOrder)
@@ -260,7 +266,7 @@ function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ�
     listOfEdges = system.edges
     for edge in listOfEdges
         #   Compute the reachset closest to the guard without intersecting it and not reaching the unsafe set. 
-        reachtime, newSet, flag = ReACT_guards(δ⁻, δ⁺, interval, system.statespace, edge.guard, constraint, hyperrectangle_to_HPolyhedron(system.statespace), 2, PhiDict, TPhiDict, discretizationDict, inputDict)
+        reachtime, newSet, inputSet, flag = ReACT_guards(δ⁻, δ⁺, interval, system.statespace, edge.guard, constraint, hyperrectangle_to_HPolyhedron(system.statespace), 2, PhiDict, TPhiDict, discretizationDict, inputDict)
 
 
         #
@@ -270,13 +276,20 @@ function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ�
         #   3: Hit invariant surface
         #
         if flag == 0
-            return (newSet, 0)
+            return (minkowski_sum(newSet, inputSet), 0)
         elseif flag == 1 # Hit constraint
             return (nothing, 1)
         elseif flag == 2
             #@show flag
-
-            return (newSet, 2)
+            #@show inputSet
+            issubset, intersectingSetsList, t = ReACT_touches_set_constant_input(newSet, inputSet, edge.guard, δ⁻, [reachtime, endtime], PhiDict, inputDict)
+            tempIntersect = foldl(ConvexHull, intersectingSetsList)
+            intersectedSet = convert(Zonotope, box_approximation(tempIntersect))
+            jumpSet = linear_map(edge.jumpMatrix, zonotopeStripIntersection(intersectedSet, edge.guard))
+            if !isnothing(edge.jumpVector)
+                LazySets.translate!(jumpSet, edge.jumpVector)
+            end
+            return propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, PhiDict, TPhiDict, inputDict, alg, maxOrder, reduceOrder)
         end
         return (newSet, 3)
 
@@ -776,38 +789,21 @@ function ReACT_time_touches_set(X0, set, δ⁻::Float64, δ⁺::Float64, interva
     return (LazySets.API.issubset(tempSet, set), time)
 end
 
-function ReACT_touches_set(X0, set, δ⁻::Float64, δ⁺::Float64, interval, PhiDict, Φ)
+function ReACT_touches_set_constant_input(X0, U, set, δ⁻::Float64, interval, PhiDict, inputDiscretizationDict)
     # Note that in touches we always use δ⁻
     # That is, we do not adjust timestep sizes
 
-    #phiDict = PhiDict
-    #=
-    constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint)
-    guardProjVectors, guardProjBounds = getHalfSpaceProjections(guard)
-    invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(loc.invarient)
-    =#
-    time::Float64 = interval[1]
+    time::Float64 = interval[1] + δ⁻
     endtime::Float64 = interval[2]
 
-
-    #Vs = nestedInputDiscCalculate(inputDiscritezationDict, PhiDict, δ⁻, initialTime, reduce_order, max_order)
-    # i = 1
-
-    #if ismissing(Φ)
-    #    Φ::Matrix{Float64} = exp(initialTime .* loc.A)
-    #end
-
-    #ϕ = similar(Φ)
-    #ϕ = phiDict[δ⁻]
-
-    # Compute current sets
-    #newR = discritezationDict[δ⁻]
-    #newRR = linear_map(Φ, newR)
-    #V = copy(inputDiscritezationDict[δ⁻])
-    #V = linear_map(Φ, V)
     intersectingSetsList = Vector{Zonotope}() # This will store all of our sets
 
-    tempSet = linear_map(Φ, X0)
+
+    X0 = linear_map(PhiDict[δ⁻], X0)
+    U = linear_map(PhiDict[δ⁻], U) + inputDiscretizationDict[δ⁻]
+    tempSet = minkowski_sum(X0, U)
+
+    push!(intersectingSetsList, copy(tempSet))
     while time < endtime
 
         #if all((ρ(x, tempSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
@@ -822,76 +818,55 @@ function ReACT_touches_set(X0, set, δ⁻::Float64, δ⁺::Float64, interval, Ph
             #Vs = minkowski_sum(Vs, V) #Update input
             #newRR = linear_map(ϕ, newRR)
             #V = linear_map(ϕ, V)
-            tempSet = linear_map(PhiDict[δ⁻], tempSet)
+            U = linear_map(PhiDict[δ⁻], U) + inputDiscretizationDict[δ⁻]
+            X0 = linear_map(PhiDict[δ⁻], X0)
+            tempSet = minkowski_sum(X0, U)
             # i = i + 1
             time += δ⁻
         else
             break
         end
-        #=
-        else # Handle hit something. We do not reduce anymore!
-            #@show all((ρ(x, tempSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds))
-            #@show all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds))
-            #@show all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds))
-            #if all((ρ(x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) && any(((ρ(x, tempSet)) > y) for (x, y) in zip(constraintProjVectors, constraintProjBounds))
-            #    handleHitConstraint(time, loc.id)
-            #end
 
-            #continueAfter = true
-            #=
-            if !((all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) || !all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds))) == (!someunder(tempSet, guardProjVectors, guardProjBounds) || !someunder(tempSet, invarientProjVectors, invarientProjBounds)))
-                println((all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) || !all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds))))
-                @show someunder(tempSet, guardProjVectors, guardProjBounds)
-                @show all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds))
-                @show !someunder(tempSet, invarientProjVectors, invarientProjBounds)
-            end
-            =#
-            if someunder(tempSet, guardProjVectors, guardProjBounds) || !someunder(tempSet, invarientProjVectors, invarientProjBounds)
-                # If we stop because we are no longer intersect guards, 
-                # but still intersect the invariant we try continue
-
-                #@show all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds))
-                #continueAfter = false
-                return false, time, intersectingSetsList
-            end
-
-            if allunder(tempSet, constraintProjVectors, constraintProjBounds)#all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
-                return true, time, intersectingSetsList
-            else
-                intersectionSet = LazySets.Intersection(tempSet, loc.invarient)
-                if !all((ρ(x, intersectionSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds))  # IsSubSet
-                    @show LazySets.API.high(tempSet)
-                    @show LazySets.API.low(tempSet)
-                    @show LazySets.API.high(Vs)
-                    @show LazySets.API.low(Vs)
-                    handleHitConstraint(time, loc.id)
-                end
-                return true, time, intersectingSetsList
-            end
-
-            #=if all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) && continueAfter
-
-                intersectSet = zonotopeStripIntersection(tempSet, loc.invarient)
-                @show isSubSet(tempSet, loc.invarient)
-                tem = intersection(overapproximate(tempSet, BoxDirections(LazySets.dim(newR))), loc.invarient)
-                #@show map((x, y) -> ρ(x, tem) <= y, zip(constraintProjVectors, constraintProjBounds))
-                @show all((ρ(x, tempSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) # IsSubSet
-                @show all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds))
-                @show all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
-                @show minimum(interval) - time
-                @show LazySets.API.high(tempSet)
-                @show LazySets.API.low(tempSet)
-                !(all((ρ(x, tem)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds))) && handleHitConstraint(time, loc.id)
-            end=#
-
-            #return continueAfter, time, intersectingSetsList
-        end
-        =#
     end
     #continueAfter = false # We are at the end time horizon, therefore no continuing
     return (LazySets.API.issubset(tempSet, set), intersectingSetsList, time)
 end
 
+function ReACT_touches_set(X0, set, δ⁻::Float64, δ⁺::Float64, interval, PhiDict, inputDiscretizationDict)
+    # Note that in touches we always use δ⁻
+    # That is, we do not adjust timestep sizes
+
+    time::Float64 = interval[1]
+    endtime::Float64 = interval[2]
+
+    intersectingSetsList = Vector{Zonotope}() # This will store all of our sets
+
+    tempSet = X0
+    while time < endtime
+
+        #if all((ρ(x, tempSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
+        #   all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) &&
+        #   all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
+        if !LazySets.API.isdisjoint(set, tempSet) #touchesCheck(tempSet, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, invarientProjVectors, invarientProjBounds)
+            #if mapreduce(x -> intersects(newRR, x), &, guard)
+            #@show time
+            push!(intersectingSetsList, copy(tempSet))
+
+            # Main calculation. No longer changing timesteps
+            #Vs = minkowski_sum(Vs, V) #Update input
+            #newRR = linear_map(ϕ, newRR)
+            #V = linear_map(ϕ, V)
+            tempSet = minkowski_sum(linear_map(PhiDict[δ⁻], tempSet), inputDiscretizationDict[δ⁻])
+            # i = i + 1
+            time += δ⁻
+        else
+            break
+        end
+
+    end
+    #continueAfter = false # We are at the end time horizon, therefore no continuing
+    return (LazySets.API.issubset(tempSet, set), intersectingSetsList, time)
+end
 
 function ReACT_guards(δ⁻::Float64, δ⁺::Float64, interval, statespace, guards, constraint, invariant, STRATEGY::Integer, PhiDict, permutedphiDict, discritezationDict, inputDiscretizationDict)
 
@@ -948,7 +923,7 @@ function ReACT_guards(δ⁻::Float64, δ⁺::Float64, interval, statespace, guar
                 end
             else
                 #@show check
-                return (time, minkowski_sum(input, linear_map(Φ, discritezationDict[δ⁻])), check)
+                return (time, linear_map(Φ, discritezationDict[δ⁻]), input, check)
             end
         end
 
@@ -979,7 +954,7 @@ function ReACT_guards(δ⁻::Float64, δ⁺::Float64, interval, statespace, guar
         end
     end
 
-    return (time, minkowski_sum(input, linear_map(Φ, discritezationDict[currentTimeStep])), 0)
+    return (time, linear_map(Φ, discritezationDict[currentTimeStep]), input, 0)
 end
 
 

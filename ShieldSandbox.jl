@@ -8,13 +8,13 @@ include("ReACTedShielding.jl")
 
 
 euclideanHybridSystem, timePeriod = loadBouncingBallShieldedWithInput()
-granularity = 1.0  # Example granularity
+granularity = 0.5  # Example granularity
 
 δ⁻ = 0.001
 
-@time grid = ReACTed_reachable_cell(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^0 * δ⁻)
+@time grid, reach_by_Act = ReACTed_reachable_cell(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^0 * δ⁻)
 #@show grid.deadCells
-
+@show length(keys(reach_by_Act))
 #sets = ReACTedShieldingK(euclideanHybridSystem, 2 * timePeriod, 1, granularity, 0.001, 0.004)
 
 unsafe = []
@@ -90,6 +90,10 @@ nFrontierZonotopes = get_grid_shapes(noAct, dirs)
 
 for z in nFrontierZonotopes
     plot!(plt, z, c=:blue)
+end
+
+for action in euclideanHybridSystem.Act
+    plot!(plt, action.guard, c=:yellow)
 end
 
 

@@ -1,6 +1,6 @@
 using LazySets, ReachabilityAnalysis, LinearAlgebra, Polyhedra, Optim
 
-export HybridSystem, HybridSystemV2, Location, Edge, overapproximateIntervalReachset, intersects, splitZonotope, getBoxIntersection, getHalfSpaceProjections
+export HybridSystem, HybridSystemV2, Location, Edge, overapproximateIntervalReachset, intersects, splitZonotope, getBoxIntersection, getHalfSpaceProjections, ∔
 
 struct Edge
     targetLoc::Int

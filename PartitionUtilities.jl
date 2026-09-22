@@ -390,6 +390,8 @@ function shield_step!(grid::Grid, action_set, no_action_set, Act)
                     no_action_bad = true
                     push!(no_act_pop_keys, cell.id)
                 end
+            else
+                no_action_bad = true
             end
 
             can_act = 0

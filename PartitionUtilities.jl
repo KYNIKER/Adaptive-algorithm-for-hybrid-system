@@ -29,7 +29,7 @@ function Grid(convexSet::LazySet, granularity::T) where T<:Real
     # Possible to check if cells actually are within the convexSet, but for now we assume they are.
     array = Array{Cell}(undef, (numCells...))  # Create an array to hold the grid cells
 
-    deadCells = falses(numCells...)#BitArray(undef, (numCells...))  # Create an array to label the dead cells
+    deadCells = falses(numCells...)#BitArray(undef, (numCells...,))  # Create an array to label the dead cells falses(numCells...)#
 
     for id in CartesianIndices(array)
         array[id] = Cell(id, [LinearIndices(array)[id]], [])
@@ -356,17 +356,19 @@ end
 # https://github.com/AstridHornBrorholt/Shielded-Learning-for-Hybrid-Systems/blob/22c9fc220ef40d55877ff1360be7286a7a506620/Shared%20Code/ShieldSynthesis.jl#L88
 function make_shield(grid::Grid, action_set, no_action_set, max_steps, Act)
     i = max_steps
-    grid´ = nothing
+    dims = grid.dimension
+    dead = grid.deadCells
+    dead´ = nothing
     action_set´ = nothing
     while i > 0
         #grid´, action_set´ = shield_step!(grid, action_set, no_action_set, Act)
-        grid´ = shield_step!(grid, action_set, no_action_set, Act)
-        if grid´.array == grid.array
+        dead´, la, ln = shield_step!(dead, action_set, no_action_set, Act, dims)
+        if la == 0 && ln == 0
             println("Fixed point found at $(max_steps-i) steps!")
             break
         end
         #@show action_set == action_set´
-        grid = grid´
+        dead = dead´
         #action_set = action_set´
         i -= 1
 
@@ -375,20 +377,20 @@ function make_shield(grid::Grid, action_set, no_action_set, max_steps, Act)
     return (grid, max_steps - i)
 end
 
-function shield_step!(grid::Grid, action_set, no_action_set, Act)
-    grid´ = deepcopy(grid)
+function shield_step!(deadCells, action_set, no_action_set, Act, dims)
+    #deadCells´ = copy(deadCells)
     act_pop_keys = []
     no_act_pop_keys = []
-    new_dead_cells=[]
-    for cell in grid.array
-        if !grid.deadCells[cell.id]
+    new_dead_cells = CartesianIndex{dims}[]
+    for idx in CartesianIndices(deadCells)
+        if !deadCells[idx]
             #no_action_bad = any(i -> i == 0, collect(grid.array[nc].sidx[1] for nc in cell.pCells))
             #no_action_bad = any(grid.deadCells[idx] for idx in cell.pCells)
             no_action_bad = false
-            if haskey(no_action_set, CartesianIndex(cell.id))
-                if any(grid.deadCells[idx] for idx in no_action_set[cell.id])
+            if haskey(no_action_set, idx)
+                if any(deadCells[idx] for idx in no_action_set[idx])
                     no_action_bad = true
-                    push!(no_act_pop_keys, cell.id)
+                    push!(no_act_pop_keys, idx)
                 end
             else
                 no_action_bad = true
@@ -396,15 +398,15 @@ function shield_step!(grid::Grid, action_set, no_action_set, Act)
 
             can_act = 0
             for act in Act
-                if haskey(action_set, (act, CartesianIndex(cell.id)))
+                if haskey(action_set, (act, idx))
                     can_act += 1
 
-                    if length(collect(grid.deadCells[idx] for idx in action_set[(act, CartesianIndex(cell.id))])) == 0
+                    if length(collect(deadCells[idxx] for idxx in action_set[(act, idx)])) == 0
                         #@show action_set[(act, cell.id)]
-                        push!(act_pop_keys, (act, cell.id))
+                        push!(act_pop_keys, (act, idx))
                         can_act -= 1
-                    elseif any(grid.deadCells[idx] for idx in action_set[(act, CartesianIndex(cell.id))])
-                        push!(act_pop_keys, (act, cell.id))
+                    elseif any(deadCells[idxx] for idxx in action_set[(act, idx)])
+                        push!(act_pop_keys, (act, idx))
                         can_act -= 1
                     end
                 end
@@ -413,10 +415,10 @@ function shield_step!(grid::Grid, action_set, no_action_set, Act)
             #@show can_act, isempty(cell.pCells)
             if can_act <= 0 && no_action_bad #isempty(cell.pCells) && cell.sidx[1] == 1 #no_action_bad && can_act == 0
                 #grid´.array[cell.id].sidx[1] = 1
-                grid´.deadCells[cell.id] = true
+                #deadCells´[idx] = true
                 #push!(no_act_pop_keys, cell.id)
                 #@show grid´.deadCells[cell.id] == grid.deadCells[cell.id]
-                #push!(new_dead_cells, cell.id)
+                push!(new_dead_cells, idx)
             end
             #=else
             for act in Act
@@ -439,6 +441,9 @@ function shield_step!(grid::Grid, action_set, no_action_set, Act)
     #@show length(no_act_pop_keys)
     filter!(k -> !in(k.first, act_pop_keys), action_set)
     filter!(k -> !in(k.first, no_act_pop_keys), no_action_set)
+    if !isempty(new_dead_cells)
+        deadCells[new_dead_cells] .= true
+    end
     #@show length(action_set)
-    return grid´#, action_set
+    return deadCells, length(act_pop_keys), length(no_act_pop_keys) #, action_set
 end

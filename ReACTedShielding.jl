@@ -63,6 +63,7 @@ function ReACTed_reachable_cell(system::EuclideanHybridSystem, p, granularity, �
     #
 
     reachable_by_action = Dict()
+    reachable_by_flow = Dict()
     degenerate_dimensions = collect(u - l == l ? l - (granularity / 2) : 0. for (l, u) in zip(grid.lower, grid.upper))
     #@show degenerate_dimensions
     Z = remove_zero_generators(Zonotope(degenerate_dimensions, diagm(map(x -> x == 1 ? 0. : granularity/2, grid.numCells))))
@@ -75,7 +76,7 @@ function ReACTed_reachable_cell(system::EuclideanHybridSystem, p, granularity, �
         #@show Z, idx, of
         for act in system.Act
             if !LazySets.API.isdisjoint(act.guard, Z)
-                reachable_by_action[(act, idx)] = get_touching_cells(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
+                reachable_by_action[(act, idx)] = get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
             end
         end
 
@@ -91,14 +92,14 @@ function ReACTed_reachable_cell(system::EuclideanHybridSystem, p, granularity, �
 
             #println("so deads")
         else
-            grid.array[idx].pCells = collect(c.id for c in get_touching_cells(grid, z))
-
+            grid.array[idx].pCells = get_touching_cell_idxs(grid, z)
+            reachable_by_flow[idx] = get_touching_cell_idxs(grid, z)
         end
         grid.array[idx].sidx[1] = copy(f)
         LazySets.API.translate!(Z, -of)
     end
     #@show dc
-    return grid, reachable_by_action
+    return grid, reachable_by_action, reachable_by_flow
 
 end
 
@@ -235,6 +236,8 @@ function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ�
             if !isnothing(edge.jumpVector)
                 LazySets.translate!(jumpSet, edge.jumpVector)
             end
+            #res = propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, PhiDict, TPhiDict, inputDict, alg, maxOrder, reduceOrder)
+            #@show res
             return propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, PhiDict, TPhiDict, inputDict, alg, maxOrder, reduceOrder)
         end
         return (newSet, 3)

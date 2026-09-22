@@ -91,7 +91,7 @@ function loadBouncingBallShieldedWithInput()
         LazySets.HalfSpace(sparsevec([1], [1.], 2), 0.0)  # v <= 0
     ])
 
-    jumpMatrix = [-0.95 0.0; 1.0 0.]
+    jumpMatrix = [-0.85 0.0; 0.0 1.]
 
     edges::Vector{Edge} = [Edge(1, guard, jumpMatrix, zeros(2))]
 

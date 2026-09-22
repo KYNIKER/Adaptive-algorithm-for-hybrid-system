@@ -58,7 +58,7 @@ function Cell(id, sidx, uidx)
 end
 
 Base.show(io::IO, cell::Cell) = println(io,
-    "Cell($(cell.id), $(cell.sidx), $(cell.uidx))")
+    "Cell($(cell.id), $(cell.sidx), $(cell.pCells))")
 
 
 
@@ -248,6 +248,30 @@ function get_touching_cells(grid::Grid, convexSet::LazySet)
     return touching_cells
 end
 
+function get_touching_cell_idxs(grid::Grid, convexSet::LazySet)
+    touching_cell_idxs = []
+
+    lower_bounds, upper_bounds = clamp.(LazySets.low(convexSet), grid.lower, grid.upper), clamp.(LazySets.high(convexSet), grid.lower, grid.upper)
+    lower_bounds = Int.(floor.(abs.(lower_bounds .- grid.lower) ./ grid.granularity) .+ 1)
+
+    upper_bounds = Int.(ceil.(abs.(upper_bounds .- grid.lower) ./ grid.granularity)) #floor.(min.(upper_bounds, grid.upper) .- grid.lower) ./ grid.granularity
+    ranges = [lower_bounds[i]:max(upper_bounds[i], 1) for i in 1:grid.dimension]
+
+    idxs = CartesianIndices((ranges...,))
+    #@show idxs
+    for idx in idxs
+        cell = grid.array[idx]
+        lower_bounds, upper_bounds = get_cell_bounds(grid, cell)
+        cell_box = Hyperrectangle((lower_bounds + upper_bounds) / 2, (upper_bounds - lower_bounds) / 2)
+
+        if !isempty(intersect(convexSet, cell_box))
+            push!(touching_cell_idxs, idx)
+        end
+    end
+
+    return touching_cell_idxs
+end
+
 function get_contained_cells(grid::Grid, convexSet::LazySet)
     contained_cells = []
 
@@ -330,51 +354,89 @@ function grow_indices(grid::Grid, idxs, offset)
 end
 
 # https://github.com/AstridHornBrorholt/Shielded-Learning-for-Hybrid-Systems/blob/22c9fc220ef40d55877ff1360be7286a7a506620/Shared%20Code/ShieldSynthesis.jl#L88
-function make_shield(grid::Grid, action_set, max_steps, Act)
+function make_shield(grid::Grid, action_set, no_action_set, max_steps, Act)
     i = max_steps
     grid´ = nothing
+    action_set´ = nothing
     while i > 0
-        grid´ = shield_step!(grid, action_set, Act)
-        if grid´.array == grid
+        #grid´, action_set´ = shield_step!(grid, action_set, no_action_set, Act)
+        grid´ = shield_step!(grid, action_set, no_action_set, Act)
+        if grid´.array == grid.array
+            println("Fixed point found at $(max_steps-i) steps!")
             break
         end
+        #@show action_set == action_set´
         grid = grid´
+        #action_set = action_set´
         i -= 1
 
     end
+
     return (grid, max_steps - i)
 end
 
-function shield_step!(grid::Grid, action_set, Act)
+function shield_step!(grid::Grid, action_set, no_action_set, Act)
     grid´ = deepcopy(grid)
-    pop_keys = []
+    act_pop_keys = []
+    no_act_pop_keys = []
     new_dead_cells=[]
     for cell in grid.array
         if !grid.deadCells[cell.id]
             #no_action_bad = any(i -> i == 0, collect(grid.array[nc].sidx[1] for nc in cell.pCells))
-            #no_action_bad = any(i -> i == 0, collect(grid.deadCells[nc] for nc in cell.pCells))
+            #no_action_bad = any(grid.deadCells[idx] for idx in cell.pCells)
+            no_action_bad = false
+            if haskey(no_action_set, CartesianIndex(cell.id))
+                if any(grid.deadCells[idx] for idx in no_action_set[cell.id])
+                    no_action_bad = true
+                    push!(no_act_pop_keys, cell.id)
+                end
+            end
 
             can_act = 0
             for act in Act
-                if haskey(action_set, (act, cell.id))
+                if haskey(action_set, (act, CartesianIndex(cell.id)))
                     can_act += 1
-                    if any(i -> i == 0, collect(nc.sidx[1] for nc in action_set[(act, cell.id)]))
-                        push!(pop_keys, (act, cell.id))
+
+                    if length(collect(grid.deadCells[idx] for idx in action_set[(act, CartesianIndex(cell.id))])) == 0
+                        #@show action_set[(act, cell.id)]
+                        push!(act_pop_keys, (act, cell.id))
+                        can_act -= 1
+                    elseif any(grid.deadCells[idx] for idx in action_set[(act, CartesianIndex(cell.id))])
+                        push!(act_pop_keys, (act, cell.id))
                         can_act -= 1
                     end
                 end
             end
-            #@show no_action_bad, can_act
+            #@show can_act
             #@show can_act, isempty(cell.pCells)
-            if can_act == 0 && isempty(cell.pCells) && cell.sidx[1] == 0#no_action_bad && can_act == 0
-                grid´.array[cell.id].sidx[1] = 0
+            if can_act <= 0 && no_action_bad #isempty(cell.pCells) && cell.sidx[1] == 1 #no_action_bad && can_act == 0
+                #grid´.array[cell.id].sidx[1] = 1
                 grid´.deadCells[cell.id] = true
+                #push!(no_act_pop_keys, cell.id)
+                #@show grid´.deadCells[cell.id] == grid.deadCells[cell.id]
                 #push!(new_dead_cells, cell.id)
             end
+            #=else
+            for act in Act
+                if haskey(action_set, (act, cell.id))
+
+                    push!(act_pop_keys, (act, cell.id))
+
+                end
+                if haskey(no_action_set, cell.id)
+
+                    push!(no_act_pop_keys, cell.id)
+
+                end
+            end=#
         end
     end
     #grid´.deadCells[new_dead_cells...] = true
-    @show grid.deadCells == grid´.deadCells
-    filter!(k -> !in(k, pop_keys), action_set)
-    return grid´
+    #@show grid.deadCells == grid´.deadCells
+    #@show length(act_pop_keys)
+    #@show length(no_act_pop_keys)
+    filter!(k -> !in(k.first, act_pop_keys), action_set)
+    filter!(k -> !in(k.first, no_act_pop_keys), no_action_set)
+    #@show length(action_set)
+    return grid´#, action_set
 end

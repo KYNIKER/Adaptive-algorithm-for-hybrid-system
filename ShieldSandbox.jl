@@ -7,7 +7,7 @@ include("models/bouncingBall.jl")
 include("ReACTedShielding.jl")
 
 fresh_grid = false
-granularity = 0.25  # Example granularity
+granularity = 0.5  # Example granularity
 grid_name = "ball" * string(granularity)
 savefile = grid_name * ".jld2"
 
@@ -15,31 +15,70 @@ euclideanHybridSystem, timePeriod = loadBouncingBallShieldedWithInput()
 
 δ⁻ = 0.001
 
+# TODO - Looking at the serialized reach by act dict it looks like it maps to cells that only have a idx but no other information.
+#=
+GC.gc(true)
 grid = nothing
 reach_by_Act = nothing
 if fresh_grid
-    @time grid´, reach_by_Act´ = ReACTed_reachable_cell(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^0 * δ⁻)
-    @show length(keys(reach_by_Act´))
     if isfile(savefile)
+        #@show length(keys(reach_by_Act´))
+
         #@show grid.deadCells
         rm(savefile)
         #sets = ReACTedShieldingK(euclideanHybridSystem, 2 * timePeriod, 1, granularity, 0.001, 0.004)
     end
-    @save savefile grid´ reach_by_Act´
-    grid = grid´
-    reach_by_Act = reach_by_Act´
-else
-    @load savefile grid´ reach_by_Act´
-    grid = grid´
-    reach_by_Act = reach_by_Act´
+    grid´, reach_by_Act´ = nothing, nothing
+    @time grid´, reach_by_Act´ = ReACTed_reachable_cell(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^0 * δ⁻)
+    jldsave(savefile; g=grid´, r=reach_by_Act´)
 end
-@time shield, iters = make_shield(grid, reach_by_Act, 60, euclideanHybridSystem.Act)
+f = jldopen(savefile)
+@show f
+grid = read(f, "g")
+reach_by_Act = read(f, "r")
+close(f)
+@show reach_by_Act
+=#
+
+@time grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^0 * δ⁻)
+#=
+@show length(reach_by_Act), length(reach_by_no_Act)
+
+@show grid.array[40, 6]
+@show grid.array[40, 5]
+@show grid.deadCells[40, 6]
+@show grid.deadCells[40, 5]
+=#
+#tidx = CartesianIndex(20, 3)
+tidx = CartesianIndex(12, 20)
+@show haskey(reach_by_no_Act, tidx)
+if haskey(reach_by_no_Act, tidx)
+    @show reach_by_no_Act[tidx]
+end
+
+for act in euclideanHybridSystem.Act
+    @show haskey(reach_by_Act, (act, tidx))
+    if haskey(reach_by_Act, (act, tidx))
+        @show reach_by_Act[(act, tidx)]
+    end
+end
+
+@time shield, iters = make_shield(grid, reach_by_Act, reach_by_no_Act, 105, euclideanHybridSystem.Act)
+#=
+@show length(reach_by_Act), length(reach_by_no_Act)
+
+@show shield.array[40, 6]
+@show shield.array[40, 5]
+@show shield.deadCells[40, 6]
+@show shield.deadCells[40, 5]
 #@show reach_by_Act
+=#
 unsafe = []
 jumping = []
 noAct = []
-@show grid.deadCells == shield.deadCells
+
 zonotopeArray3d = initialize_zonotope_array(shield)  # Initialize the zonotope array for the grid
+invalid_cells = []
 for cell in shield.array
     #@show cell.pCells
 
@@ -57,12 +96,16 @@ for cell in shield.array
         end=#
     else
         push!(noAct, zonotopeArray3d[cell.id])
+        if !haskey(reach_by_no_Act, cell.id)
+            push!(invalid_cells, cell.id)
+        end
     end
 end
 
 @show length(unsafe)
 @show length(jumping)
 @show length(noAct)
+#@show invalid_cells
 dirs = [1, 2]
 #grid = Grid(euclideanHybridSystem.statespace, granularity)
 
@@ -70,8 +113,9 @@ dirs = [1, 2]
 
 
 plt = plot(dpi=1200, thickness_scaling=1, guidefontsize=25, minorgrid=true,
-    legendfont=font(12, "Times"),
-    legend_position=:topright,
+    #legendfont=font(12, "Times"),
+    #legend_position=:topright,
+    legend=false,
     tickfont=font(8, "Times"),
     xguidefont=font(12, "Times"),
     yguidefont=font(12, "Times"),
@@ -96,6 +140,7 @@ for z in pFrontierZonotopes
     plot!(plt, z, alpha=0.9, c=:black)
 end
 
+
 nFrontierZonotopes = get_grid_shapes(noAct, dirs)
 
 for z in nFrontierZonotopes
@@ -109,6 +154,14 @@ end
 
 #@show jumping
 eA = exp(timePeriod * euclideanHybridSystem.flowMatrix)
+#tU = linear_map((inv(euclideanHybridSystem.flowMatrix) * (eA - I)), euclideanHybridSystem.input)
+tU = linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(euclideanHybridSystem.flowMatrix, timePeriod, ReachabilityAnalysis.Exponentiation.BaseExp, false, nothing), euclideanHybridSystem.input)
+tz = minkowski_sum(tU, linear_map(eA, zonotopeArray3d[tidx]))
+#for id in get_touching_cell_idxs(grid, tz)
+#@show get_cell_bounds(grid, grid.array[id])
+#end
+#@show get_cell_bounds(grid, grid.array[tidx])
+#@show get_cell_bounds(grid, zonotopeArray3d[tidx])
 gFrontierZonotopes = get_grid_shapes(jumping, dirs)#[get_grid_shapes(jumping, dirs); get_grid_shapes(map(x -> linear_map(eA, x), jumping), dirs)]#get_grid_shapes(jumping, dirs)
 
 for z in gFrontierZonotopes
@@ -119,7 +172,8 @@ plot!(plt, intersection(euclideanHybridSystem.globalConstraints[1], hyperrectang
 #plot!(plt, LazySets.API.project(LinearMap(exp(-timePeriod * euclideanHybridSystem.flowMatrix), intersection(euclideanHybridSystem.globalConstraints[1], hyperrectangle_to_HPolytope(euclideanHybridSystem.statespace))), dirs), c=:white)
 plot!(plt, intersection(euclideanHybridSystem.edges[1].guard, hyperrectangle_to_HPolytope(euclideanHybridSystem.statespace)), c=:green)
 #plot!(plt, euclideanHybridSystem.edges[1].guard, c=:green)
-
+plot!(plt, zonotopeArray3d[tidx], c=:white)
+plot!(plt, tz, c=:white)
 display(plt)  # Display the plot
 
 

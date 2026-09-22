@@ -37,3 +37,4 @@ plotResults/.gitkeep
 gr-temp/*
 
 performanceTest.jl
+*.jld2

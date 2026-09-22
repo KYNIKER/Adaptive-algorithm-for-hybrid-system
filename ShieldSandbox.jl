@@ -1,4 +1,4 @@
-using LazySets, LinearAlgebra, Plots, ReachabilityAnalysis
+using LazySets, LinearAlgebra, Plots, ReachabilityAnalysis, JLD2, FileIO
 using Plots.PlotMeasures
 include("PartitionUtilities.jl")
 include("plotFuncs/plotFuncHelper.jl")
@@ -6,18 +6,34 @@ include("Utilities.jl")
 include("models/bouncingBall.jl")
 include("ReACTedShielding.jl")
 
+fresh_grid = false
+granularity = 0.25  # Example granularity
+grid_name = "ball" * string(granularity)
+savefile = grid_name * ".jld2"
 
 euclideanHybridSystem, timePeriod = loadBouncingBallShieldedWithInput()
-granularity = 1.25  # Example granularity
 
 δ⁻ = 0.001
 
-@time grid, reach_by_Act = ReACTed_reachable_cell(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^0 * δ⁻)
-#@show grid.deadCells
-@show length(keys(reach_by_Act))
-#sets = ReACTedShieldingK(euclideanHybridSystem, 2 * timePeriod, 1, granularity, 0.001, 0.004)
-
-@time shield, iters = make_shield(grid, reach_by_Act, 6, euclideanHybridSystem.Act)
+grid = nothing
+reach_by_Act = nothing
+if fresh_grid
+    @time grid´, reach_by_Act´ = ReACTed_reachable_cell(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^0 * δ⁻)
+    @show length(keys(reach_by_Act´))
+    if isfile(savefile)
+        #@show grid.deadCells
+        rm(savefile)
+        #sets = ReACTedShieldingK(euclideanHybridSystem, 2 * timePeriod, 1, granularity, 0.001, 0.004)
+    end
+    @save savefile grid´ reach_by_Act´
+    grid = grid´
+    reach_by_Act = reach_by_Act´
+else
+    @load savefile grid´ reach_by_Act´
+    grid = grid´
+    reach_by_Act = reach_by_Act´
+end
+@time shield, iters = make_shield(grid, reach_by_Act, 60, euclideanHybridSystem.Act)
 #@show reach_by_Act
 unsafe = []
 jumping = []
@@ -87,7 +103,7 @@ for z in nFrontierZonotopes
 end
 
 for action in euclideanHybridSystem.Act
-    plot!(plt, action.guard, c=:yellow)
+    plot!(plt, action.guard, c=:yellow, fillstyle=://)
 end
 
 

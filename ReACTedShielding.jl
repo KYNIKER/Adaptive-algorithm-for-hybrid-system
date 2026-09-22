@@ -26,8 +26,8 @@ function ReACTed_reachable_cell(system::EuclideanHybridSystem, p, granularity, Î
     #@show gFrontierCells
     #gFrontierN = grow_indices(grid, map(x -> car2vec(x.id), gFrontierCells))
     #@show gFrontierN
-    phiDicts = Dict()
-    tphiDicts = Dict()
+    #phiDicts = Dict()
+    #tphiDicts = Dict()
 
     #=
     for x in hybridSystem.locations
@@ -70,7 +70,7 @@ function ReACTed_reachable_cell(system::EuclideanHybridSystem, p, granularity, Î
     #dc = 0
     #@show grid.lower
     lower_offset = grid.lower .+ (granularity/2)
-    for idx in CartesianIndices(grid.array)
+    for idx in CartesianIndices(grid.deadCells)
         of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
         LazySets.API.translate!(Z, of)
         #@show Z, idx, of
@@ -86,16 +86,16 @@ function ReACTed_reachable_cell(system::EuclideanHybridSystem, p, granularity, Î
             dc += 1
         end=#
 
-        if f == 1
+        if f != 1
             #@show LazySets.API.isdisjoint(Z, system.globalConstraints[1]), Z, idx
-            grid.deadCells[idx] = true
+            #grid.deadCells[idx] = true
 
             #println("so deads")
-        else
-            grid.array[idx].pCells = get_touching_cell_idxs(grid, z)
             reachable_by_flow[idx] = get_touching_cell_idxs(grid, z)
+            #else
+            #grid.array[idx].pCells = get_touching_cell_idxs(grid, z)
         end
-        grid.array[idx].sidx[1] = copy(f)
+        #grid.array[idx].sidx[1] = copy(f)
         LazySets.API.translate!(Z, -of)
     end
     #@show dc

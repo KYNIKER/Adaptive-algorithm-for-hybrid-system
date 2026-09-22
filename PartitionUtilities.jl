@@ -9,7 +9,7 @@ struct Grid{T<:Real}
     upper::Vector{T}
     numCells::Vector{Int}
     deadCells::BitArray
-    array
+    #array
 end
 
 
@@ -27,15 +27,15 @@ function Grid(convexSet::LazySet, granularity::T) where T<:Real
     end
 
     # Possible to check if cells actually are within the convexSet, but for now we assume they are.
-    array = Array{Cell}(undef, (numCells...))  # Create an array to hold the grid cells
+    #array = Array{Cell}(undef, (numCells...))  # Create an array to hold the grid cells
 
     deadCells = falses(numCells...)#BitArray(undef, (numCells...,))  # Create an array to label the dead cells falses(numCells...)#
 
-    for id in CartesianIndices(array)
-        array[id] = Cell(id, [LinearIndices(array)[id]], [])
-    end
+    #for id in CartesianIndices(array)
+    #    array[id] = Cell(id, [LinearIndices(array)[id]], [])
+    #end
 
-    return Grid{T}(dimension, granularity, lower_bounds, upper_bounds, numCells, deadCells, array)
+    return Grid{T}(dimension, granularity, lower_bounds, upper_bounds, numCells, deadCells)#, array)
 end
 
 Base.show(io::IO, grid::Grid) = println(io,
@@ -46,15 +46,15 @@ Base.length(grid::Grid) = length(grid.array)
 
 Base.size(grid::Grid) = size(grid.array)
 
-mutable struct Cell
+struct Cell
     id::CartesianIndex
-    sidx::Vector{Int}
-    uidx::Vector{Int}
-    pCells::Vector{CartesianIndex}
+    #sidx::Vector{Int}
+    #uidx::Vector{Int}
+    #pCells::Vector{CartesianIndex}
 end
 
 function Cell(id, sidx, uidx)
-    return Cell(id, sidx, uidx, [])
+    return Cell(id)#, sidx, uidx, [])
 end
 
 Base.show(io::IO, cell::Cell) = println(io,
@@ -168,10 +168,10 @@ end
 function initialize_zonotope_array(grid::Grid)
     zonotopeArray = Array{Zonotope}(undef, (grid.numCells...))
     generators = diagm(fill(grid.granularity / 2, grid.dimension))
-    for cell in grid
-        offset = car2vec(cell.id)
+    for idx in CartesianIndices(grid.deadCells)
+        offset = car2vec(idx)
         center = (offset .- 0.5) * grid.granularity .+ grid.lower
-        zonotopeArray[cell.id] = Zonotope(center, generators)
+        zonotopeArray[idx] = Zonotope(center, generators)
 
     end
 
@@ -221,6 +221,14 @@ function get_cell_bounds(grid::Grid, cell::Cell)
     return lb, ub
 end
 
+function get_cell_idx_bounds(grid::Grid, idx::CartesianIndex)
+    lb = grid.lower .+ (Tuple(idx) .- 1) .* grid.granularity
+    ub = lb .+ grid.granularity
+
+
+    return lb, ub
+end
+
 function get_touching_cells(grid::Grid, convexSet::LazySet)
     touching_cells = []
 
@@ -260,8 +268,8 @@ function get_touching_cell_idxs(grid::Grid, convexSet::LazySet)
     idxs = CartesianIndices((ranges...,))
     #@show idxs
     for idx in idxs
-        cell = grid.array[idx]
-        lower_bounds, upper_bounds = get_cell_bounds(grid, cell)
+        #cell = grid.array[idx]
+        lower_bounds, upper_bounds = get_cell_idx_bounds(grid, idx)
         cell_box = Hyperrectangle((lower_bounds + upper_bounds) / 2, (upper_bounds - lower_bounds) / 2)
 
         if !isempty(intersect(convexSet, cell_box))

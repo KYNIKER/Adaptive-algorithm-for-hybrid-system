@@ -50,7 +50,7 @@ close(f)
 @show grid.deadCells[40, 5]
 =#
 #tidx = CartesianIndex(20, 3)
-tidx = CartesianIndex(12, 20)
+tidx = CartesianIndex(13, 20)
 @show haskey(reach_by_no_Act, tidx)
 if haskey(reach_by_no_Act, tidx)
     @show reach_by_no_Act[tidx]
@@ -63,7 +63,7 @@ for act in euclideanHybridSystem.Act
     end
 end
 
-@time shield, iters = make_shield(grid, reach_by_Act, reach_by_no_Act, 105, euclideanHybridSystem.Act)
+@time shield, iters = make_shield(grid, reach_by_Act, reach_by_no_Act, 32, euclideanHybridSystem.Act)
 #=
 @show length(reach_by_Act), length(reach_by_no_Act)
 
@@ -79,25 +79,26 @@ noAct = []
 
 zonotopeArray3d = initialize_zonotope_array(shield)  # Initialize the zonotope array for the grid
 invalid_cells = []
-for cell in shield.array
+for idx in CartesianIndices(shield.deadCells)
     #@show cell.pCells
 
-    if shield.deadCells[cell.id]
-        push!(unsafe, zonotopeArray3d[cell.id])
+    if shield.deadCells[idx]
+        #push!(unsafe, zonotopeArray3d[cell.id])
     end
     #@show any(x -> haskey(reach_by_Act, (x, cell.id)), euclideanHybridSystem.Act)
-    if any(x -> haskey(reach_by_Act, (x, cell.id)), euclideanHybridSystem.Act)
+    if any(x -> haskey(reach_by_Act, (x, idx)), euclideanHybridSystem.Act)
         #@show zonotopeArray3d[cell.id]
-        push!(jumping, zonotopeArray3d[cell.id])
+        push!(jumping, zonotopeArray3d[idx])
         #=if !isempty(cell.pCells)
             for pcell in cell.pCells
                 push!(jumping, zonotopeArray3d[pcell])
             end
         end=#
     else
-        push!(noAct, zonotopeArray3d[cell.id])
-        if !haskey(reach_by_no_Act, cell.id)
-            push!(invalid_cells, cell.id)
+        push!(noAct, zonotopeArray3d[idx])
+        if !haskey(reach_by_no_Act, idx)
+            push!(invalid_cells, idx)
+            push!(unsafe, zonotopeArray3d[idx])
         end
     end
 end
@@ -105,14 +106,14 @@ end
 @show length(unsafe)
 @show length(jumping)
 @show length(noAct)
-#@show invalid_cells
+@show CartesianIndex((40, 20)) ∈ invalid_cells
 dirs = [1, 2]
 #grid = Grid(euclideanHybridSystem.statespace, granularity)
 
 #unsafeDict = Dict{CartesianIndex,Vector{LazySet}}()
 
 
-plt = plot(dpi=1200, thickness_scaling=1, guidefontsize=25, minorgrid=true,
+plt = plot(dpi=1200, thickness_scaling=1, guidefontsize=35, minorgrid=true,
     #legendfont=font(12, "Times"),
     #legend_position=:topright,
     legend=false,

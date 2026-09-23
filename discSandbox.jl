@@ -9,6 +9,11 @@ Z = Zonotope(c, G)
 Z1 = Zonotope(c, diagm(zeros(2)))
 Z2 = Zonotope(zeros(2), G)
 
+cU = Float64.(rand((0:5), 2))
+GU = rand(Float64, (2, 2))
+
+U = Zonotope(cU, GU)
+
 A = rand(Float64, (2, 2))
 
 d = 0.5
@@ -18,7 +23,7 @@ isInvA = false #isinvertible(A)
 A_abs = abs.(A)
 Φcache = sum(A) == abs(sum(A)) ? Φ : nothing
 P2A_abs = ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, d, ReachabilityAnalysis.Exponentiation.BaseExp, false, Φcache)
-
+pis = ReachabilityAnalysis.Exponentiation.Φ₁(A, d, ReachabilityAnalysis.Exponentiation.BaseExp, false, nothing)
 
 plt = plot(dpi=1200, thickness_scaling=1, guidefontsize=25, minorgrid=true,
     legendfont=font(6, "Times"),

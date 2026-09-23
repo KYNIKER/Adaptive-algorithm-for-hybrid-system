@@ -883,9 +883,20 @@ function projectReachSet(dirs, reachSet)
     return projectedReachSet
 end
 
+function zonotope_convex_hull_decompose(z::LazySets.Zonotope, eAz::LazySets.Zonotope)
+    c = copy(z.center .+ eAz.center .* 0.5)
+    G1 = copy(genmat(z))
+    G2 = copy(genmat(eAz))
+    G = hcat(G1 .+ G2, copy(z.center - eAz.center), G1 .- G2) .* 0.5
+    return c, G
+end
 
-
-
+function decomposed_zonotope_convex_hull(c, G, A)
+    c´ = c .+ (A * c) .* 0.5
+    GM = A * G
+    G´ = hcat(G .+ GM, copy(c - A * c), G .- GM) * 0.5
+    return c´, G´
+end
 
 
 

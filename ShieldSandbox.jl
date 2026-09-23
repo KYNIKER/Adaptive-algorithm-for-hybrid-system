@@ -8,7 +8,7 @@ include("ReACTedShielding.jl")
 
 fresh_grid = false
 make_plot = false
-granularity = 0.02  # Example granularity
+granularity = 0.1  # Example granularity
 grid_name = "ball" * string(granularity)
 savefile = grid_name * ".jld2"
 
@@ -43,7 +43,7 @@ close(f)
 @show reach_by_Act
 =#
 
-@time grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^0 * δ⁻)
+@time grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^6 * δ⁻)
 #=
 @show length(reach_by_Act), length(reach_by_no_Act)
 
@@ -67,7 +67,7 @@ for act in euclideanHybridSystem.Act
     end
 end
 =#
-@time shield, iters = make_shield(grid, reach_by_Act, reach_by_no_Act, 10, euclideanHybridSystem.Act)
+@time shield, iters = make_shield(grid, reach_by_Act, reach_by_no_Act, 3, euclideanHybridSystem.Act)
 #=
 @show length(reach_by_Act), length(reach_by_no_Act)
 

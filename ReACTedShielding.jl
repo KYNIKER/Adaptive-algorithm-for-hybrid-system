@@ -903,7 +903,7 @@ function ReACT_guards(δ⁻::Float64, δ⁺::Float64, interval, statespace, guar
         end
     end
 
-    return (time, linear_map(Φ, discritezationDict[currentTimeStep]), input, 0)
+    return (time, linear_map(Φ, discritezationDict[δ⁻]), input, 0)
 end
 
 

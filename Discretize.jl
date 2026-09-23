@@ -300,6 +300,8 @@ function ReACT_discretize_decomposed_generators(X0G::Zonotope{N,Vector{N},Matrix
     return discritezationDict
 end
 
+
+### TODO - Figure out whether this is easier if we had passed the decomposed components instead?
 function ReACT_discretize_combine_with_offsets(X0c::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Float64, δ⁺::Float64, A, P2A_abs, phiDict, U, inputDiscritezationDict, generatorDiscretizationDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}
     d = δ⁻
     discritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
@@ -313,7 +315,7 @@ function ReACT_discretize_combine_with_offsets(X0c::Zonotope{N,Vector{N},Matrix{
 
 
     while d < δ⁺
-        discritezationDict[d] = copy(Zonotope(newC, vcat(c_bloat,)))
+        discritezationDict[d] = copy(Zonotope(newC, vcat(c_bloat, Xc .- eAXc .* 0.5)))
         newG´ = copy(newG)
         lmul!(phiDict[d], newG´)
         newG = copy(vcat((newG .+ newG´) .* 0.5, (newG .- newG´) .* 0.5, genmat(inputDiscritezationDict[d])))
@@ -493,15 +495,16 @@ function PhiInputDict(A, U, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAna
     #P = minkowski_sum(dU, E_ψ) #
 
     P = linear_map(pis, U)
-
+    #@show P
     d = δ⁻
     while d < δ⁺
 
         phiDict[d] = copy(ϕ)
         TphiDict[d] = copy(permutedims(ϕ))
-        inputDiscritezationDict[d] = P
+        inputDiscritezationDict[d] = copy(P)
 
         P = P + LazySets.linear_map(phiDict[d], P)
+        #@show P
 
 
         mul!(tempM, ϕ, ϕ)

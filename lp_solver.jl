@@ -155,3 +155,52 @@ for k in 1:100
     @show lp.x
     # lp.x now contains the solution
 end
+
+#=
+@validate_commutative function isdisjoint(Z::AbstractZonotope, P::AbstractPolyhedron,
+                                          witness::Bool=false; solver=nothing)
+    n = dim(Z)
+    if n <= 2
+        # this implementation is slower for low-dimensional sets
+        return _isdisjoint_polyhedron(Z, P, witness; solver=solver)
+    end
+
+    N = promote_type(eltype(Z), eltype(P))
+    c = center(Z)
+    G = genmat(Z)
+    C, d = tosimplehrep(P)
+    p = size(G, 2)
+    m = length(d)
+
+    A = [C zeros(N, m, p);
+         I(n) -G]
+    b = vcat(d, c)
+    obj = zeros(N, size(A, 2))
+
+    lbounds = vcat(fill(-Inf, n), fill(-one(N), p))
+    ubounds = vcat(fill(Inf, n), fill(one(N), p))
+    sense = vcat(fill('<', m), fill('=', n))
+    if isnothing(solver)
+        solver = default_lp_solver(N)
+    end
+
+    lp = linprog(obj, A, sense, b, lbounds, ubounds, solver)
+
+    if is_lp_optimal(lp.status)
+        disjoint = false
+    elseif is_lp_infeasible(lp.status)
+        disjoint = true
+    else
+        throw(ArgumentError("unexpected LP solver status: $(lp.status)"))
+    end
+
+    if disjoint
+        return _witness_result_empty(witness, true, Z, P)
+    elseif witness
+        w = lp.sol[1:n]
+        return (false, w)
+    else
+        return false
+    end
+end
+=#

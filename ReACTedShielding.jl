@@ -848,7 +848,7 @@ function ReACT_guards(δ⁻::Float64, δ⁺::Float64, interval, statespace, guar
     =#
 
     i = 1
-    input = Zonotope(zeros(dims), zeros(dims, dims))
+    input = Zonotope(zeros(dims), zeros(size(genmat((inputDiscretizationDict[0])))))
     while time < endtime
 
         attempts = 1

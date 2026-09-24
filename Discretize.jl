@@ -308,23 +308,23 @@ function ReACT_discretize_combine_with_offsets(X0c::Zonotope{N,Vector{N},Matrix{
     Uc = U.center .* d
     Xc = X0c.center
 
-    c_bloat = diagm(sum(P2A_abs * diagm(abs.(A * A * Xc)), dims=1))
 
     eAXc = Uc .+ (phiDict[d] * Xc)
     newC = Xc .+ eAXc .* 0.5
 
+    c_bloat = vcat(diagm(sum(P2A_abs * diagm(abs.(A * A * Xc)), dims=1)), Xc .- eAXc .* 0.5)
 
     while d < δ⁺
-        discritezationDict[d] = copy(Zonotope(newC, vcat(c_bloat, Xc .- eAXc .* 0.5)))
-        newG´ = copy(newG)
-        lmul!(phiDict[d], newG´)
-        newG = copy(vcat((newG .+ newG´) .* 0.5, (newG .- newG´) .* 0.5, genmat(inputDiscritezationDict[d])))
-
+        discritezationDict[d] = copy(Zonotope(newC, vcat(c_bloat, generatorDiscretizationDict[d])))
+        eA_c_bloat = phiDict[d] * c_bloat
+        c_bloat = vcat(c_bloat .+ eA_c_bloat .* 0.5, c_bloat .- eA_c_bloat .* 0.5, newC .- (phiDict[d] * newC) .* 0.5)
+        newC = newC .+ (phiDict[d] * newC) .* 0.5
+        #c_bloat = vcat(c_bloat, newC .- (phiDict[d] * newC) .* 0.5)
 
         d = d * 2
     end
 
-    discritezationDict[δ⁺] = newG
+    discritezationDict[δ⁺] = copy(Zonotope(newC, vcat(c_bloat, generatorDiscretizationDict[d])))
 
     return discritezationDict
 end

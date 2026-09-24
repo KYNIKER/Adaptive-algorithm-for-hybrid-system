@@ -1,4 +1,7 @@
-using LazySets, ReachabilityAnalysis, Plots
+using LazySets, ReachabilityAnalysis, Plots, LinearAlgebra
+using Plots.Measures
+
+include("Discretize.jl")
 
 c = Float64.(rand((0:10), 2))
 
@@ -46,11 +49,36 @@ plot!(plt, symmetric_interval_hull(linear_map(P2A_abs, symmetric_interval_hull(l
 plot!(plt, minkowski_sum(symmetric_interval_hull(linear_map(P2A_abs, symmetric_interval_hull(linear_map(A^2, Z1)))), symmetric_interval_hull(linear_map(P2A_abs, symmetric_interval_hull(linear_map(A^2, Z2))))), c=:black, fillstyle=://, lab="Minkowski sum of 0 generator and centered bloating")
 plot!(plt, CH(minkowski_sum(Z1, Z2), minkowski_sum(linear_map(Φ, minkowski_sum(Z1, Z2)), minkowski_sum(symmetric_interval_hull(linear_map(P2A_abs, symmetric_interval_hull(linear_map(A^2, Z1)))), symmetric_interval_hull(linear_map(P2A_abs, symmetric_interval_hull(linear_map(A^2, Z2))))))), c=:black, fillstyle=:-, lab="using zonotope decomposition")
 plot!(plt, CH(Z, minkowski_sum(linear_map(Φ, Z), symmetric_interval_hull(linear_map(P2A_abs, symmetric_interval_hull(linear_map(A^2, Z)))))), c=:orange, lab="original method")
+
 plot!(plt, Z, c=:green, lab="original zonotope")
 
 plot!(plt, Z1, c=:blue, lab="0 generator zonotope")
 plot!(plt, Z2, c=:yellow, lab="centered zonotope")
 
+phiDict, tPhiDict, inputDict = PhiInputDict(A, U, d, d)
+
+isInvA = false#isinvertible(system.flowMatrix)
+#Φ = copy(phiDict[d])
+A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(A)
+Φcache = nothing
+P2A_abs = ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, d, ReachabilityAnalysis.Exponentiation.BaseExp, isInvA, Φcache)
+
+generatorDict = ReACT_discretize_decomposed_generators(Z2, d, d, A, P2A_abs, phiDict, U, inputDict)
+discDict = ReACT_discretize_combine_with_offsets(Z1, d, d, A, P2A_abs, phiDict, U, inputDict, generatorDict)
+
+oldDiscDict = newReACTDiscretizePlus(Z, d, d, A, P2A_abs, phiDict, inputDict)
+
+
+plot!(plt, oldDiscDict[d], c=:red, lab="old implementation")
+plot!(plt, discDict[d], c=:grey, lab="implementation")
+@show oldDiscDict[d]
+@show discDict[d]
+@show (c + Φ * c) / 2
+@show c
+@show Φ * c
+@show inputDict[d]
+plot!(plt, CH(Z, minkowski_sum(minkowski_sum(linear_map(Φ, Z), inputDict[d]), symmetric_interval_hull(linear_map(P2A_abs, symmetric_interval_hull(linear_map(A^2, Z)))))), c=:white, lab="original method with input")
+display(plt)
 #plot!(plt, symmetric_interval_hull(Z1), c=:grey)
 #plot!(plt, symmetric_interval_hull(Z2), c=:grey)
 

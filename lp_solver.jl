@@ -126,6 +126,15 @@ function disjointness_check(lpMinimizer::LPWorkspace, G::Matrix{Float64}, c::Vec
         Highs_changeRowBounds(h, size(b) + i - 1, -1, 1)
     end
 
+    Highs_run(lp.highs)
+
+    Highs_getSolution(
+        lp.highs,
+        lp.x,
+        C_NULL,
+        C_NULL,
+        C_NULL,
+    )
 end
 
 A = rand(Float64, (5, 5))

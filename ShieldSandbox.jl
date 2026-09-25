@@ -8,7 +8,7 @@ include("ReACTedShielding.jl")
 
 fresh_grid = false
 make_plot = false
-granularity = 0.1  # Example granularity
+granularity = 0.5  # Example granularity
 grid_name = "ball" * string(granularity)
 savefile = grid_name * ".jld2"
 
@@ -67,7 +67,7 @@ for act in euclideanHybridSystem.Act
     end
 end
 =#
-@time shield, iters = make_shield(grid, reach_by_Act, reach_by_no_Act, 3, euclideanHybridSystem.Act)
+@time shield, iters = make_shield(grid, reach_by_Act, reach_by_no_Act, 15, euclideanHybridSystem.Act)
 #=
 @show length(reach_by_Act), length(reach_by_no_Act)
 
@@ -118,6 +118,8 @@ if make_plot
             end
         end
     end
+
+    tidx = CartesianIndex(30, 20)
 
     @show length(unsafe)
     @show length(jumping)

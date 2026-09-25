@@ -68,7 +68,10 @@ function ReACTed_reachable_cell(system::EuclideanHybridSystem, p, granularity, �
     #@show degenerate_dimensions
     Z = remove_zero_generators(Zonotope(degenerate_dimensions, diagm(map(x -> x == 1 ? 0. : granularity/2, grid.numCells))))
     #dc = 0
+
     #@show grid.lower
+    max_input = linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, p, alg, false, nothing), system.input)
+    max_flow = exp(p .* system.flowMatrix)
     lower_offset = grid.lower .+ (granularity/2)
     for idx in CartesianIndices(grid.deadCells)
         of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
@@ -80,7 +83,7 @@ function ReACTed_reachable_cell(system::EuclideanHybridSystem, p, granularity, �
             end
         end
 
-        z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, inputDict, alg, maxOrder, reduceOrder)
+        z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, inputDict, max_input, max_flow, alg, maxOrder, reduceOrder)
 
         #=if !LazySets.API.isdisjoint(z, system.edges[1].guard)
             dc += 1
@@ -139,7 +142,6 @@ function ReACTedShieldingK(system::EuclideanHybridSystem, p, k, granularity, δ�
 
     phiDict = PhiDict(system.flowMatrix, δ⁻, δ⁺, alg)
     tPhiDict = Dict(collect((k, permutedims(copy(v))) for (k, v) in pairs(phiDict)))
-
     #frontierZonotopes = zonotopeArray[collect(CartesianIndex(c) for c in [gFrontierN; cFrontierN])]#zonotopeArray[collect(c.id for c in frontierN)]
     #push!(frontierZonotopes, zonotopeArray[40, 40, 1])
     #reachtimes = map(z -> propagate_set(z, [0.0, p], δ⁻, δ⁺, system, phiDict, tPhiDict, alg, maxOrder, reduceOrder), frontierZonotopes)
@@ -203,14 +205,16 @@ end
 
 #
 #   Right now this makes quite a bit of allocations.
+#   TODO - Needs a fix for determining the final reachset. Right now it is overapproximated and this is worse for large timestep sizes.
 #
-function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ₂, PhiDict, TPhiDict, inputDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5)
+function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ₂, PhiDict, TPhiDict, inputDict, max_input, max_flow, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5)
 
     discretizationDict = newReACTDiscretizePlus(X0, δ⁻, δ⁺, system.flowMatrix, Φ₂, PhiDict, inputDict, alg, maxOrder, reduceOrder)
-    time::Float64 = minimum(interval)
+    time::Float64 = copy(minimum(interval))
     endtime::Float64 = maximum(interval)
     constraint = system.globalConstraints[1]
     listOfEdges = system.edges
+
     for edge in listOfEdges
         #   Compute the reachset closest to the guard without intersecting it and not reaching the unsafe set. 
         reachtime, newSet, inputSet, flag = ReACT_guards(δ⁻, δ⁺, interval, system.statespace, edge.guard, constraint, hyperrectangle_to_HPolyhedron(system.statespace), 2, PhiDict, TPhiDict, discretizationDict, inputDict)
@@ -223,13 +227,20 @@ function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ�
         #   3: Hit invariant surface
         #
         if flag == 0
-            return (minkowski_sum(newSet, inputSet), 0)
+            if time == 0.0
+                return (minkowski_sum(linear_map(max_flow, X0), max_input), 0)
+            else
+                A_abs = abs.(system.flowMatrix)
+                max_input = linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, endtime - time, alg, false, nothing), system.input)
+
+                return (minkowski_sum(linear_map(exp((endtime - time) .* system.flowMatrix), X0), linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, endtime - time, alg, false, nothing), system.input)), 0)
+            end
         elseif flag == 1 # Hit constraint
             return (nothing, 1)
         elseif flag == 2
             #@show flag
             #@show inputSet
-            issubset, intersectingSetsList, t = ReACT_touches_set_constant_input(newSet, inputSet, edge.guard, δ⁻, [reachtime, endtime], PhiDict, inputDict)
+            intersectingSetsList = ReACT_touches_set_constant_input(newSet, inputSet, edge.guard, δ⁻, [reachtime, endtime], PhiDict, inputDict)
             tempIntersect = foldl(ConvexHull, intersectingSetsList)
             intersectedSet = convert(Zonotope, box_approximation(tempIntersect))
             jumpSet = linear_map(edge.jumpMatrix, zonotopeStripIntersection(intersectedSet, edge.guard))
@@ -238,7 +249,7 @@ function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ�
             end
             #res = propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, PhiDict, TPhiDict, inputDict, alg, maxOrder, reduceOrder)
             #@show res
-            return propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, PhiDict, TPhiDict, inputDict, alg, maxOrder, reduceOrder)
+            return propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, PhiDict, TPhiDict, inputDict, max_input, max_flow, alg, maxOrder, reduceOrder)
         end
         return (newSet, 3)
 
@@ -742,14 +753,14 @@ function ReACT_touches_set_constant_input(X0, U, set, δ⁻::Float64, interval, 
     # Note that in touches we always use δ⁻
     # That is, we do not adjust timestep sizes
 
-    time::Float64 = interval[1] + δ⁻
+    time::Float64 = copy(interval[1])
     endtime::Float64 = interval[2]
 
     intersectingSetsList = Vector{Zonotope}() # This will store all of our sets
 
 
-    X0 = linear_map(PhiDict[δ⁻], X0)
-    U = linear_map(PhiDict[δ⁻], U) + inputDiscretizationDict[δ⁻]
+    #X0 = linear_map(PhiDict[δ⁻], X0)
+    #U = linear_map(PhiDict[δ⁻], U) + inputDiscretizationDict[δ⁻]
     tempSet = minkowski_sum(X0, U)
 
     push!(intersectingSetsList, copy(tempSet))
@@ -778,7 +789,7 @@ function ReACT_touches_set_constant_input(X0, U, set, δ⁻::Float64, interval, 
 
     end
     #continueAfter = false # We are at the end time horizon, therefore no continuing
-    return (LazySets.API.issubset(tempSet, set), intersectingSetsList, time)
+    return intersectingSetsList
 end
 
 function ReACT_touches_set(X0, set, δ⁻::Float64, δ⁺::Float64, interval, PhiDict, inputDiscretizationDict)
@@ -828,10 +839,10 @@ function ReACT_guards(δ⁻::Float64, δ⁺::Float64, interval, statespace, guar
 
     dims = LazySets.API.dim(statespace)
 
-    time::Float64 = minimum(interval)
+    time::Float64 = copy(minimum(interval))
     endtime::Float64 = maximum(interval)
 
-    currentTimeStep = copy(δ⁺)
+    currentTimeStep = copy(δ⁻)
 
     attemptsRecorder = zeros(4)
 
@@ -848,7 +859,7 @@ function ReACT_guards(δ⁻::Float64, δ⁺::Float64, interval, statespace, guar
     =#
 
     i = 1
-    input = Zonotope(zeros(dims), zeros(size(genmat((inputDiscretizationDict[0])))))
+    input = Zonotope(zeros(dims), zeros(size(genmat((inputDiscretizationDict[δ⁻])))))
     while time < endtime
 
         attempts = 1
@@ -862,9 +873,21 @@ function ReACT_guards(δ⁻::Float64, δ⁺::Float64, interval, statespace, guar
                 if 0 == check
                     #if 0 == guardCheck(discritezationDict[currentTimeStep], Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds)
                     approveFlag = true
-                    input = input + linear_map(Φ, inputDiscretizationDict[currentTimeStep])
-                    mul!(tempM, Φ, PhiDict[currentTimeStep])
-                    copy!(Φ, tempM)
+                    if currentTimeStep + time < endtime
+                        input = input + linear_map(Φ, inputDiscretizationDict[currentTimeStep])
+                        mul!(tempM, Φ, PhiDict[currentTimeStep])
+                        copy!(Φ, tempM)
+
+                    else
+                        # TODO - The input gets used or referenced somewhere even with the zero flag..
+                        #d = max(2^(floor(log2((endtime - time)/δ⁻))) * δ⁻, δ⁻)
+                        #@show (endtime - time, d)
+                        #input = linear_map(PhiDict[d], input) + inputDiscretizationDict[d]
+                        #mul!(tempM, Φ, PhiDict[d])
+                        #copy!(Φ, tempM)
+                        #time = time + d
+                        return (endtime, discritezationDict[δ⁻], input, 0)
+                    end
                 else
 
                     currentTimeStep /= 2
@@ -879,6 +902,7 @@ function ReACT_guards(δ⁻::Float64, δ⁺::Float64, interval, statespace, guar
         attemptsRecorder[(i%4)+1] = attempts
         i = i + 1
         time = time + currentTimeStep
+
         # Reset / apply strategy
         # Only do this if the current timestep is less than the initial
         if STRATEGY == 0
@@ -902,8 +926,8 @@ function ReACT_guards(δ⁻::Float64, δ⁺::Float64, interval, statespace, guar
             end
         end
     end
-
-    return (time, linear_map(Φ, discritezationDict[δ⁻]), input, 0)
+    #println("ever")
+    return (endtime, linear_map(Φ, discritezationDict[δ⁻]), input, 0)
 end
 
 

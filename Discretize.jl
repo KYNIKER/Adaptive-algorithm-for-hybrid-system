@@ -290,7 +290,7 @@ function ReACT_discretize_decomposed_generators(X0G::Zonotope{N,Vector{N},Matrix
     #@show AUG
     #@show AUG + AUc
 
-    U_bloat = diagm(sum(P2A_abs * diagm((AUG+AUc)[:, 1]), dims=2)[:, 1])
+    U_bloat = diagm(sum(abs.(genmat(inputDiscritezationDict[0])), dims=2)[:, 1])#diagm(sum(P2A_abs * diagm((AUG+AUc)[:, 1]), dims=2)[:, 1])
     G_bloat = diagm(sum(P2A_abs * diagm(sum(abs.(A * A * XG), dims=2)[:, 1]), dims=2)[:, 1])
     @show G_bloat
     @show genmat(linear_map(phiDict[d], X0G))
@@ -298,10 +298,10 @@ function ReACT_discretize_decomposed_generators(X0G::Zonotope{N,Vector{N},Matrix
 
     # Some mistake in here
     while d < δ⁺
-        discritezationDict[d] = newG
-        newG´ = copy(newG)
-        newG´ = phiDict[d] * newG´
-        newG = copy(hcat((newG .+ newG´) .* 0.5, (newG .- newG´) .* 0.5)) #,genmat(inputDiscritezationDict[d])
+        discritezationDict[d] = copy(newG)
+        #newG´ = copy(newG)
+        newG´ = copy(phiDict[d] * newG)
+        newG = copy(hcat((newG .+ newG´), (newG .- newG´), genmat(inputDiscritezationDict[d])) .* 0.5)
 
 
         d = d * 2
@@ -327,9 +327,9 @@ function ReACT_discretize_combine_with_offsets(X0c::Zonotope{N,Vector{N},Matrix{
     c_bloat = hcat(diagm(sum(P2A_abs * diagm(abs.(A * A * Xc)), dims=2)[:, 1]), (Xc .- (eAXc .+ Uc)) .* 0.5)
 
     while d < δ⁺
-        discritezationDict[d] = copy(Zonotope(newC, generatorDiscretizationDict[d]))#copy(Zonotope(newC, hcat(c_bloat, generatorDiscretizationDict[d])))
+        discritezationDict[d] = copy(Zonotope(newC, hcat(c_bloat, generatorDiscretizationDict[d])))
         eA_c_bloat = phiDict[d] * c_bloat
-        c_bloat = hcat(c_bloat .+ eA_c_bloat .* 0.5, c_bloat .- eA_c_bloat .* 0.5, newC .- (phiDict[d] * newC) .* 0.5)
+        c_bloat = hcat(c_bloat .+ eA_c_bloat, c_bloat .- eA_c_bloat, (newC .- (phiDict[d] * newC))) .* 0.5
         newC = (newC .+ (phiDict[d] * newC)) .* 0.5
         #c_bloat = vcat(c_bloat, newC .- (phiDict[d] * newC) .* 0.5)
 

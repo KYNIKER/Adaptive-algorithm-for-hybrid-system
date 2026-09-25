@@ -15,7 +15,7 @@ Z2 = Zonotope(zeros(2), G)
 cU = Float64.(rand((0:5), 2))
 GU = rand(Float64, (2, 2))
 
-U = Zonotope(zeros(2), diagm(zeros(2)))#Zonotope(cU, GU)
+U = Zonotope(cU, GU) #Zonotope(zeros(2), diagm(zeros(2)))#
 
 A = rand(Float64, (2, 2))
 
@@ -82,7 +82,7 @@ plot!(plt, oldDiscDict[d], fa=0.1, lab="current")
 @show LazySets.order(remove_zero_generators(oldDiscDict[d]))
 
 plot!(plt, discDict[d/2], c=:grey, lab="implementation")
-plot!(plt, discDict[d], c=:grey, lab="implementation")
+plot!(plt, discDict[d], c=:grey, lab="implementation", fillstyle=:\)
 
 #plot!(plt, CH(oldDiscDict[d/2], linear_map(phiDictp[d/2], oldDiscDict[d/2])), c=:black, fillstyle=:\)
 #plot!(plt, overapproximate(CH(oldDiscDict[d/2], linear_map(phiDictp[d/2], oldDiscDict[d/2])), Zonotope), c=:yellow, fillstyle=:+)

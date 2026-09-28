@@ -252,8 +252,8 @@ function newReACTDiscretizePlus(X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Floa
     #f = minkowski_sum(lt, rt)
     #XDim = size(A, 1)
     #dia::Matrix{Float64} = diagm(δ⁻ * ones(XDim))
-    @show LazySets.order(X0)
-    @show LazySets.order(f)
+    #@show LazySets.order(X0)
+    #@show LazySets.order(remove_zero_generators(f))
     disc = overapproximate(CH(X0, f), Zonotope; algorithm="mean") # overapproximate(CH(X0, minkowski_sum(f, PZ)), Zonotope) #
     #disc = overapproximate(CH(X0, f), Zonotope) # overapproximate(CH(X0, minkowski_sum(f, PZ)), Zonotope) #
     #@show disc
@@ -335,7 +335,7 @@ function ReACT_discretize_combine_with_offsets(X0c::Zonotope{N,Vector{N},Matrix{
     c_bloat = hcat(diagm(sum(P2A_abs * diagm(abs.(A * A * Xc)), dims=2)[:, 1]) + generatorDiscretizationDict[0], (Xc .- (eAXc .+ Uc)) .* 0.5)
     #@show diagm(sum(P2A_abs * diagm(abs.(A * A * Xc)), dims=2)[:, 1]) + generatorDiscretizationDict[0]
     #@show (Xc .- (eAXc .+ Uc)) .* 0.5
-    @show size(c_bloat)
+    #@show size(c_bloat)
     while d < δ⁺
         discritezationDict[d] = copy(Zonotope(newC, hcat(c_bloat, generatorDiscretizationDict[d])))
         eA_c_bloat = phiDict[d] * c_bloat
@@ -388,19 +388,26 @@ function ReACT_discretize_combine_with_offset_vector!(discritezationDict, X0c::V
     eAXc = (phiDict[d] * Xc)
     newC = (Xc .+ eAXc .+ Uc) .* 0.5
 
-    c_bloat = hcat(diagm(sum(P2A_abs * diagm(abs.(A * A * Xc)), dims=2)[:, 1]), (Xc .- (eAXc .+ Uc)) .* 0.5)
-
+    c_bloat = hcat(diagm(sum(P2A_abs * diagm(abs.(A * A * Xc)), dims=2)[:, 1]) + generatorDiscretizationDict[0], (Xc .- (eAXc .+ Uc)) .* 0.5)
+    #@show diagm(sum(P2A_abs * diagm(abs.(A * A * Xc)), dims=2)[:, 1]) + generatorDiscretizationDict[0]
+    #@show (Xc .- (eAXc .+ Uc)) .* 0.5
+    #@show size(c_bloat)
     while d < δ⁺
-        discritezationDict[d] = copy(Zonotope(newC, hcat(c_bloat, generatorDiscretizationDict[d])))
+        #discritezationDict[d] = copy(Zonotope(newC, hcat(c_bloat, generatorDiscretizationDict[d])))
+        copy!(discritezationDict[d].center, newC)
+        copy!(discritezationDict[d].generators, hcat(c_bloat, generatorDiscretizationDict[d]))
         eA_c_bloat = phiDict[d] * c_bloat
-        c_bloat = hcat(c_bloat .+ eA_c_bloat, c_bloat .- eA_c_bloat, (newC .- (phiDict[d] * newC))) .* 0.5
-        newC = (newC .+ (phiDict[d] * newC)) .* 0.5
+        c_bloat = hcat(c_bloat .+ eA_c_bloat, c_bloat .- eA_c_bloat, (newC .- (phiDict[d] * newC) .- inputDiscritezationDict[d].center)) .* 0.5
+        newC = (newC .+ (phiDict[d] * newC) .+ inputDiscritezationDict[d].center) .* 0.5
         #c_bloat = vcat(c_bloat, newC .- (phiDict[d] * newC) .* 0.5)
 
         d = d * 2
     end
     #@show generatorDiscretizationDict[d]
-    discritezationDict[δ⁺] = copy(Zonotope(newC, hcat(c_bloat, generatorDiscretizationDict[δ⁺])))
+    copy!(discritezationDict[δ⁺].center, newC)
+    copy!(discritezationDict[δ⁺].generators, hcat(c_bloat, generatorDiscretizationDict[d]))
+
+    #discritezationDict[δ⁺] = copy(Zonotope(newC, hcat(c_bloat, generatorDiscretizationDict[δ⁺])))
 
     #return discritezationDict
 end

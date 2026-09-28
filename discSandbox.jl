@@ -15,8 +15,8 @@ Z2 = Zonotope(zeros(2), G)
 cU = Float64.(rand((0:5), 2))
 GU = rand(Float64, (2, 2))
 
-U = Zonotope(cU, GU) #Zonotope(zeros(2), diagm(zeros(2)))#
-#U = Zonotope(cU, diagm(zeros(2)))#
+#U = Zonotope(cU, GU) #Zonotope(zeros(2), diagm(zeros(2)))#
+U = Zonotope(zeros(2), diagm(zeros(2)))#
 
 A = rand(Float64, (2, 2))
 

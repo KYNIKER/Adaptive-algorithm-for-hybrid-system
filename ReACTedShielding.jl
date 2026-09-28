@@ -155,7 +155,7 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
 
     #phiDict = PhiDict(system.flowMatrix, δ⁻, δ⁺, alg)
     #tPhiDict = Dict(collect((k, permutedims(copy(v))) for (k, v) in pairs(phiDict)))
-    phiDict, tPhiDict, inputDict = PhiInputDict(system.flowMatrix, system.input, δ⁻, δ⁺, alg, maxOrder, reduceOrder)
+    phiDict, tPhiDict, inputDict = phi_input_dict(system.flowMatrix, system.input, δ⁻, δ⁺, alg, maxOrder, reduceOrder)
     d = δ⁻
     #dia::Matrix{Float64} = diagm(δ⁻ * ones(XDim))
     isInvA = isinvertible(system.flowMatrix)
@@ -190,7 +190,8 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
     lower_offset = grid.lower .+ (granularity/2)
     generatorDict = ReACT_discretize_decomposed_generators(Z, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict)
     invariant = hyperrectangle_to_HPolyhedron(system.statespace)
-    discretizationDict = Dict()
+    #discretizationDict = Dict()
+    discretizationDict = ReACT_discretize_combine_with_offsets(Z, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict)
     for idx in CartesianIndices(grid.deadCells)
         count += 1
         of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
@@ -548,8 +549,16 @@ function propagate_set_b(X0, interval, δ⁻::Float64, δ⁺::Float64, system, �
     listOfEdges = system.edges
 
     for edge in listOfEdges
+        constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint)
+        guardProjVectors, guardProjBounds = getHalfSpaceProjections(edge.guard)
+        invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(invariant)
+
+        Sρ = zeros(Float64, length(constraintProjVectors))
+        Gρ = zeros(Float64, length(guardProjVectors))
+        Iρ = zeros(Float64, length(invarientProjVectors))
+
         #   Compute the reachset closest to the guard without intersecting it and not reaching the unsafe set. 
-        reachtime, newSet, inputSet, flag = ReACT_guards(δ⁻, δ⁺, interval, system.statespace, edge.guard, constraint, invariant, 2, PhiDict, TPhiDict, discretizationDict, inputDict)
+        reachtime, newSet, inputSet, flag = ReACT_guards_b(δ⁻, δ⁺, interval, system.statespace, edge.guard, guardProjVectors, guardProjBounds, Gρ, constraint, constraintProjVectors, constraintProjBounds, Sρ, invariant, invarientProjVectors, invarientProjBounds, Iρ, 2, PhiDict, TPhiDict, discretizationDict, inputDict)
 
 
         #
@@ -581,7 +590,7 @@ function propagate_set_b(X0, interval, δ⁻::Float64, δ⁺::Float64, system, �
             end
             #res = propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, PhiDict, TPhiDict, inputDict, alg, maxOrder, reduceOrder)
             #@show res
-            return propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, PhiDict, TPhiDict, inputDict, max_input, max_flow, alg, maxOrder, reduceOrder)
+            return propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
         end
         return (newSet, 3)
     end

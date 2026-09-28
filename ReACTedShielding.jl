@@ -74,6 +74,11 @@ function ReACTed_reachable_cell(system::EuclideanHybridSystem, p, granularity, �
     max_flow = exp(p .* system.flowMatrix)
     lower_offset = grid.lower .+ (granularity/2)
     invariant = hyperrectangle_to_HPolyhedron(system.statespace)
+
+    #constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint)
+    #guardProjVectors, guardProjBounds = getHalfSpaceProjections(edge.guard)
+    #invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(invariant)
+
     for idx in CartesianIndices(grid.deadCells)
         count += 1
         of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
@@ -332,9 +337,19 @@ function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ�
     constraint = system.globalConstraints[1]
     listOfEdges = system.edges
 
+
+
     for edge in listOfEdges
+        constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint)
+        guardProjVectors, guardProjBounds = getHalfSpaceProjections(edge.guard)
+        invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(invariant)
+
+        Sρ = zeros(Float64, length(constraintProjVectors))
+        Gρ = zeros(Float64, length(guardProjVectors))
+        Iρ = zeros(Float64, length(invarientProjVectors))
+
         #   Compute the reachset closest to the guard without intersecting it and not reaching the unsafe set. 
-        reachtime, newSet, inputSet, flag = ReACT_guards(δ⁻, δ⁺, interval, system.statespace, edge.guard, constraint, invariant, 2, PhiDict, TPhiDict, discretizationDict, inputDict)
+        reachtime, newSet, inputSet, flag = ReACT_guards_b(δ⁻, δ⁺, interval, system.statespace, edge.guard, guardProjVectors, guardProjBounds, Gρ, constraint, constraintProjVectors, constraintProjBounds, Sρ, invariant, invarientProjVectors, invarientProjBounds, Iρ, 2, PhiDict, TPhiDict, discretizationDict, inputDict)
 
 
         #
@@ -366,7 +381,7 @@ function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ�
             end
             #res = propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, PhiDict, TPhiDict, inputDict, alg, maxOrder, reduceOrder)
             #@show res
-            return propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, PhiDict, TPhiDict, inputDict, max_input, max_flow, alg, maxOrder, reduceOrder)
+            return propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
         end
         return (newSet, 3)
 
@@ -1034,7 +1049,7 @@ function ReACT_guards(δ⁻::Float64, δ⁺::Float64, interval, statespace, guar
             # Handle if we can no longer reduce the reachset (we keep hitting something)
             if currentTimeStep >= δ⁻
                 #linear_map!(Z, Φ, discritezationDict[currentTimeStep])
-                check = guardCheck(minkowski_sum(input, linear_map(Φ, discritezationDict[currentTimeStep])), constraint, guards, invariant)
+                check = guardCheck(input, Φ, discritezationDict[currentTimeStep], constraint, guards, invariant)
                 if 0 == check
                     #if 0 == guardCheck(discritezationDict[currentTimeStep], Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds)
                     approveFlag = true
@@ -1095,6 +1110,116 @@ function ReACT_guards(δ⁻::Float64, δ⁺::Float64, interval, statespace, guar
     return (endtime, linear_map(Φ, discritezationDict[δ⁻]), input, 0)
 end
 
+function ReACT_guards_b(δ⁻::Float64, δ⁺::Float64, interval, statespace, guards, guardProjVectors, guardProjBounds, Gρ, constraint, constraintProjVectors, constraintProjBounds, Sρ, invariant, invarientProjVectors, invarientProjBounds, Iρ, STRATEGY::Integer, PhiDict, permutedphiDict, discritezationDict, inputDiscretizationDict)
+
+    #
+    #   These functions should be evaluated outside ReACT_guards and passed as parameters
+    #
+    #constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint)
+    #guardProjVectors, guardProjBounds = getHalfSpaceProjections(guards)
+    #invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(invariant)
+
+    dims = LazySets.API.dim(statespace)
+
+    time::Float64 = copy(minimum(interval))
+    endtime::Float64 = maximum(interval)
+
+    currentTimeStep = copy(δ⁻)
+
+    attemptsRecorder = zeros(4)
+
+    Φ::Matrix{Float64} = diagm(ones(Float64, dims))
+
+    tempM = diagm(ones(Float64, dims))
+
+    #   Because we assume an empty input set i have trouble seeing how these can become relevant.
+    #   But i am keeping them for now to reuse as much as possible
+
+    #Sρ = zeros(Float64, length(constraintProjVectors))
+    #Gρ = zeros(Float64, length(guardProjVectors))
+    #Iρ = zeros(Float64, length(invarientProjVectors))
+
+
+    i = 1
+    input = Zonotope(zeros(dims), zeros(size(genmat((inputDiscretizationDict[δ⁻])))))
+    while time < endtime
+
+        attempts = 1
+        approveFlag = false
+        check = 0
+        while !approveFlag
+            # Handle if we can no longer reduce the reachset (we keep hitting something)
+            if currentTimeStep >= δ⁻
+                #linear_map!(Z, Φ, discritezationDict[currentTimeStep])
+                #check = guardCheck(minkowski_sum(input, linear_map(Φ, discritezationDict[currentTimeStep])), constraint, guards, invariant)
+                if (fast_guards_check(discritezationDict[currentTimeStep], Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds) == 0) || (0 == guardCheck(input, Φ, discritezationDict[currentTimeStep], constraint, guards, invariant)) # check if fast or slow fails.
+                    #if 0 == guardCheck(discritezationDict[currentTimeStep], Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds)
+                    approveFlag = true
+                    if currentTimeStep + time < endtime
+                        input = input + linear_map(Φ, inputDiscretizationDict[currentTimeStep])
+
+                        Sρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), constraintProjVectors)
+                        Gρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), guardProjVectors)
+                        Iρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), invarientProjVectors)
+
+
+                        map!(x -> permutedphiDict[currentTimeStep] * x, constraintProjVectors)
+                        map!(x -> permutedphiDict[currentTimeStep] * x, guardProjVectors)
+                        map!(x -> permutedphiDict[currentTimeStep] * x, invarientProjVectors)
+
+                        mul!(tempM, Φ, PhiDict[currentTimeStep])
+                        copy!(Φ, tempM)
+
+                    else
+                        # TODO - The input gets used or referenced somewhere even with the zero flag..
+                        #d = max(2^(floor(log2((endtime - time)/δ⁻))) * δ⁻, δ⁻)
+                        #@show (endtime - time, d)
+                        #input = linear_map(PhiDict[d], input) + inputDiscretizationDict[d]
+                        #mul!(tempM, Φ, PhiDict[d])
+                        #copy!(Φ, tempM)
+                        #time = time + d
+                        return (endtime, discritezationDict[δ⁻], input, 0)
+                    end
+                else
+
+                    currentTimeStep /= 2
+                    attempts += 1
+                end
+            else
+                return (time, linear_map(Φ, discritezationDict[δ⁻]), input, guardCheck(input, Φ, discritezationDict[δ⁻], constraint, guards, invariant))
+            end
+        end
+
+        attemptsRecorder[(i%4)+1] = attempts
+        i = i + 1
+        time = time + currentTimeStep
+
+        # Reset / apply strategy
+        # Only do this if the current timestep is less than the initial
+        if STRATEGY == 0
+            # Only reduce
+        elseif STRATEGY == 1
+            # always try double
+            if currentTimeStep < δ⁺
+                currentTimeStep = currentTimeStep * 2
+                #changedTimeStep = true
+            end
+        elseif STRATEGY == 2
+            # If attemptsrecorder past 4 are successes, double timestep
+            if currentTimeStep < δ⁺
+                #lowest = min(4, i - 1)
+                #window = @view attemptsRecorder[i-lowest:i-1]
+                if all(==(1), attemptsRecorder)
+                    currentTimeStep = currentTimeStep * 2
+                    #changedTimeStep = true
+                end
+
+            end
+        end
+    end
+    #println("ever")
+    return (endtime, linear_map(Φ, discritezationDict[δ⁻]), input, 0)
+end
 
 function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, constraint, STRATEGY::Integer, permutedphiDict, discritezationDict, inputDiscritezationDict)
     # We calculate the reachset till we reach a guard for an intersection (or till failure)
@@ -1277,7 +1402,7 @@ function guardCheck(newR::Zonotope, Sρ, constraintProjVectors, constraintProjBo
 end
 =#
 
-function guardCheck(newR::Zonotope, constraint, guard, invariant) #; solver=model
+function guardCheck(input::Zonotope, Φ, X::Zonotope, constraint, guard, invariant) #; solver=model
     #
     #   0: Didnt hit either constraint, guard or invariant
     #   1: Hit constraint
@@ -1303,7 +1428,7 @@ function guardCheck(newR::Zonotope, constraint, guard, invariant) #; solver=mode
         return 2
     end
     =#
-
+    newR = minkowski_sum(input, linear_map(Φ, X))
     if LazySets.API.isdisjoint(newR, constraint)
         if LazySets.API.isdisjoint(newR, guard)
             return 0
@@ -1314,6 +1439,38 @@ function guardCheck(newR::Zonotope, constraint, guard, invariant) #; solver=mode
     else
         return 1
     end
+end
+
+function fast_guards_check(newR::Zonotope, co, constraintProjVectors, constraintProjBounds, go, guardProjVectors, guardProjBounds, io, invarientProjVectors, invarientProjBounds) #; solver=model
+    #cache = map((input, x, y) -> input + ρ(x, newR) <= y, Sρ, constraintProjVectors, constraintProjBounds)
+    #abssum = 0.0
+    #c = newR.center
+    #G = transpose(genmat(newR))
+    #tc = Vector{Float64}(undef, size(G, 1))
+    #a = sum(abs, transpose(a) * G)
+    #res = all((input + ρ(x, newR)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))#all(input + tsupfunc(x, tc, abssum, c, G) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
+
+    #res = res && any((input + -ρ(-x, newR)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds))#any((input - tsupfunc(-x, tc, abssum, c, G)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds))
+
+    #res = res && all((input - ρ(-x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))#all((input - tsupfunc(-x, tc, abssum, c, G)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
+    #(all((input + ρ(x, discritezationDict[currentTimeStep])) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) &&
+    #any(sign(y) >= 0 ? (input + ρ(-x, newR)) <= y : !((input + ρ(x, newR)) < y) for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) &&
+    #any((input + -ρ(-x, discritezationDict[currentTimeStep])) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) &&
+    #all((input - ρ(-x, discritezationDict[currentTimeStep])) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)))
+    #return all((input + ρ(x, newR)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) && any((input + -ρ(-x, newR)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) && all((input - ρ(-x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
+    if allunder(newR, co, constraintProjVectors, constraintProjBounds)
+        if allunder(newR, go, guardProjVectors, guardProjBounds)
+            return 0
+        else
+            return 2
+        end
+
+    else
+        return 1
+    end
+
+    #return allunder(newR,c0, constraintProjVectors, constraintProjBounds) && someunder(newR, guardProjVectors, guardProjBounds) && someunder(newR, invarientProjVectors, invarientProjBounds)#all((input - ρ(-x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
+
 end
 
 function touchesCheck(newR::Zonotope, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, invarientProjVectors, invarientProjBounds) #; solver=model

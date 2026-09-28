@@ -44,7 +44,7 @@ close(f)
 =#
 
 @time grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^6 * δ⁻)
-#ProfileView.@profview grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^6 * δ⁻)
+#ProfileView.@profview grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^6 * δ⁻)
 #=
 @show length(reach_by_Act), length(reach_by_no_Act)
 

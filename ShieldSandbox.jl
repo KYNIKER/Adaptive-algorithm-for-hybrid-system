@@ -8,7 +8,7 @@ include("ReACTedShielding.jl")
 
 fresh_grid = false
 make_plot = false
-granularity = 0.5  # Example granularity
+granularity = 0.25  # Example granularity
 grid_name = "ball" * string(granularity)
 savefile = grid_name * ".jld2"
 
@@ -43,8 +43,8 @@ close(f)
 @show reach_by_Act
 =#
 
-#@time grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^6 * δ⁻)
-ProfileView.@profview grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^6 * δ⁻)
+@time grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^6 * δ⁻)
+#ProfileView.@profview grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^6 * δ⁻)
 #=
 @show length(reach_by_Act), length(reach_by_no_Act)
 

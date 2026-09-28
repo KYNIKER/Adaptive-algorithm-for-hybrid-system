@@ -73,6 +73,7 @@ function ReACTed_reachable_cell(system::EuclideanHybridSystem, p, granularity, �
     max_input = linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, p, alg, false, nothing), system.input)
     max_flow = exp(p .* system.flowMatrix)
     lower_offset = grid.lower .+ (granularity/2)
+    invariant = hyperrectangle_to_HPolyhedron(system.statespace)
     for idx in CartesianIndices(grid.deadCells)
         count += 1
         of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
@@ -84,7 +85,119 @@ function ReACTed_reachable_cell(system::EuclideanHybridSystem, p, granularity, �
             end
         end
 
-        z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, inputDict, max_input, max_flow, alg, maxOrder, reduceOrder)
+        z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
+
+        #=if !LazySets.API.isdisjoint(z, system.edges[1].guard)
+            dc += 1
+        end=#
+
+        if f != 1
+            #@show LazySets.API.isdisjoint(Z, system.globalConstraints[1]), Z, idx
+            #grid.deadCells[idx] = true
+
+            #println("so deads")
+            reachable_by_flow[idx] = get_touching_cell_idxs(grid, z)
+            #else
+            #grid.array[idx].pCells = get_touching_cell_idxs(grid, z)
+        end
+        #grid.array[idx].sidx[1] = copy(f)
+        LazySets.API.translate!(Z, -of)
+        if count % 1000 == 0
+            println(count)
+        end
+    end
+    #@show dc
+    return grid, reachable_by_action, reachable_by_flow
+
+end
+
+
+
+function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true)
+    grid = Grid(system.statespace, granularity)
+    @show foldl(*, grid.numCells), grid.numCells
+    #unsafeDict = Dict{CartesianIndex,Vector{LazySet}}()
+
+    #zonotopeArray = initialize_zonotope_array(grid)
+
+    #mark_dead_cells!(grid, system.globalConstraints[1], unsafeDict)
+
+    #
+    #   Take union with frontier of guards( and Act?)
+    #
+    #unsafeCells, cFrontierCells = get_contained_edge_cells(grid, system.globalConstraints[1])
+    #cFrontierN = grow_indices(grid, map(x -> car2vec(x.id), cFrontierCells))
+    #@show frontierCells
+    #guardCells, gFrontierCells = get_contained_edge_cells(grid, system.edges[1].guard)
+    #gFrontierCells = get_contained_perimeter_cells(grid, system.edges[1].guard)
+    #@show guardCells
+    #@show gFrontierCells
+    #gFrontierN = grow_indices(grid, map(x -> car2vec(x.id), gFrontierCells))
+    #@show gFrontierN
+    #phiDicts = Dict()
+    #tphiDicts = Dict()
+
+    #=
+    for x in hybridSystem.locations
+        pd, tpd, id = PhiInputDict(x, δ⁻, δ⁺, alg, maxOrder, reduceOrder)
+        phiDicts[x.id] = pd
+        tphiDicts[x.id] = tpd
+        inputDicts[x.id] = id
+        timeConstraintDict[x.id] = []
+        constraintDict[x.id] = vcat(x.constraints, constraint)
+    end
+    =#
+
+    #phiDict = PhiDict(system.flowMatrix, δ⁻, δ⁺, alg)
+    #tPhiDict = Dict(collect((k, permutedims(copy(v))) for (k, v) in pairs(phiDict)))
+    phiDict, tPhiDict, inputDict = PhiInputDict(system.flowMatrix, system.input, δ⁻, δ⁺, alg, maxOrder, reduceOrder)
+    d = δ⁻
+    #dia::Matrix{Float64} = diagm(δ⁻ * ones(XDim))
+    isInvA = isinvertible(system.flowMatrix)
+    A = system.flowMatrix
+    #Φ = copy(phiDict[d])
+    A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(system.flowMatrix)
+    Φcache = system.flowMatrix == A_abs ? phiDict[d] : nothing
+    P2A_abs = ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, isInvA, Φcache)
+
+    #frontierZonotopes = zonotopeArray[collect(CartesianIndex(c) for c in [gFrontierN; cFrontierN])]#zonotopeArray[collect(c.id for c in frontierN)]
+    #push!(frontierZonotopes, zonotopeArray[40, 40, 1])
+    #reachtimes = map(z -> propagate_set(z, [0.0, p], δ⁻, δ⁺, system, phiDict, tPhiDict, alg, maxOrder, reduceOrder), frontierZonotopes)
+
+    #
+    #   0: Didnt hit either constraint, guard or invariant
+    #   1: Hit constraint
+    #   2: Hit guard
+    #   3: Hit invariant surface
+    #
+
+    reachable_by_action = Dict()
+    reachable_by_flow = Dict()
+    degenerate_dimensions = collect(u - l == l ? l - (granularity / 2) : 0. for (l, u) in zip(grid.lower, grid.upper))
+    #@show degenerate_dimensions
+    Z = remove_zero_generators(Zonotope(degenerate_dimensions, diagm(map(x -> x == 1 ? 0. : granularity/2, grid.numCells))))
+    #dc = 0
+    count = 0
+    #@show grid.lower
+    U = system.input
+    max_input = linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, p, alg, false, nothing), U)
+    max_flow = exp(p .* system.flowMatrix)
+    lower_offset = grid.lower .+ (granularity/2)
+    generatorDict = ReACT_discretize_decomposed_generators(Z, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict)
+    invariant = hyperrectangle_to_HPolyhedron(system.statespace)
+    discretizationDict = Dict()
+    for idx in CartesianIndices(grid.deadCells)
+        count += 1
+        of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
+        LazySets.API.translate!(Z, of)
+        #@show Z, idx, of
+        for act in system.Act
+            if !LazySets.API.isdisjoint(act.guard, Z)
+                reachable_by_action[(act, idx)] = get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
+            end
+        end
+        ReACT_discretize_combine_with_offset_vector!(discretizationDict, of, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict)
+        z, f = propagate_set_b(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, discretizationDict, phiDict, tPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
 
         #=if !LazySets.API.isdisjoint(z, system.edges[1].guard)
             dc += 1
@@ -211,7 +324,7 @@ end
 #   Right now this makes quite a bit of allocations.
 #   TODO - Needs a fix for determining the final reachset. Right now it is overapproximated and this is worse for large timestep sizes.
 #
-function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ₂, PhiDict, TPhiDict, inputDict, max_input, max_flow, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5)
+function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ₂, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5)
 
     discretizationDict = newReACTDiscretizePlus(X0, δ⁻, δ⁺, system.flowMatrix, Φ₂, PhiDict, inputDict, alg, maxOrder, reduceOrder)
     time::Float64 = copy(minimum(interval))
@@ -221,7 +334,7 @@ function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ�
 
     for edge in listOfEdges
         #   Compute the reachset closest to the guard without intersecting it and not reaching the unsafe set. 
-        reachtime, newSet, inputSet, flag = ReACT_guards(δ⁻, δ⁺, interval, system.statespace, edge.guard, constraint, hyperrectangle_to_HPolyhedron(system.statespace), 2, PhiDict, TPhiDict, discretizationDict, inputDict)
+        reachtime, newSet, inputSet, flag = ReACT_guards(δ⁻, δ⁺, interval, system.statespace, edge.guard, constraint, invariant, 2, PhiDict, TPhiDict, discretizationDict, inputDict)
 
 
         #
@@ -409,6 +522,54 @@ function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ�
     end
 
 
+end
+
+function propagate_set_b(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ₂, discretizationDict, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5)
+
+    #discretizationDict = newReACTDiscretizePlus(X0, δ⁻, δ⁺, system.flowMatrix, Φ₂, PhiDict, inputDict, alg, maxOrder, reduceOrder)
+    time::Float64 = copy(minimum(interval))
+    endtime::Float64 = maximum(interval)
+    constraint = system.globalConstraints[1]
+    listOfEdges = system.edges
+
+    for edge in listOfEdges
+        #   Compute the reachset closest to the guard without intersecting it and not reaching the unsafe set. 
+        reachtime, newSet, inputSet, flag = ReACT_guards(δ⁻, δ⁺, interval, system.statespace, edge.guard, constraint, invariant, 2, PhiDict, TPhiDict, discretizationDict, inputDict)
+
+
+        #
+        #   0: Didnt hit either constraint, guard or invariant
+        #   1: Hit constraint
+        #   2: Hit guard
+        #   3: Hit invariant surface
+        #
+        if flag == 0
+            if time == 0.0
+                return (minkowski_sum(linear_map(max_flow, X0), max_input), 0)
+            else
+                A_abs = abs.(system.flowMatrix)
+                max_input = linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, endtime - time, alg, false, nothing), system.input)
+
+                return (minkowski_sum(linear_map(exp((endtime - time) .* system.flowMatrix), X0), linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, endtime - time, alg, false, nothing), system.input)), 0)
+            end
+        elseif flag == 1 # Hit constraint
+            return (nothing, 1)
+        elseif flag == 2
+            #@show flag
+            #@show inputSet
+            intersectingSetsList = ReACT_touches_set_constant_input(newSet, inputSet, edge.guard, δ⁻, [reachtime, endtime], PhiDict, inputDict)
+            tempIntersect = foldl(ConvexHull, intersectingSetsList)
+            intersectedSet = convert(Zonotope, box_approximation(tempIntersect))
+            jumpSet = linear_map(edge.jumpMatrix, zonotopeStripIntersection(intersectedSet, edge.guard))
+            if !isnothing(edge.jumpVector)
+                LazySets.translate!(jumpSet, edge.jumpVector)
+            end
+            #res = propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, PhiDict, TPhiDict, inputDict, alg, maxOrder, reduceOrder)
+            #@show res
+            return propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, PhiDict, TPhiDict, inputDict, max_input, max_flow, alg, maxOrder, reduceOrder)
+        end
+        return (newSet, 3)
+    end
 end
 
 # AucReacted is called recursively each time we have a new starting location (after a transition)

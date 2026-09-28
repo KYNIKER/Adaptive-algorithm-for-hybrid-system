@@ -292,8 +292,8 @@ function ReACT_discretize_decomposed_generators(X0G::Zonotope{N,Vector{N},Matrix
 
     U_bloat = diagm(sum(abs.(genmat(inputDiscritezationDict[0])), dims=2)[:, 1])#diagm(sum(P2A_abs * diagm((AUG+AUc)[:, 1]), dims=2)[:, 1])
     G_bloat = diagm(sum(P2A_abs * diagm(sum(abs.(A * A * XG), dims=2)[:, 1]), dims=2)[:, 1])
-    @show G_bloat
-    @show genmat(linear_map(phiDict[d], X0G))
+    #@show G_bloat
+    #@show genmat(linear_map(phiDict[d], X0G))
     newG = hcat((XG .+ phiDict[d] * XG) .* 0.5, (XG .- phiDict[d] * XG) .* 0.5, G_bloat + U_bloat, UG)
 
     # Some mistake in here
@@ -339,6 +339,60 @@ function ReACT_discretize_combine_with_offsets(X0c::Zonotope{N,Vector{N},Matrix{
     discritezationDict[δ⁺] = copy(Zonotope(newC, hcat(c_bloat, generatorDiscretizationDict[δ⁺])))
 
     return discritezationDict
+end
+
+function ReACT_discretize_combine_with_offset_vector(X0c::Vector{N}, δ⁻::Float64, δ⁺::Float64, A, P2A_abs, phiDict, U, inputDiscritezationDict, generatorDiscretizationDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}
+    d = δ⁻
+    discritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
+
+    Xc = X0c
+    Uc = inputDiscritezationDict[0].center
+
+    eAXc = (phiDict[d] * Xc)
+    newC = (Xc .+ eAXc .+ Uc) .* 0.5
+
+    c_bloat = hcat(diagm(sum(P2A_abs * diagm(abs.(A * A * Xc)), dims=2)[:, 1]), (Xc .- (eAXc .+ Uc)) .* 0.5)
+
+    while d < δ⁺
+        discritezationDict[d] = copy(Zonotope(newC, hcat(c_bloat, generatorDiscretizationDict[d])))
+        eA_c_bloat = phiDict[d] * c_bloat
+        c_bloat = hcat(c_bloat .+ eA_c_bloat, c_bloat .- eA_c_bloat, (newC .- (phiDict[d] * newC))) .* 0.5
+        newC = (newC .+ (phiDict[d] * newC)) .* 0.5
+        #c_bloat = vcat(c_bloat, newC .- (phiDict[d] * newC) .* 0.5)
+
+        d = d * 2
+    end
+    #@show generatorDiscretizationDict[d]
+    discritezationDict[δ⁺] = copy(Zonotope(newC, hcat(c_bloat, generatorDiscretizationDict[δ⁺])))
+
+    return discritezationDict
+end
+
+function ReACT_discretize_combine_with_offset_vector!(discritezationDict, X0c::Vector{N}, δ⁻::Float64, δ⁺::Float64, A, P2A_abs, phiDict, U, inputDiscritezationDict, generatorDiscretizationDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}
+    d = δ⁻
+    #discritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
+
+    Xc = X0c
+    Uc = inputDiscritezationDict[0].center
+
+    eAXc = (phiDict[d] * Xc)
+    newC = (Xc .+ eAXc .+ Uc) .* 0.5
+
+    c_bloat = hcat(diagm(sum(P2A_abs * diagm(abs.(A * A * Xc)), dims=2)[:, 1]), (Xc .- (eAXc .+ Uc)) .* 0.5)
+
+    while d < δ⁺
+        discritezationDict[d] = copy(Zonotope(newC, hcat(c_bloat, generatorDiscretizationDict[d])))
+        eA_c_bloat = phiDict[d] * c_bloat
+        c_bloat = hcat(c_bloat .+ eA_c_bloat, c_bloat .- eA_c_bloat, (newC .- (phiDict[d] * newC))) .* 0.5
+        newC = (newC .+ (phiDict[d] * newC)) .* 0.5
+        #c_bloat = vcat(c_bloat, newC .- (phiDict[d] * newC) .* 0.5)
+
+        d = d * 2
+    end
+    #@show generatorDiscretizationDict[d]
+    discritezationDict[δ⁺] = copy(Zonotope(newC, hcat(c_bloat, generatorDiscretizationDict[δ⁺])))
+
+    #return discritezationDict
 end
 
 #=function ReACTDiscretize(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Nothing, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing) where {N}

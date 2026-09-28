@@ -244,17 +244,21 @@ end
 function newReACTDiscretizePlus(X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Float64, δ⁺::Float64, A, P2A_absp, phiDict, inputDiscritezationDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}
     d = δ⁻
     discritezationDictp = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
-    lt = minkowski_sum(linear_map(phiDict[d], X0), inputDiscritezationDict[d])  #minkowski_sum(convert(Zonotope, phiDict[d] * X0), dU)
+    lt = minkowski_sum(linear_map(phiDict[d], X0), inputDiscritezationDict[0])  #minkowski_sum(convert(Zonotope, phiDict[d] * X0), dU)
+    #@show inputDiscritezationDict[d]
     E⁺ = SymmetricIntervalHull(linear_map(P2A_absp, SymmetricIntervalHull(linear_map(A * A, X0))))
+    #@show box_approximation(E⁺)
     f = minkowski_sum(lt, E⁺)
     #f = minkowski_sum(lt, rt)
     #XDim = size(A, 1)
     #dia::Matrix{Float64} = diagm(δ⁻ * ones(XDim))
-    #disc = overapproximate(CH(X0, minkowski_sum(linear_map(dia, inputDict[0]), f)), Zonotope; algorithm="mean") # overapproximate(CH(X0, minkowski_sum(f, PZ)), Zonotope) #
-    disc = overapproximate(CH(X0, f), Zonotope) # overapproximate(CH(X0, minkowski_sum(f, PZ)), Zonotope) #
+    @show LazySets.order(X0)
+    @show LazySets.order(f)
+    disc = overapproximate(CH(X0, f), Zonotope; algorithm="mean") # overapproximate(CH(X0, minkowski_sum(f, PZ)), Zonotope) #
+    #disc = overapproximate(CH(X0, f), Zonotope) # overapproximate(CH(X0, minkowski_sum(f, PZ)), Zonotope) #
     #@show disc
     while d < δ⁺
-        discritezationDictp[d] = disc
+        discritezationDictp[d] = copy(disc)
         #=
         if maxOrder > 0
             if LazySets.order(disc) > maxOrder
@@ -264,7 +268,7 @@ function newReACTDiscretizePlus(X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Floa
         =#
         #@show inputDiscritezationDict[d]
         rs = minkowski_sum(linear_map(phiDict[d], disc), inputDiscritezationDict[d])
-        disc = overapproximate(CH(disc, rs), Zonotope)
+        disc = copy(overapproximate(CH(disc, rs), Zonotope))
 
         d = d * 2
     end
@@ -278,30 +282,34 @@ function newReACTDiscretizePlus(X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Floa
     return discritezationDictp
 end
 
-function ReACT_discretize_decomposed_generators(X0G::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Float64, δ⁺::Float64, A, P2A_abs, phiDict, U, inputDiscritezationDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}
+function ReACT_discretize_decomposed_generators(X0G::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Float64, δ⁺::Float64, A, P2A_abs, phiDict, U, inputDiscritezationDict) where {N}
     d = δ⁻
     discritezationDict = Dict{Float64,Matrix{N}}()
     UG = genmat(U) .* d
     XG = genmat(X0G)
     #@show (A * genmat(U))
-    AUc = abs.(A * U.center)
-    AUG = sum(abs.(A * genmat(U)), dims=2)
+    #AUc = abs.(A * U.center)
+    #AUG = sum(abs.(A * genmat(U)), dims=2)
     #@show AUc
     #@show AUG
     #@show AUG + AUc
 
-    U_bloat = diagm(sum(abs.(genmat(inputDiscritezationDict[0])), dims=2)[:, 1])#diagm(sum(P2A_abs * diagm((AUG+AUc)[:, 1]), dims=2)[:, 1])
+    U_bloat = diagm(sum(abs.(genmat(inputDiscritezationDict[-1])), dims=2)[:, 1])#diagm(sum(P2A_abs * diagm((AUG+AUc)[:, 1]), dims=2)[:, 1])
     G_bloat = diagm(sum(P2A_abs * diagm(sum(abs.(A * A * XG), dims=2)[:, 1]), dims=2)[:, 1])
     #@show G_bloat
     #@show genmat(linear_map(phiDict[d], X0G))
-    newG = hcat((XG .+ phiDict[d] * XG) .* 0.5, (XG .- phiDict[d] * XG) .* 0.5, G_bloat + U_bloat, UG)
+    #newG = hcat((XG .+ phiDict[d] * XG) .* 0.5, (XG .- phiDict[d] * XG) .* 0.5, G_bloat + U_bloat, UG)
+    #@show UG
+    newG = hcat((XG .+ (phiDict[d] * XG)) .* 0.5, (XG .- (phiDict[d] * XG)) .* 0.5, UG)
+    discritezationDict[0] = copy(U_bloat + G_bloat)
 
     # Some mistake in here
     while d < δ⁺
         discritezationDict[d] = copy(newG)
         #newG´ = copy(newG)
         newG´ = copy(phiDict[d] * newG)
-        newG = copy(hcat((newG .+ newG´), (newG .- newG´), genmat(inputDiscritezationDict[d])) .* 0.5)
+        newG = hcat((newG .+ newG´) .* 0.5, (newG .- newG´) .* 0.5, genmat(inputDiscritezationDict[d]))
+
 
 
         d = d * 2
@@ -324,13 +332,15 @@ function ReACT_discretize_combine_with_offsets(X0c::Zonotope{N,Vector{N},Matrix{
     eAXc = (phiDict[d] * Xc)
     newC = (Xc .+ eAXc .+ Uc) .* 0.5
 
-    c_bloat = hcat(diagm(sum(P2A_abs * diagm(abs.(A * A * Xc)), dims=2)[:, 1]), (Xc .- (eAXc .+ Uc)) .* 0.5)
-
+    c_bloat = hcat(diagm(sum(P2A_abs * diagm(abs.(A * A * Xc)), dims=2)[:, 1]) + generatorDiscretizationDict[0], (Xc .- (eAXc .+ Uc)) .* 0.5)
+    #@show diagm(sum(P2A_abs * diagm(abs.(A * A * Xc)), dims=2)[:, 1]) + generatorDiscretizationDict[0]
+    #@show (Xc .- (eAXc .+ Uc)) .* 0.5
+    @show size(c_bloat)
     while d < δ⁺
         discritezationDict[d] = copy(Zonotope(newC, hcat(c_bloat, generatorDiscretizationDict[d])))
         eA_c_bloat = phiDict[d] * c_bloat
-        c_bloat = hcat(c_bloat .+ eA_c_bloat, c_bloat .- eA_c_bloat, (newC .- (phiDict[d] * newC))) .* 0.5
-        newC = (newC .+ (phiDict[d] * newC)) .* 0.5
+        c_bloat = hcat(c_bloat .+ eA_c_bloat, c_bloat .- eA_c_bloat, (newC .- (phiDict[d] * newC) .- inputDiscritezationDict[d].center)) .* 0.5
+        newC = (newC .+ (phiDict[d] * newC) .+ inputDiscritezationDict[d].center) .* 0.5
         #c_bloat = vcat(c_bloat, newC .- (phiDict[d] * newC) .* 0.5)
 
         d = d * 2
@@ -557,6 +567,64 @@ function PhiInputDict(A, U, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAna
     dU = linear_map(dia, U)#LinearMap(δ⁻, U)#
     E_ψ = symmetric_interval_hull(linear_map(P2A_abs, symmetric_interval_hull(LazySets.linear_map(A, U))))
     inputDiscritezationDict[0] = overapproximate(minkowski_sum(dU, E_ψ), Zonotope)
+    #E_ψ = SymmetricIntervalHull(LinearMap(P2A_abs, SymmetricIntervalHull(A * U)))
+    #P = overapproximate(minkowski_sum(dU, E_ψ), Zonotope) #
+
+    P = linear_map(pis, U)
+    #@show P
+    d = δ⁻
+    while d < δ⁺
+
+        phiDict[d] = copy(ϕ)
+        TphiDict[d] = copy(permutedims(ϕ))
+        inputDiscritezationDict[d] = copy(P)
+
+        P = plus(P, LazySets.linear_map(phiDict[d], P))
+        #@show P
+
+
+        mul!(tempM, ϕ, ϕ)
+        copy!(ϕ, tempM)
+        d = d * 2
+    end
+    #if LazySets.order(P) > maxOrder
+    #    P = reduce_order(P, reduceOrder)
+    #end
+    inputDiscritezationDict[δ⁺] = P
+    phiDict[δ⁺] = copy(ϕ)
+    TphiDict[d] = copy(permutedims(ϕ))
+
+    return phiDict, TphiDict, inputDiscritezationDict
+end
+
+function phi_input_dict(A, U, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5)
+
+    ϕ::Matrix{Float64} = ReachabilityAnalysis.Exponentiation._exp(A, δ⁻, alg)
+    phiDict = Dict{Float64,Matrix{Float64}}()
+    TphiDict = Dict{Float64,Matrix{Float64}}()
+    tempM = similar(ϕ)
+
+    inputDiscritezationDict = Dict{Float64,Zonotope}()
+    #inputDiscritezationDict = Dict()
+    XDim = size(A, 1)
+
+    d = δ⁻
+    #Φ = copy(ϕ)
+    dia::Matrix{Float64} = diagm(δ⁻ * ones(XDim))
+    isInvA = isinvertible(A)
+    A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(A)
+    Φcache = A == A_abs ? ϕ : nothing
+    P2A_abs = ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, isInvA, Φcache)
+    pis = ReachabilityAnalysis.Exponentiation.Φ₁(A, δ⁻, alg, false, nothing)
+
+    #X0 = Zonotope([1., 0., -1.], [[0.0, 0.0, 0.0]])
+
+    #if !(zeros(XDim) ∈ U) #Origin is *not* in input
+    #println("Here")
+    dU = linear_map(dia, U)#LinearMap(δ⁻, U)#
+    E_ψ = symmetric_interval_hull(linear_map(P2A_abs, symmetric_interval_hull(LazySets.linear_map(A, U))))
+    inputDiscritezationDict[0] = minkowski_sum(dU, E_ψ)
+    inputDiscritezationDict[-1] = E_ψ
     #E_ψ = SymmetricIntervalHull(LinearMap(P2A_abs, SymmetricIntervalHull(A * U)))
     #P = overapproximate(minkowski_sum(dU, E_ψ), Zonotope) #
 

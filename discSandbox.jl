@@ -16,6 +16,7 @@ cU = Float64.(rand((0:5), 2))
 GU = rand(Float64, (2, 2))
 
 U = Zonotope(cU, GU) #Zonotope(zeros(2), diagm(zeros(2)))#
+#U = Zonotope(cU, diagm(zeros(2)))#
 
 A = rand(Float64, (2, 2))
 
@@ -55,8 +56,8 @@ plot!(plt, Z, c=:green, lab="original zonotope")
 plot!(plt, Z1, c=:blue, lab="0 generator zonotope")
 plot!(plt, Z2, c=:yellow, lab="centered zonotope")
 =#
-phiDict, tPhiDict, inputDict = PhiInputDict(A, U, d, d)
-phiDictp, tPhiDictp, inputDictp = PhiInputDict(A, U, d/2, d)
+phiDict, tPhiDict, inputDict = phi_input_dict(A, U, d, d)
+phiDictp, tPhiDictp, inputDictp = phi_input_dict(A, U, d/2, d)
 
 #@show inputDict
 #@show inputDictp
@@ -71,13 +72,16 @@ P2A_absp = ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, d/2, ReachabilityAna
 generatorDict = ReACT_discretize_decomposed_generators(Z2, d/2, d, A, P2A_absp, phiDictp, U, inputDictp)
 discDict = ReACT_discretize_combine_with_offsets(Z1, d/2, d, A, P2A_absp, phiDictp, U, inputDictp, generatorDict)
 #println("new dict done")
-@show Z
+#@show Z
 oldDiscDict = newReACTDiscretizePlus(Z, d/2, d, A, P2A_absp, phiDictp, inputDictp)
 plot!(plt, oldDiscDict[d], fa=0.1, lab="current")
+plot!(plt, oldDiscDict[d/2], fa=0.1, lab="current", c=:red)
 #plot!(plt, oldDiscDict[d/2], c=:red, lab="old implementation d-")
 #plot!(plt, linear_map(phiDictp[d/2], oldDiscDict[d/2]), c=:red, lab="old implementation phi * d-")
-@show Z
+#@show Z
 
+@show LazySets.order(remove_zero_generators(discDict[d/2]))
+@show LazySets.order(remove_zero_generators(oldDiscDict[d/2]))
 @show LazySets.order(remove_zero_generators(discDict[d]))
 @show LazySets.order(remove_zero_generators(oldDiscDict[d]))
 
@@ -86,21 +90,23 @@ plot!(plt, discDict[d], c=:grey, lab="implementation", fillstyle=:\)
 
 #plot!(plt, CH(oldDiscDict[d/2], linear_map(phiDictp[d/2], oldDiscDict[d/2])), c=:black, fillstyle=:\)
 #plot!(plt, overapproximate(CH(oldDiscDict[d/2], linear_map(phiDictp[d/2], oldDiscDict[d/2])), Zonotope), c=:yellow, fillstyle=:+)
-oldDiscDictp = newReACTDiscretizePlus(Z, d, d, A, P2A_abs, phiDict, inputDict)
+#oldDiscDictp = newReACTDiscretizePlus(Z, d, d, A, P2A_abs, phiDict, inputDict)
 println("old dict done")
-plot!(plt, oldDiscDictp[d], c=:green, alpha=0.1, lab="old implementation d")
+#plot!(plt, oldDiscDictp[d], c=:green, alpha=0.1, lab="old implementation d")
 
-SSS = CH(Z, minkowski_sum(linear_map(phiDictp[d/2], Z), symmetric_interval_hull(linear_map(P2A_absp, symmetric_interval_hull(linear_map(A^2, Z))))))
-SS = CH(SSS, linear_map(phiDictp[d/2], SSS))
-@show Z
+SSS = CH(Z, minkowski_sum(minkowski_sum(linear_map(phiDictp[d/2], Z), inputDictp[d/2]), symmetric_interval_hull(linear_map(P2A_absp, symmetric_interval_hull(linear_map(A^2, Z))))))
+SS = CH(SSS, MinkowskiSum(linear_map(phiDictp[d/2], SSS), inputDictp[d/2]))
+#@show Z
+plot!(plt, SSS, lc=:white, lab="SSS")
 plot!(plt, SS, lc=:white, lab="original method with input", fillstyle=:||)
-
+#=
 @show oldDiscDict[d]
 @show discDict[d]
+=#
 @show oldDiscDict[d/2]
 @show discDict[d/2]
-#@show LazySets.API.issubset(SSS, oldDiscDict[d])
-#@show LazySets.API.issubset(SSS, discDict[d])
+@show LazySets.API.issubset(SS, oldDiscDict[d])
+@show LazySets.API.issubset(SS, discDict[d])
 #@show LazySets.API.issubset(SSS, overapproximate(CH(oldDiscDict[d/2], linear_map(phiDictp[d/2], oldDiscDict[d/2])), Zonotope))
 display(plt)
 #plot!(plt, symmetric_interval_hull(Z1), c=:grey)

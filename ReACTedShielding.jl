@@ -68,12 +68,13 @@ function ReACTed_reachable_cell(system::EuclideanHybridSystem, p, granularity, Œ
     #@show degenerate_dimensions
     Z = remove_zero_generators(Zonotope(degenerate_dimensions, diagm(map(x -> x == 1 ? 0. : granularity/2, grid.numCells))))
     #dc = 0
-
+    count = 0
     #@show grid.lower
     max_input = linear_map(ReachabilityAnalysis.Exponentiation.Œ¶‚ÇÅ(A_abs, p, alg, false, nothing), system.input)
     max_flow = exp(p .* system.flowMatrix)
     lower_offset = grid.lower .+ (granularity/2)
     for idx in CartesianIndices(grid.deadCells)
+        count += 1
         of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
         LazySets.API.translate!(Z, of)
         #@show Z, idx, of
@@ -100,6 +101,9 @@ function ReACTed_reachable_cell(system::EuclideanHybridSystem, p, granularity, Œ
         end
         #grid.array[idx].sidx[1] = copy(f)
         LazySets.API.translate!(Z, -of)
+        if count % 1000 == 0
+            println(count)
+        end
     end
     #@show dc
     return grid, reachable_by_action, reachable_by_flow

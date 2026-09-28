@@ -1,4 +1,4 @@
-using LazySets, LinearAlgebra, Plots, ReachabilityAnalysis, JLD2, FileIO
+using LazySets, LinearAlgebra, Plots, ReachabilityAnalysis, JLD2, FileIO, BenchmarkTools, ProfileView
 using Plots.PlotMeasures
 include("PartitionUtilities.jl")
 include("plotFuncs/plotFuncHelper.jl")
@@ -43,7 +43,8 @@ close(f)
 @show reach_by_Act
 =#
 
-@time grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^6 * δ⁻)
+#@time grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^6 * δ⁻)
+ProfileView.@profview grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^6 * δ⁻)
 #=
 @show length(reach_by_Act), length(reach_by_no_Act)
 
@@ -67,7 +68,7 @@ for act in euclideanHybridSystem.Act
     end
 end
 =#
-@time shield, iters = make_shield(grid, reach_by_Act, reach_by_no_Act, 15, euclideanHybridSystem.Act)
+@time shield, iters = make_shield(grid, reach_by_Act, reach_by_no_Act, 500, euclideanHybridSystem.Act)
 #=
 @show length(reach_by_Act), length(reach_by_no_Act)
 

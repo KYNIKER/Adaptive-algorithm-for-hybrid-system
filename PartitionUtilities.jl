@@ -272,7 +272,7 @@ function get_touching_cell_idxs(grid::Grid, convexSet::LazySet)
         lower_bounds, upper_bounds = get_cell_idx_bounds(grid, idx)
         cell_box = Hyperrectangle((lower_bounds + upper_bounds) / 2, (upper_bounds - lower_bounds) / 2)
 
-        if !isempty(intersect(convexSet, cell_box))
+        if !isdisjoint(convexSet, cell_box)
             push!(touching_cell_idxs, idx)
         end
     end

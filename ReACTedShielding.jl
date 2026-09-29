@@ -1070,15 +1070,15 @@ function ReACT_guards_b(δ⁻::Float64, δ⁺::Float64, interval, statespace, gu
             if currentTimeStep >= δ⁻
                 #linear_map!(Z, Φ, discritezationDict[currentTimeStep])
                 #check = guardCheck(minkowski_sum(input, linear_map(Φ, discritezationDict[currentTimeStep])), constraint, guards, invariant)
-                if (fast_guards_check(discritezationDict[currentTimeStep], Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds) == 0) || (0 == guardCheck(input, Φ, discritezationDict[currentTimeStep], constraint, guards, invariant)) # check if fast or slow fails.
+                if fast_guards_check_b(discritezationDict[currentTimeStep], input, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds) || (0 == guardCheck(input, Φ, discritezationDict[currentTimeStep], constraint, guards, invariant)) # check if fast or slow fails.
                     #if 0 == guardCheck(discritezationDict[currentTimeStep], Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds)
                     approveFlag = true
                     if currentTimeStep + time < endtime
                         input = input + linear_map(Φ, inputDiscretizationDict[currentTimeStep])
 
-                        Sρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), constraintProjVectors)
-                        Gρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), guardProjVectors)
-                        Iρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), invarientProjVectors)
+                        #Sρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), constraintProjVectors)
+                        #Gρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), guardProjVectors)
+                        #Iρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), invarientProjVectors)
 
 
                         map!(x -> permutedphiDict[currentTimeStep] * x, constraintProjVectors)
@@ -1376,6 +1376,7 @@ function fast_guards_check(newR::Zonotope, co, constraintProjVectors, constraint
     #any((input + -ρ(-x, discritezationDict[currentTimeStep])) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) &&
     #all((input - ρ(-x, discritezationDict[currentTimeStep])) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)))
     #return all((input + ρ(x, newR)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) && any((input + -ρ(-x, newR)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) && all((input - ρ(-x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
+
     if allunder(newR, co, constraintProjVectors, constraintProjBounds)
         if allunder(newR, go, guardProjVectors, guardProjBounds)
             return 0
@@ -1388,6 +1389,12 @@ function fast_guards_check(newR::Zonotope, co, constraintProjVectors, constraint
     end
 
     #return allunder(newR,c0, constraintProjVectors, constraintProjBounds) && someunder(newR, guardProjVectors, guardProjBounds) && someunder(newR, invarientProjVectors, invarientProjBounds)#all((input - ρ(-x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
+
+end
+
+function fast_guards_check_b(newR::Zonotope, input, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds) #; solver=model
+    #return all((input + ρ(x, newR)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) && any((input + -ρ(-x, newR)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) && all((input - ρ(-x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
+    return someoutside(newR, input, constraintProjVectors, constraintProjBounds) && someoutside(newR, input, guardProjVectors, guardProjBounds)
 
 end
 
@@ -1462,12 +1469,13 @@ function someunder(set, dir, bound)
     return !LazySets.API.isdisjoint(set, HPolyhedron(collect(LazySets.HalfSpace(a, b) for (a, b) in zip(dir, bound))))
 end
 
-function someoutside(set, dir, bound)
-    #=res = false
+function someoutside(set, input, dir, bound)
+    res = false
     @inbounds @simd for i in eachindex(dir, bound)
-        res = res || (-ρ(-dir[i], set) > bound[i])
-    end=#
-    return !allunder(set, dir, bound)
+        res = res || (-ρ(-dir[i], set)-ρ(-dir[i], input) > bound[i])
+    end
+    return res
+    #return !allunder(set, dir, bound)
 end
 
 

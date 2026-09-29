@@ -191,7 +191,10 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
     generatorDict = ReACT_discretize_decomposed_generators(Z, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict)
     invariant = hyperrectangle_to_HPolyhedron(system.statespace)
     #discretizationDict = Dict()
-    discretizationDict = ReACT_discretize_combine_with_offsets(Z, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict)
+    discretizationDict, finaldims = ReACT_discretize_combine_with_offsets(Z, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict)
+    preallocated_center = zeros(grid.dimension)
+    preallocated_genmat = zeros(grid.dimension, finaldims)
+    preallocated_inter_genmat = zeros(grid.dimension, finaldims)
     for idx in CartesianIndices(grid.deadCells)
         count += 1
         of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
@@ -202,8 +205,10 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
                 reachable_by_action[(act, idx)] = get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
             end
         end
-        ReACT_discretize_combine_with_offset_vector!(discretizationDict, of, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict)
-        z, f = propagate_set_b(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, discretizationDict, phiDict, tPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
+        #ReACT_discretize_combine_with_offset_vector!(preallocated_center, preallocated_genmat, preallocated_inter_genmat, discretizationDict, of, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict)
+        z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
+
+        #z, f = propagate_set_b(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, discretizationDict, phiDict, tPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
 
         #=if !LazySets.API.isdisjoint(z, system.edges[1].guard)
             dc += 1
@@ -229,102 +234,6 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
 
 end
 
-function ReACTedShieldingK(system::EuclideanHybridSystem, p, k, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true)
-    grid = Grid(system.statespace, granularity)
-    unsafeDict = Dict{CartesianIndex,Vector{LazySet}}()
-
-    zonotopeArray = initialize_zonotope_array(grid)
-
-    mark_dead_cells!(grid, system.globalConstraints[1], unsafeDict)
-
-    #
-    #   Take union with frontier of guards( and Act?)
-    #
-    #unsafeCells, cFrontierCells = get_contained_edge_cells(grid, system.globalConstraints[1])
-    #cFrontierN = grow_indices(grid, map(x -> car2vec(x.id), cFrontierCells))
-    #@show frontierCells
-    #guardCells, gFrontierCells = get_contained_edge_cells(grid, system.edges[1].guard)
-    #gFrontierCells = get_contained_perimeter_cells(grid, system.edges[1].guard)
-    #@show guardCells
-    #@show gFrontierCells
-    #gFrontierN = grow_indices(grid, map(x -> car2vec(x.id), gFrontierCells))
-    #@show gFrontierN
-    phiDicts = Dict()
-    tphiDicts = Dict()
-
-    #=
-    for x in hybridSystem.locations
-        pd, tpd, id = PhiInputDict(x, δ⁻, δ⁺, alg, maxOrder, reduceOrder)
-        phiDicts[x.id] = pd
-        tphiDicts[x.id] = tpd
-        inputDicts[x.id] = id
-        timeConstraintDict[x.id] = []
-        constraintDict[x.id] = vcat(x.constraints, constraint)
-    end
-    =#
-
-    phiDict = PhiDict(system.flowMatrix, δ⁻, δ⁺, alg)
-    tPhiDict = Dict(collect((k, permutedims(copy(v))) for (k, v) in pairs(phiDict)))
-    #frontierZonotopes = zonotopeArray[collect(CartesianIndex(c) for c in [gFrontierN; cFrontierN])]#zonotopeArray[collect(c.id for c in frontierN)]
-    #push!(frontierZonotopes, zonotopeArray[40, 40, 1])
-    #reachtimes = map(z -> propagate_set(z, [0.0, p], δ⁻, δ⁺, system, phiDict, tPhiDict, alg, maxOrder, reduceOrder), frontierZonotopes)
-    reachtimes = map(z -> propagate_set(z, [0.0, p], δ⁻, δ⁺, system, phiDict, tPhiDict, alg, maxOrder, reduceOrder), zonotopeArray)
-
-    #@time newReACTDiscretizePlus(zonotopeArray[40, 40, 1], δ⁻, δ⁺, system.flowMatrix, phiDict, alg, maxOrder, reduceOrder)
-    #@time propagate_set(zonotopeArray[40, 40, 1], [0.0, p], δ⁻, δ⁺, system, phiDict, tPhiDict, alg, maxOrder, reduceOrder)
-    #@show reachtimes
-    return reachtimes
-
-    waitinglist = []
-    zenoBound = 20
-    transitionCount = 0
-
-    dims = size(X0.center, 1)
-
-    #res = auxReACTed(hybridSystem, hybridSystem.locations[loc], nothing, interval, X0, dirsVectors, constraint, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder, missing, clustering, timeConstraintList, saveResult)
-
-    #reachset = vcat(reachset, res)
-
-    #return res
-    push!(waitinglist, (loc, X0, nothing, interval))
-
-
-    if TIMEFUNC
-        println((time_ns() - startTimer) / 10^9)
-    end
-
-    while !isempty(waitinglist)
-        #GC.gc()
-
-        location, initialset, edge, interval′ = pop!(waitinglist)
-
-        _ = auxReACTed(waitinglist, hybridSystem, hybridSystem.locations[location], edge, interval′, initialset, constraintDict[location], δ⁻, δ⁺, phiDicts[location], tphiDicts[location], inputDicts[location], dims, alg, maxOrder, reduceOrder, clustering, timeConstraintDict[location])
-
-
-        if transitionCount < zenoBound
-            transitionCount += 1
-        else
-            throw(error("Reached zeno bound"))
-
-        end
-    end
-
-    if TIMEFUNC
-        total = (time_ns() - startTimer) / 10^9
-        println("Total times: 
-        Total: $(total)
-        TotalNotAux: $((totalDiscTime / 10^9) + (totalGuardTime / 10^9) + (totalTouchesTime / 10^9) + (totalReACTTime / 10^9))
-        Disc: $(totalDiscTime / 10^9)
-        Guards: $(totalGuardTime / 10^9) 
-        Init Guards: $(totalInitGuardTime / 10^9) 
-        Touches: $(totalTouchesTime / 10^9)
-        ReACT: $(totalReACTTime / 10^9)
-        Init ReACT: $(totalInitReACTTime / 10^9)")
-        println("Amount of calls to auxreacted: $transitionCount")
-    end
-
-    return []
-end
 
 #
 #   Right now this makes quite a bit of allocations.
@@ -1562,3 +1471,99 @@ function someoutside(set, dir, bound)
 end
 
 
+function ReACTedShieldingK(system::EuclideanHybridSystem, p, k, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true)
+    grid = Grid(system.statespace, granularity)
+    unsafeDict = Dict{CartesianIndex,Vector{LazySet}}()
+
+    zonotopeArray = initialize_zonotope_array(grid)
+
+    mark_dead_cells!(grid, system.globalConstraints[1], unsafeDict)
+
+    #
+    #   Take union with frontier of guards( and Act?)
+    #
+    #unsafeCells, cFrontierCells = get_contained_edge_cells(grid, system.globalConstraints[1])
+    #cFrontierN = grow_indices(grid, map(x -> car2vec(x.id), cFrontierCells))
+    #@show frontierCells
+    #guardCells, gFrontierCells = get_contained_edge_cells(grid, system.edges[1].guard)
+    #gFrontierCells = get_contained_perimeter_cells(grid, system.edges[1].guard)
+    #@show guardCells
+    #@show gFrontierCells
+    #gFrontierN = grow_indices(grid, map(x -> car2vec(x.id), gFrontierCells))
+    #@show gFrontierN
+    phiDicts = Dict()
+    tphiDicts = Dict()
+
+    #=
+    for x in hybridSystem.locations
+        pd, tpd, id = PhiInputDict(x, δ⁻, δ⁺, alg, maxOrder, reduceOrder)
+        phiDicts[x.id] = pd
+        tphiDicts[x.id] = tpd
+        inputDicts[x.id] = id
+        timeConstraintDict[x.id] = []
+        constraintDict[x.id] = vcat(x.constraints, constraint)
+    end
+    =#
+
+    phiDict = PhiDict(system.flowMatrix, δ⁻, δ⁺, alg)
+    tPhiDict = Dict(collect((k, permutedims(copy(v))) for (k, v) in pairs(phiDict)))
+    #frontierZonotopes = zonotopeArray[collect(CartesianIndex(c) for c in [gFrontierN; cFrontierN])]#zonotopeArray[collect(c.id for c in frontierN)]
+    #push!(frontierZonotopes, zonotopeArray[40, 40, 1])
+    #reachtimes = map(z -> propagate_set(z, [0.0, p], δ⁻, δ⁺, system, phiDict, tPhiDict, alg, maxOrder, reduceOrder), frontierZonotopes)
+    reachtimes = map(z -> propagate_set(z, [0.0, p], δ⁻, δ⁺, system, phiDict, tPhiDict, alg, maxOrder, reduceOrder), zonotopeArray)
+
+    #@time newReACTDiscretizePlus(zonotopeArray[40, 40, 1], δ⁻, δ⁺, system.flowMatrix, phiDict, alg, maxOrder, reduceOrder)
+    #@time propagate_set(zonotopeArray[40, 40, 1], [0.0, p], δ⁻, δ⁺, system, phiDict, tPhiDict, alg, maxOrder, reduceOrder)
+    #@show reachtimes
+    return reachtimes
+
+    waitinglist = []
+    zenoBound = 20
+    transitionCount = 0
+
+    dims = size(X0.center, 1)
+
+    #res = auxReACTed(hybridSystem, hybridSystem.locations[loc], nothing, interval, X0, dirsVectors, constraint, δ⁻, δ⁺, flowPhiDict, alg, maxOrder, reduceOrder, missing, clustering, timeConstraintList, saveResult)
+
+    #reachset = vcat(reachset, res)
+
+    #return res
+    push!(waitinglist, (loc, X0, nothing, interval))
+
+
+    if TIMEFUNC
+        println((time_ns() - startTimer) / 10^9)
+    end
+
+    while !isempty(waitinglist)
+        #GC.gc()
+
+        location, initialset, edge, interval′ = pop!(waitinglist)
+
+        _ = auxReACTed(waitinglist, hybridSystem, hybridSystem.locations[location], edge, interval′, initialset, constraintDict[location], δ⁻, δ⁺, phiDicts[location], tphiDicts[location], inputDicts[location], dims, alg, maxOrder, reduceOrder, clustering, timeConstraintDict[location])
+
+
+        if transitionCount < zenoBound
+            transitionCount += 1
+        else
+            throw(error("Reached zeno bound"))
+
+        end
+    end
+
+    if TIMEFUNC
+        total = (time_ns() - startTimer) / 10^9
+        println("Total times: 
+        Total: $(total)
+        TotalNotAux: $((totalDiscTime / 10^9) + (totalGuardTime / 10^9) + (totalTouchesTime / 10^9) + (totalReACTTime / 10^9))
+        Disc: $(totalDiscTime / 10^9)
+        Guards: $(totalGuardTime / 10^9) 
+        Init Guards: $(totalInitGuardTime / 10^9) 
+        Touches: $(totalTouchesTime / 10^9)
+        ReACT: $(totalReACTTime / 10^9)
+        Init ReACT: $(totalInitReACTTime / 10^9)")
+        println("Amount of calls to auxreacted: $transitionCount")
+    end
+
+    return []
+end

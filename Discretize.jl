@@ -348,7 +348,7 @@ function ReACT_discretize_combine_with_offsets(X0c::Zonotope{N,Vector{N},Matrix{
     #@show generatorDiscretizationDict[d]
     discritezationDict[δ⁺] = copy(Zonotope(newC, hcat(c_bloat, generatorDiscretizationDict[δ⁺])))
 
-    return discritezationDict
+    return discritezationDict, size(c_bloat, 2)
 end
 
 function ReACT_discretize_combine_with_offset_vector(X0c::Vector{N}, δ⁻::Float64, δ⁺::Float64, A, P2A_abs, phiDict, U, inputDiscritezationDict, generatorDiscretizationDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}
@@ -378,7 +378,7 @@ function ReACT_discretize_combine_with_offset_vector(X0c::Vector{N}, δ⁻::Floa
     return discritezationDict
 end
 
-function ReACT_discretize_combine_with_offset_vector!(discritezationDict, X0c::Vector{N}, δ⁻::Float64, δ⁺::Float64, A, P2A_abs, phiDict, U, inputDiscritezationDict, generatorDiscretizationDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}
+function ReACT_discretize_combine_with_offset_vector!(preallocated_center, preallocated_genmat, preallocated_inter_genmat, discritezationDict, X0c::Vector{N}, δ⁻::Float64, δ⁺::Float64, A, P2A_abs, phiDict, U, inputDiscritezationDict, generatorDiscretizationDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}
     d = δ⁻
     #discritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
 
@@ -386,26 +386,41 @@ function ReACT_discretize_combine_with_offset_vector!(discritezationDict, X0c::V
     Uc = inputDiscritezationDict[0].center
 
     eAXc = (phiDict[d] * Xc)
-    newC = (Xc .+ eAXc .+ Uc) .* 0.5
-
-    c_bloat = hcat(diagm(sum(P2A_abs * diagm(abs.(A * A * Xc)), dims=2)[:, 1]) + generatorDiscretizationDict[0], (Xc .- (eAXc .+ Uc)) .* 0.5)
+    #newC = (Xc .+ eAXc .+ Uc) .* 0.5
+    copy!(preallocated_center, (Xc .+ eAXc .+ Uc) .* 0.5)
+    ng = length(X0c) + 1
+    #c_bloat = hcat(diagm(sum(P2A_abs * diagm(abs.(A * A * Xc)), dims=2)[:, 1]) + generatorDiscretizationDict[0] .* 0.5, (Xc .- (eAXc .+ Uc)) .* 0.5)
+    copyto!(preallocated_genmat, 1, diagm(sum(P2A_abs * diagm(abs.(A * A * Xc)), dims=2)[:, 1]) + generatorDiscretizationDict[0] .* 0.5, 1, ng-1)
+    copyto!(preallocated_genmat, ng, (Xc .- (eAXc .+ Uc)) .* 0.5, 1, 1)
     #@show diagm(sum(P2A_abs * diagm(abs.(A * A * Xc)), dims=2)[:, 1]) + generatorDiscretizationDict[0]
     #@show (Xc .- (eAXc .+ Uc)) .* 0.5
     #@show size(c_bloat)
     while d < δ⁺
         #discritezationDict[d] = copy(Zonotope(newC, hcat(c_bloat, generatorDiscretizationDict[d])))
-        copy!(discritezationDict[d].center, newC)
-        copy!(discritezationDict[d].generators, hcat(c_bloat, generatorDiscretizationDict[d]))
-        eA_c_bloat = phiDict[d] * c_bloat
-        c_bloat = hcat(c_bloat .+ eA_c_bloat, c_bloat .- eA_c_bloat, (newC .- (phiDict[d] * newC) .- inputDiscritezationDict[d].center)) .* 0.5
-        newC = (newC .+ (phiDict[d] * newC) .+ inputDiscritezationDict[d].center) .* 0.5
+        copy!(discritezationDict[d].center, preallocated_center)
+        copyto!(discritezationDict[d].generators, 1, preallocated_genmat, 1, ng)
+        copyto!(discritezationDict[d].generators, ng+1, generatorDiscretizationDict[d], 1, size(generatorDiscretizationDict[d], 2))
+
+
+        copyto!(preallocated_inter_genmat, 1, (view(preallocated_genmat, :, 1:ng) + phiDict[d] * view(preallocated_genmat, :, 1:ng)) .* 0.5, 1, ng)
+        copyto!(preallocated_genmat, ng + 1, (view(preallocated_genmat, :, 1:ng) - phiDict[d] * view(preallocated_genmat, :, 1:ng)) .* 0.5, 1, ng)
+        copyto!(preallocated_genmat, 1, preallocated_inter_genmat, 1, ng)
+        ng = 2 * ng + 1
+        copyto!(preallocated_genmat, ng, (preallocated_center .- (phiDict[d] * preallocated_center) .- inputDiscritezationDict[d].center) .* 0.5, 1, 1)
+        copy!(preallocated_center, (preallocated_center .+ (phiDict[d] * preallocated_center) .+ inputDiscritezationDict[d].center) .* 0.5)
+        #eA_c_bloat = phiDict[d] * c_bloat
+        #c_bloat = hcat(c_bloat .+ eA_c_bloat, c_bloat .- eA_c_bloat, (newC .- (phiDict[d] * newC) .- inputDiscritezationDict[d].center)) .* 0.5
+        #newC = (newC .+ (phiDict[d] * newC) .+ inputDiscritezationDict[d].center) .* 0.5
         #c_bloat = vcat(c_bloat, newC .- (phiDict[d] * newC) .* 0.5)
 
         d = d * 2
     end
     #@show generatorDiscretizationDict[d]
-    copy!(discritezationDict[δ⁺].center, newC)
-    copy!(discritezationDict[δ⁺].generators, hcat(c_bloat, generatorDiscretizationDict[d]))
+    copy!(discritezationDict[d].center, preallocated_center)
+    copyto!(discritezationDict[d].generators, 1, preallocated_genmat, 1, ng)
+    copyto!(discritezationDict[d].generators, ng+1, generatorDiscretizationDict[d], 1, size(generatorDiscretizationDict[d], 2))
+    #copy!(discritezationDict[δ⁺].center, newC)
+    #copy!(discritezationDict[δ⁺].generators, hcat(c_bloat, generatorDiscretizationDict[d]))
 
     #discritezationDict[δ⁺] = copy(Zonotope(newC, hcat(c_bloat, generatorDiscretizationDict[δ⁺])))
 

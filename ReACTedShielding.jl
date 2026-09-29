@@ -195,6 +195,11 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
     preallocated_center = zeros(grid.dimension)
     preallocated_genmat = zeros(grid.dimension, finaldims)
     preallocated_inter_genmat = zeros(grid.dimension, finaldims)
+
+    constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(system.globalConstraints[1])
+    guardProjVectors, guardProjBounds = getHalfSpaceProjections(system.edges[1].guard)
+
+
     for idx in CartesianIndices(grid.deadCells)
         count += 1
         of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
@@ -205,10 +210,10 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
                 reachable_by_action[(act, idx)] = get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
             end
         end
-        #ReACT_discretize_combine_with_offset_vector!(preallocated_center, preallocated_genmat, preallocated_inter_genmat, discretizationDict, of, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict)
-        z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
+        ReACT_discretize_combine_with_offset_vector!(preallocated_center, preallocated_genmat, preallocated_inter_genmat, discretizationDict, of, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict)
+        #z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
 
-        #z, f = propagate_set_b(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, discretizationDict, phiDict, tPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
+        z, f = propagate_set_b(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, discretizationDict, phiDict, tPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
 
         #=if !LazySets.API.isdisjoint(z, system.edges[1].guard)
             dc += 1
@@ -449,7 +454,7 @@ function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ�
 
 end
 
-function propagate_set_b(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ₂, discretizationDict, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5)
+function propagate_set_b(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ₂, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, discretizationDict, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5)
 
     #discretizationDict = newReACTDiscretizePlus(X0, δ⁻, δ⁺, system.flowMatrix, Φ₂, PhiDict, inputDict, alg, maxOrder, reduceOrder)
     time::Float64 = copy(minimum(interval))
@@ -458,16 +463,17 @@ function propagate_set_b(X0, interval, δ⁻::Float64, δ⁺::Float64, system, �
     listOfEdges = system.edges
 
     for edge in listOfEdges
-        constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint)
-        guardProjVectors, guardProjBounds = getHalfSpaceProjections(edge.guard)
-        invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(invariant)
+        #constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint)
+        #guardProjVectors, guardProjBounds = getHalfSpaceProjections(edge.guard)
+        #invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(invariant)
+        guard_projection_vectors = copy(guardProjVectors)
+        guard_projection_bounds = copy(guardProjBounds)
+        constraint_projection_vectors = copy(constraintProjVectors)
+        constraint_projection_bounds = copy(constraintProjBounds)
 
-        Sρ = zeros(Float64, length(constraintProjVectors))
-        Gρ = zeros(Float64, length(guardProjVectors))
-        Iρ = zeros(Float64, length(invarientProjVectors))
 
         #   Compute the reachset closest to the guard without intersecting it and not reaching the unsafe set. 
-        reachtime, newSet, inputSet, flag = ReACT_guards_b(δ⁻, δ⁺, interval, system.statespace, edge.guard, guardProjVectors, guardProjBounds, Gρ, constraint, constraintProjVectors, constraintProjBounds, Sρ, invariant, invarientProjVectors, invarientProjBounds, Iρ, 2, PhiDict, TPhiDict, discretizationDict, inputDict)
+        reachtime, newSet, inputSet, flag = ReACT_guards_b(δ⁻, δ⁺, interval, system.statespace, edge.guard, guard_projection_vectors, guard_projection_bounds, constraint, constraint_projection_vectors, constraint_projection_bounds, invariant, 2, PhiDict, TPhiDict, discretizationDict, inputDict)
 
 
         #
@@ -1028,7 +1034,7 @@ function ReACT_guards(δ⁻::Float64, δ⁺::Float64, interval, statespace, guar
     return (endtime, linear_map(Φ, discritezationDict[δ⁻]), input, 0)
 end
 
-function ReACT_guards_b(δ⁻::Float64, δ⁺::Float64, interval, statespace, guards, guardProjVectors, guardProjBounds, Gρ, constraint, constraintProjVectors, constraintProjBounds, Sρ, invariant, invarientProjVectors, invarientProjBounds, Iρ, STRATEGY::Integer, PhiDict, permutedphiDict, discritezationDict, inputDiscretizationDict)
+function ReACT_guards_b(δ⁻::Float64, δ⁺::Float64, interval, statespace, guards, guardProjVectors, guardProjBounds, constraint, constraintProjVectors, constraintProjBounds, invariant, STRATEGY::Integer, PhiDict, permutedphiDict, discritezationDict, inputDiscretizationDict)
 
     #
     #   These functions should be evaluated outside ReACT_guards and passed as parameters
@@ -1083,7 +1089,7 @@ function ReACT_guards_b(δ⁻::Float64, δ⁺::Float64, interval, statespace, gu
 
                         map!(x -> permutedphiDict[currentTimeStep] * x, constraintProjVectors)
                         map!(x -> permutedphiDict[currentTimeStep] * x, guardProjVectors)
-                        map!(x -> permutedphiDict[currentTimeStep] * x, invarientProjVectors)
+                        #map!(x -> permutedphiDict[currentTimeStep] * x, invarientProjVectors)
 
                         mul!(tempM, Φ, PhiDict[currentTimeStep])
                         copy!(Φ, tempM)

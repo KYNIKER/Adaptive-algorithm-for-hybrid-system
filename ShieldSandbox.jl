@@ -7,7 +7,7 @@ include("models/bouncingBall.jl")
 include("ReACTedShielding.jl")
 
 fresh_grid = false
-make_plot = false
+make_plot = true
 granularity = 0.1  # Example granularity
 grid_name = "ball" * string(granularity)
 savefile = grid_name * ".jld2"
@@ -77,7 +77,7 @@ for act in euclideanHybridSystem.Act
     end
 end
 =#
-@time shield, iters = make_shield(grid, reach_by_Act, reach_by_no_Act, 500, euclideanHybridSystem.Act)
+@time shield, iters = make_shield(grid, reach_by_Act, reach_by_no_Act, 10, euclideanHybridSystem.Act)
 #@time _, _ = make_shield(grid, reach_by_Act, reach_by_no_Act, 500, euclideanHybridSystem.Act)
 #=
 @show length(reach_by_Act), length(reach_by_no_Act)
@@ -101,10 +101,13 @@ if make_plot
 
     zonotopeArray3d = initialize_zonotope_array(shield)  # Initialize the zonotope array for the grid
     invalid_cells = []
+    heatmap_matrix = zeros(Int64, shield.numCells...)
+
     for idx in CartesianIndices(shield.deadCells)
         #@show cell.pCells
 
         if shield.deadCells[idx]
+            heatmap_matrix[idx] = 0
             #push!(unsafe, zonotopeArray3d[cell.id])
         end
         #@show any(x -> haskey(reach_by_Act, (x, cell.id)), euclideanHybridSystem.Act)
@@ -112,6 +115,7 @@ if make_plot
             for act in euclideanHybridSystem.Act
                 if haskey(reach_by_Act, (act, idx))
                     push!(actDict[act], zonotopeArray3d[idx])
+                    heatmap_matrix[idx] += 2
                 end
             end
             #@show zonotopeArray3d[cell.id]
@@ -126,6 +130,9 @@ if make_plot
             if !haskey(reach_by_no_Act, idx)
                 push!(invalid_cells, idx)
                 push!(unsafe, zonotopeArray3d[idx])
+            else
+                heatmap_matrix[idx] = 1
+
             end
         end
     end
@@ -157,7 +164,7 @@ if make_plot
         xlabel="v", ylabel="p")
 
 
-
+    #=
     #mark_dead_cells!(grid, euclideanHybridSystem.globalConstraints[1], unsafeDict)
 
     #unsafeCells, frontierCells = get_contained_edge_cells(grid, linear_map(exp(-0.01 * euclideanHybridSystem.flowMatrix), zonotopeArray3d[4, 24, 1]))
@@ -209,8 +216,11 @@ if make_plot
     #plot!(plt, euclideanHybridSystem.edges[1].guard, c=:green)
     plot!(plt, zonotopeArray3d[tidx], c=:white)
     plot!(plt, tz, c=:white)
-    display(plt)  # Display the plot
 
+    display(plt)  # Display the plot
+=#
+    #z = float((1:4) * reshape(1:10, 1, :))
+    heatmap(transpose(heatmap_matrix))
 end
 
 

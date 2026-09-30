@@ -1,4 +1,5 @@
 using LazySets, LinearAlgebra, ReachabilityAnalysis
+include("Utilities.jl")
 
 ### Following code is adapted from "https://github.com/AstridHornBrorholt/Shielded-Learning-for-Hybrid-Systems/blob/main/Shared%20Code/Squares.jl"
 # Assumed that partitioning is axis-aligned, i.e., the partitioning is done along the axes of the state space. The Grid struct represents a grid in the state space with specified granularity and bounds.
@@ -256,6 +257,7 @@ function get_touching_cells(grid::Grid, convexSet::LazySet)
     return touching_cells
 end
 
+# TODO - This can be optimized significantly by utilizing the fact that Zonotopes are centrally symmetric. First halve the bounding box, then sweep from both sides.
 function get_touching_cell_idxs(grid::Grid, convexSet::LazySet)
     touching_cell_idxs = []
 
@@ -267,14 +269,17 @@ function get_touching_cell_idxs(grid::Grid, convexSet::LazySet)
 
     idxs = CartesianIndices((ranges...,))
     #@show idxs
+    hbox = Hyperrectangle(grid.lower .+ (granularity/2), fill(granularity/2, grid.dimension))
     for idx in idxs
         #cell = grid.array[idx]
-        lower_bounds, upper_bounds = get_cell_idx_bounds(grid, idx)
-        cell_box = Hyperrectangle((lower_bounds + upper_bounds) / 2, (upper_bounds - lower_bounds) / 2)
-
-        if !isdisjoint(convexSet, cell_box)
+        #lower_bounds, upper_bounds = get_cell_idx_bounds(grid, idx)
+        #cell_box = Hyperrectangle((lower_bounds + upper_bounds) / 2, (upper_bounds - lower_bounds) / 2)
+        of = (car2vec(idx) .- 1) .* granularity
+        LazySets.API.translate!(hbox, of)
+        if !isdisjoint(convexSet, hbox)
             push!(touching_cell_idxs, idx)
         end
+        LazySets.API.translate!(hbox, -of)
     end
 
     return touching_cell_idxs
@@ -362,12 +367,14 @@ function grow_indices(grid::Grid, idxs, offset)
 end
 
 # https://github.com/AstridHornBrorholt/Shielded-Learning-for-Hybrid-Systems/blob/22c9fc220ef40d55877ff1360be7286a7a506620/Shared%20Code/ShieldSynthesis.jl#L88
-function make_shield(grid::Grid, action_set, no_action_set, max_steps, Act)
+function make_shield(grid::Grid, action_set::Dict{Tuple{Action,CartesianIndex},AbstractArray{CartesianIndex}}, no_action_set::Dict{CartesianIndex,AbstractArray{CartesianIndex}}, max_steps::Int, Act::Vector{Action})
     i = max_steps
     dims = grid.dimension
     dead = grid.deadCells
     dead´ = nothing
     action_set´ = nothing
+    a_tombstones = 0
+    n_tombstones = 0
     while i > 0
         #grid´, action_set´ = shield_step!(grid, action_set, no_action_set, Act)
         dead´, la, ln = shield_step!(dead, action_set, no_action_set, Act, dims)
@@ -375,6 +382,17 @@ function make_shield(grid::Grid, action_set, no_action_set, max_steps, Act)
             println("Fixed point found at $(max_steps-i) steps!")
             break
         end
+        a_tombstones += la
+        n_tombstones += ln
+
+        if a_tombstones + n_tombstones > 500
+            #@show (a_tombstones, n_tombstones)
+            action_set = Dict{Tuple{Action,CartesianIndex},AbstractArray{CartesianIndex}}(action_set)
+            no_action_set = Dict{CartesianIndex,AbstractArray{CartesianIndex}}(no_action_set)
+            a_tombstones = 0
+            n_tombstones = 0
+        end
+
         #@show action_set == action_set´
         dead = dead´
         #action_set = action_set´
@@ -385,10 +403,10 @@ function make_shield(grid::Grid, action_set, no_action_set, max_steps, Act)
     return (grid, max_steps - i)
 end
 
-function shield_step!(deadCells, action_set, no_action_set, Act, dims)
+function shield_step!(deadCells::BitArray, action_set::Dict{Tuple{Action,CartesianIndex},AbstractArray{CartesianIndex}}, no_action_set::Dict{CartesianIndex,AbstractArray{CartesianIndex}}, Act::Vector{Action}, dims::Int64)
     #deadCells´ = copy(deadCells)
-    act_pop_keys = []
-    no_act_pop_keys = []
+    act_pop_keys = Tuple{Action,CartesianIndex{dims}}[]
+    no_act_pop_keys = CartesianIndex{dims}[]
     new_dead_cells = CartesianIndex{dims}[]
     for idx in CartesianIndices(deadCells)
         if !deadCells[idx]
@@ -409,7 +427,7 @@ function shield_step!(deadCells, action_set, no_action_set, Act, dims)
                 if haskey(action_set, (act, idx))
                     can_act += 1
 
-                    if length(collect(deadCells[idxx] for idxx in action_set[(act, idx)])) == 0
+                    if isempty(collect(deadCells[idxx] for idxx in action_set[(act, idx)]))
                         #@show action_set[(act, cell.id)]
                         push!(act_pop_keys, (act, idx))
                         can_act -= 1

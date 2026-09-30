@@ -176,8 +176,8 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
     #   3: Hit invariant surface
     #
 
-    reachable_by_action = Dict()
-    reachable_by_flow = Dict()
+    reachable_by_action = Dict{Tuple{Action,CartesianIndex},AbstractArray{CartesianIndex}}()
+    reachable_by_flow = Dict{CartesianIndex,AbstractArray{CartesianIndex}}()
     degenerate_dimensions = collect(u - l == l ? l - (granularity / 2) : 0. for (l, u) in zip(grid.lower, grid.upper))
     #@show degenerate_dimensions
     Z = remove_zero_generators(Zonotope(degenerate_dimensions, diagm(map(x -> x == 1 ? 0. : granularity/2, grid.numCells))))
@@ -207,6 +207,12 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
         #@show Z, idx, of
         for act in system.Act
             if !LazySets.API.isdisjoint(act.guard, Z)
+                #touches_list = get_touching_cell_idxs(grid, z)
+                #touches_list = get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
+                #if !isempty(touches_list)
+                #    reachable_by_action[(act, idx)] = copy(touches_list)
+                #reachable_by_flow[idx] = get_touching_cell_idxs(grid, z)
+                #end
                 reachable_by_action[(act, idx)] = get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
             end
         end
@@ -224,6 +230,10 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
             #grid.deadCells[idx] = true
 
             #println("so deads")
+            #touches_list = get_touching_cell_idxs(grid, z)
+            #if !isempty(touches_list)
+            #    reachable_by_flow[idx] = copy(touches_list)#get_touching_cell_idxs(grid, z)
+            #end
             reachable_by_flow[idx] = get_touching_cell_idxs(grid, z)
             #else
             #grid.array[idx].pCells = get_touching_cell_idxs(grid, z)
@@ -259,12 +269,12 @@ function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ�
         guardProjVectors, guardProjBounds = getHalfSpaceProjections(edge.guard)
         invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(invariant)
 
-        Sρ = zeros(Float64, length(constraintProjVectors))
-        Gρ = zeros(Float64, length(guardProjVectors))
-        Iρ = zeros(Float64, length(invarientProjVectors))
+        #Sρ = zeros(Float64, length(constraintProjVectors))
+        #Gρ = zeros(Float64, length(guardProjVectors))
+        #Iρ = zeros(Float64, length(invarientProjVectors))
 
         #   Compute the reachset closest to the guard without intersecting it and not reaching the unsafe set. 
-        reachtime, newSet, inputSet, flag = ReACT_guards_b(δ⁻, δ⁺, interval, system.statespace, edge.guard, guardProjVectors, guardProjBounds, Gρ, constraint, constraintProjVectors, constraintProjBounds, Sρ, invariant, invarientProjVectors, invarientProjBounds, Iρ, 2, PhiDict, TPhiDict, discretizationDict, inputDict)
+        reachtime, newSet, inputSet, flag = ReACT_guards_b(δ⁻, δ⁺, interval, system.statespace, edge.guard, guardProjVectors, guardProjBounds, constraint, constraintProjVectors, constraintProjBounds, invariant, 2, PhiDict, TPhiDict, discretizationDict, inputDict)
 
 
         #

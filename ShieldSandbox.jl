@@ -9,8 +9,8 @@ include("models/bouncingBall.jl")
 include("ReACTedShielding.jl")
 
 fresh_grid = false
-make_plot = true
-granularity = 0.5  # Example granularity
+make_plot = false
+granularity = 0.1  # Example granularity
 grid_name = "ball" * string(granularity)
 savefile = grid_name * ".jld2"
 
@@ -44,11 +44,29 @@ reach_by_Act = read(f, "r")
 close(f)
 @show reach_by_Act
 =#
-grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+@time grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+#=
+test_Z = Zonotope([-13.1, 0.0], diagm([1., 1.1]))
+#ProfileView.@profview _ = get_touching_cell_idxs_b(grid, test_Z)
+#ProfileView.@profview _ = get_touching_cell_idxs_t(grid, test_Z)
+_ = get_touching_cell_idxs_b(grid, test_Z)
+_ = get_touching_cell_idxs_t(grid, test_Z)
+_ = get_touching_cell_idxs(grid, test_Z)
+@time res1 = get_touching_cell_idxs_b(grid, test_Z)
+@time res2 = get_touching_cell_idxs_t(grid, test_Z)
+@time res3 = get_touching_cell_idxs(grid, test_Z)
+@show res1
+@show res3
+@show issubset(res1, res2)
+@show issubset(res2, res1)
+@show issubset(res1, res3)
+=#
+#=
 @show maximum(length, values(reach_by_Act))
 @show maximum(length, values(reach_by_no_Act))
 @show minimum(length, values(reach_by_Act))
 @show minimum(length, values(reach_by_no_Act))
+=#
 #@time _, _, _ = ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 #=
 _, _, _ = ReACTed_reachable_cell(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)

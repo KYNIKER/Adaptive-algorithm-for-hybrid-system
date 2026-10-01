@@ -101,7 +101,7 @@ function ReACTed_reachable_cell(system::EuclideanHybridSystem, p, granularity, �
             #grid.deadCells[idx] = true
 
             #println("so deads")
-            reachable_by_flow[idx] = get_touching_cell_idxs(grid, z)
+            reachable_by_flow[idx] = get_touching_cell_idxs_b(grid, z)
             #else
             #grid.array[idx].pCells = get_touching_cell_idxs(grid, z)
         end
@@ -213,7 +213,7 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
                 #    reachable_by_action[(act, idx)] = copy(touches_list)
                 #reachable_by_flow[idx] = get_touching_cell_idxs(grid, z)
                 #end
-                reachable_by_action[(act, idx)] = get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
+                reachable_by_action[(act, idx)] = get_touching_cell_idxs_b(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
             end
         end
         ReACT_discretize_combine_with_offset_vector!(preallocated_center, preallocated_genmat, preallocated_inter_genmat, discretizationDict, of, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict)
@@ -234,7 +234,7 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
             #if !isempty(touches_list)
             #    reachable_by_flow[idx] = copy(touches_list)#get_touching_cell_idxs(grid, z)
             #end
-            reachable_by_flow[idx] = get_touching_cell_idxs(grid, z)
+            reachable_by_flow[idx] = get_touching_cell_idxs_b(grid, z)
             #else
             #grid.array[idx].pCells = get_touching_cell_idxs(grid, z)
         end

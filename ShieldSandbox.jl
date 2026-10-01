@@ -1,5 +1,7 @@
 using LazySets, LinearAlgebra, Plots, ReachabilityAnalysis, JLD2, FileIO, BenchmarkTools, ProfileView
 using Plots.PlotMeasures
+
+gr()
 include("PartitionUtilities.jl")
 include("plotFuncs/plotFuncHelper.jl")
 include("Utilities.jl")
@@ -8,13 +10,13 @@ include("ReACTedShielding.jl")
 
 fresh_grid = false
 make_plot = true
-granularity = 0.1  # Example granularity
+granularity = 0.5  # Example granularity
 grid_name = "ball" * string(granularity)
 savefile = grid_name * ".jld2"
 
 euclideanHybridSystem, timePeriod = loadBouncingBallShieldedWithInput()
 
-cscheme = palette(:default, length(euclideanHybridSystem.Act))
+cscheme = palette(:matter, 2^length(euclideanHybridSystem.Act)+1; rev=true)
 
 δ⁻ = 0.001
 
@@ -77,7 +79,7 @@ for act in euclideanHybridSystem.Act
     end
 end
 =#
-@time shield, iters = make_shield(grid, reach_by_Act, reach_by_no_Act, 10, euclideanHybridSystem.Act)
+@time shield, iters = make_shield(grid, reach_by_Act, reach_by_no_Act, 15, euclideanHybridSystem.Act)
 #@time _, _ = make_shield(grid, reach_by_Act, reach_by_no_Act, 500, euclideanHybridSystem.Act)
 #=
 @show length(reach_by_Act), length(reach_by_no_Act)
@@ -95,11 +97,16 @@ if make_plot
 
     actDict = Dict()
 
+    act_translation = Dict()
+    for (i, act) in pairs(euclideanHybridSystem.Act)
+        act_translation[act] = 2^i
+    end
+
     for act in euclideanHybridSystem.Act
         actDict[act] = []
     end
 
-    zonotopeArray3d = initialize_zonotope_array(shield)  # Initialize the zonotope array for the grid
+    #zonotopeArray3d = initialize_zonotope_array(shield)  # Initialize the zonotope array for the grid
     invalid_cells = []
     heatmap_matrix = zeros(Int64, shield.numCells...)
 
@@ -112,24 +119,21 @@ if make_plot
         end
         #@show any(x -> haskey(reach_by_Act, (x, cell.id)), euclideanHybridSystem.Act)
         if any(x -> haskey(reach_by_Act, (x, idx)), euclideanHybridSystem.Act)
+            possible_acts = []
             for act in euclideanHybridSystem.Act
                 if haskey(reach_by_Act, (act, idx))
-                    push!(actDict[act], zonotopeArray3d[idx])
-                    heatmap_matrix[idx] += 2
+                    #push!(actDict[act], zonotopeArray3d[idx])
+                    push!(possible_acts, act)
                 end
             end
-            #@show zonotopeArray3d[cell.id]
-            #push!(jumping, zonotopeArray3d[idx])
-            #=if !isempty(cell.pCells)
-            for pcell in cell.pCells
-                push!(jumping, zonotopeArray3d[pcell])
+            for act in possible_acts
+                heatmap_matrix[idx] += act_translation[act]
             end
-        end=#
         else
-            push!(noAct, zonotopeArray3d[idx])
+            #push!(noAct, zonotopeArray3d[idx])
             if !haskey(reach_by_no_Act, idx)
                 push!(invalid_cells, idx)
-                push!(unsafe, zonotopeArray3d[idx])
+                #push!(unsafe, zonotopeArray3d[idx])
             else
                 heatmap_matrix[idx] = 1
 
@@ -137,19 +141,8 @@ if make_plot
         end
     end
 
-    tidx = CartesianIndex(30, 20)
-
-    @show length(unsafe)
-    @show length(jumping)
-    @show length(noAct)
-    @show CartesianIndex((40, 20)) ∈ invalid_cells
-    dirs = [1, 2]
-    #grid = Grid(euclideanHybridSystem.statespace, granularity)
-
-    #unsafeDict = Dict{CartesianIndex,Vector{LazySet}}()
-
-    #rect(x, y) = Shape(x .- 1 .* granularity .+ [0, granularity, granularity, 0, 0], y .- 1 .* granularity .+ [0, 0, granularity, granularity, 0])
-
+    #colors = cgrad(cscheme, length(euclideanHybridSystem.Act) + 1, categorical=true)
+    #=
     plt = plot(dpi=1200, thickness_scaling=1, guidefontsize=35, minorgrid=true, ε=granularity,
         #legendfont=font(12, "Times"),
         #legend_position=:topright,
@@ -162,65 +155,20 @@ if make_plot
         right_margin=5mm,
         top_margin=2mm,
         xlabel="v", ylabel="p")
-
-
-    #=
-    #mark_dead_cells!(grid, euclideanHybridSystem.globalConstraints[1], unsafeDict)
-
-    #unsafeCells, frontierCells = get_contained_edge_cells(grid, linear_map(exp(-0.01 * euclideanHybridSystem.flowMatrix), zonotopeArray3d[4, 24, 1]))
-    #@show unsafeCells
-    #@show frontierCells
-    #frontierZonotopes = zonotopeArray3d[collect(c.id for c in frontierCells)]
-    #@show frontierZonotopes
-    pFrontierZonotopes = get_grid_shapes(unsafe, dirs)
-
-    for z in pFrontierZonotopes
-        plot!(plt, z, alpha=0.9, c=:black)
-    end
-
-
-    nFrontierZonotopes = get_grid_shapes(noAct, dirs)
-
-    for z in nFrontierZonotopes
-        plot!(plt, z, alpha=0.1, c=:blue)
-    end
-
-    for (i, action) in pairs(euclideanHybridSystem.Act)
-        plot!(plt, action.guard, c=cscheme[i], fillstyle=://)
-    end
-
-
-    #@show jumping
-    eA = exp(timePeriod * euclideanHybridSystem.flowMatrix)
-    #tU = linear_map((inv(euclideanHybridSystem.flowMatrix) * (eA - I)), euclideanHybridSystem.input)
-    A_abs = abs.(euclideanHybridSystem.flowMatrix)
-    tU = linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, timePeriod, ReachabilityAnalysis.Exponentiation.BaseExp, false, nothing), euclideanHybridSystem.input)
-    tz = minkowski_sum(tU, linear_map(eA, zonotopeArray3d[tidx]))
-    #for id in get_touching_cell_idxs(grid, tz)
-    #@show get_cell_bounds(grid, grid.array[id])
-    #end
-    #@show get_cell_bounds(grid, grid.array[tidx])
-    #@show get_cell_bounds(grid, zonotopeArray3d[tidx])
-    gFrontierZonotopes = get_grid_shapes(jumping, dirs)#[get_grid_shapes(jumping, dirs); get_grid_shapes(map(x -> linear_map(eA, x), jumping), dirs)]#get_grid_shapes(jumping, dirs)
-
-    for (i, ac) in pairs(euclideanHybridSystem.Act)
-        tempzs = get_grid_shapes(actDict[ac], dirs)
-        for z in tempzs
-            plot!(plt, z, c=cscheme[i])
+    =#
+    #plot(hm)
+    color_labels = ["Dead", "No action", "Act1", "Act2", "Act1 + Act2"]
+    if length(color_labels) > 0
+        if length(color_labels) != length(cscheme)
+            throw(ArgumentError("Length of argument color_labels does not match  number of colors."))
+        end
+        for (color, label) in zip(cscheme, color_labels)
+            # Apparently shapes are added to the legend even if the list is empty
+            #plot!(plt, Float64[], Float64[], seriestype=:shape, label=label, color=color)
         end
     end
-    #@show intersection(euclideanHybridSystem.globalConstraints[1], hyperrectangle_to_HPolytope(euclideanHybridSystem.statespace))
-    plot!(plt, intersection(euclideanHybridSystem.globalConstraints[1], hyperrectangle_to_HPolytope(euclideanHybridSystem.statespace)), c=:red, lw=1.0, lab="unsafe")
-    #plot!(plt, LazySets.API.project(LinearMap(exp(-timePeriod * euclideanHybridSystem.flowMatrix), intersection(euclideanHybridSystem.globalConstraints[1], hyperrectangle_to_HPolytope(euclideanHybridSystem.statespace))), dirs), c=:white)
-    plot!(plt, intersection(euclideanHybridSystem.edges[1].guard, hyperrectangle_to_HPolytope(euclideanHybridSystem.statespace)), c=:green)
-    #plot!(plt, euclideanHybridSystem.edges[1].guard, c=:green)
-    plot!(plt, zonotopeArray3d[tidx], c=:white)
-    plot!(plt, tz, c=:white)
-
-    display(plt)  # Display the plot
-=#
-    #z = float((1:4) * reshape(1:10, 1, :))
-    heatmap(transpose(heatmap_matrix))
+    #plot!(plt, heatmap(transpose(heatmap_matrix), c=cscheme, colorbar=nothing))
+    heatmap(transpose(heatmap_matrix), c=cscheme, colorbar=nothing)
 end
 
 

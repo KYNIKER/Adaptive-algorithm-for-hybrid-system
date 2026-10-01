@@ -285,6 +285,48 @@ function get_touching_cell_idxs(grid::Grid, convexSet::LazySet)
     return touching_cell_idxs
 end
 
+function get_touching_cell_idxs_b(grid::Grid, convexSet::Zonotope)
+    touching_cell_idxs = []
+
+    lower_bounds, upper_bounds = clamp.(LazySets.low(convexSet), grid.lower, grid.upper), clamp.(LazySets.high(convexSet), grid.lower, grid.upper)
+    lower_bounds = Int.(floor.(abs.(lower_bounds .- grid.lower) ./ grid.granularity) .+ 1)
+
+    upper_bounds = Int.(ceil.(abs.(upper_bounds .- grid.lower) ./ grid.granularity)) #floor.(min.(upper_bounds, grid.upper) .- grid.lower) ./ grid.granularity
+    #upper_bounds = clamp.()
+    ranges = [lower_bounds[i]:max(upper_bounds[i], 1) for i in 1:grid.dimension]
+    elements_per_dim = [max(upper_bounds[i], 1)-lower_bounds[i] for i in 1:grid.dimension]
+    splitting_dim = argmax(elements_per_dim)
+    if elements_per_dim[splitting_dim] > 1
+        ranges[splitting_dim] = lower_bounds[splitting_dim]:(upper_bounds[splitting_dim]/2)
+        upper_bounds[splitting_dim] /= 2
+        elements_per_dim[splitting_dim] /= 2
+        collapsed_ranges = copy(ranges)
+        sweeping_dim = argmin(elements_per_dim)
+        collapsed_ranges[sweeping_dim] = lower_bounds[sweeping_dim]:lower_bounds[sweeping_dim]
+        idxs = CartesianIndices((collapsed_ranges...,))
+        for of in ranges[sweeping_dim]
+
+        end
+    end
+
+    idxs = CartesianIndices((ranges...,))
+    #@show idxs
+    hbox = Hyperrectangle(grid.lower .+ (granularity/2), fill(granularity/2, grid.dimension))
+    for idx in idxs
+        #cell = grid.array[idx]
+        #lower_bounds, upper_bounds = get_cell_idx_bounds(grid, idx)
+        #cell_box = Hyperrectangle((lower_bounds + upper_bounds) / 2, (upper_bounds - lower_bounds) / 2)
+        of = (car2vec(idx) .- 1) .* granularity
+        LazySets.API.translate!(hbox, of)
+        if !isdisjoint(convexSet, hbox)
+            push!(touching_cell_idxs, idx)
+        end
+        LazySets.API.translate!(hbox, -of)
+    end
+
+    return touching_cell_idxs
+end
+
 function get_contained_cells(grid::Grid, convexSet::LazySet)
     contained_cells = []
 

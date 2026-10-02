@@ -522,7 +522,8 @@ function propagate_set_b(X0, interval, δ⁻::Float64, δ⁺::Float64, system, �
         elseif flag == 2
             #@show flag
             #@show inputSet
-            intersectingSetsList = ReACT_touches_set_constant_input(newSet, inputSet, edge.guard, δ⁻, [reachtime, endtime], PhiDict, inputDict)
+            intersectingSetsList = ReACT_touches_set_constant_input_b(newSet, inputSet, edge.guard, copy(guardProjVectors), copy(guardProjBounds), δ⁻, [reachtime, endtime], PhiDict, inputDict)
+            #intersectingSetsList = ReACT_touches_set_constant_input(newSet, inputSet, edge.guard, δ⁻, [reachtime, endtime], PhiDict, inputDict)
             tempIntersect = foldl(ConvexHull, intersectingSetsList)
             intersectedSet = convert(Zonotope, box_approximation(tempIntersect))
             jumpSet = linear_map(edge.jumpMatrix, zonotopeStripIntersection(intersectedSet, edge.guard))
@@ -923,6 +924,49 @@ function ReACT_touches_set_constant_input(X0, U, set, δ⁻::Float64, interval, 
     return intersectingSetsList
 end
 
+function ReACT_touches_set_constant_input_b(X0, U, set, projection_vectors, projection_bounds, δ⁻::Float64, interval, PhiDict, inputDiscretizationDict)
+    # Note that in touches we always use δ⁻
+    # That is, we do not adjust timestep sizes
+
+    time::Float64 = copy(interval[1])
+    endtime::Float64 = interval[2]
+
+    intersectingSetsList = Vector{Zonotope}() # This will store all of our sets
+
+
+    #X0 = linear_map(PhiDict[δ⁻], X0)
+    #U = linear_map(PhiDict[δ⁻], U) + inputDiscretizationDict[δ⁻]
+    tempSet = minkowski_sum(X0, U)
+
+    push!(intersectingSetsList, copy(tempSet))
+    while time < endtime
+
+        #if all((ρ(x, tempSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
+        #   all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) &&
+        #   all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
+        if !allunder(tempSet, projection_vectors, projection_bounds) #touchesCheck(tempSet, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, invarientProjVectors, invarientProjBounds)
+            #if mapreduce(x -> intersects(newRR, x), &, guard)
+            #@show time
+            push!(intersectingSetsList, copy(tempSet))
+
+            # Main calculation. No longer changing timesteps
+            #Vs = minkowski_sum(Vs, V) #Update input
+            #newRR = linear_map(ϕ, newRR)
+            #V = linear_map(ϕ, V)
+            U = linear_map(PhiDict[δ⁻], U) + inputDiscretizationDict[δ⁻]
+            X0 = linear_map(PhiDict[δ⁻], X0)
+            tempSet = minkowski_sum(X0, U)
+            # i = i + 1
+            time += δ⁻
+        else
+            break
+        end
+
+    end
+    #continueAfter = false # We are at the end time horizon, therefore no continuing
+    return intersectingSetsList
+end
+
 function ReACT_touches_set(X0, set, δ⁻::Float64, δ⁺::Float64, interval, PhiDict, inputDiscretizationDict)
     # Note that in touches we always use δ⁻
     # That is, we do not adjust timestep sizes
@@ -1061,6 +1105,8 @@ function ReACT_guards(δ⁻::Float64, δ⁺::Float64, interval, statespace, guar
     return (endtime, linear_map(Φ, discritezationDict[δ⁻]), input, 0)
 end
 
+
+# TODO - For some reason changing this to only use the more precise method when the smallest time step is used gives a different answer than the previous version...
 function ReACT_guards_b(δ⁻::Float64, δ⁺::Float64, interval, statespace, guards, guardProjVectors, guardProjBounds, constraint, constraintProjVectors, constraintProjBounds, invariant, STRATEGY::Integer, PhiDict, permutedphiDict, discritezationDict, inputDiscretizationDict)
 
     #
@@ -1100,7 +1146,43 @@ function ReACT_guards_b(δ⁻::Float64, δ⁺::Float64, interval, statespace, gu
         check = 0
         while !approveFlag
             # Handle if we can no longer reduce the reachset (we keep hitting something)
-            if currentTimeStep >= δ⁻
+            if currentTimeStep > δ⁻
+                #linear_map!(Z, Φ, discritezationDict[currentTimeStep])
+                #check = guardCheck(minkowski_sum(input, linear_map(Φ, discritezationDict[currentTimeStep])), constraint, guards, invariant)
+                if fast_guards_check_b(discritezationDict[currentTimeStep], input, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds)# || (0 == guardCheck(input, Φ, discritezationDict[currentTimeStep], constraint, guards, invariant)) # check if fast or slow fails.
+                    #if 0 == guardCheck(discritezationDict[currentTimeStep], Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds)
+                    approveFlag = true
+                    if currentTimeStep + time < endtime
+                        input = input + linear_map(Φ, inputDiscretizationDict[currentTimeStep])
+
+                        #Sρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), constraintProjVectors)
+                        #Gρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), guardProjVectors)
+                        #Iρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), invarientProjVectors)
+
+
+                        map!(x -> permutedphiDict[currentTimeStep] * x, constraintProjVectors)
+                        map!(x -> permutedphiDict[currentTimeStep] * x, guardProjVectors)
+                        #map!(x -> permutedphiDict[currentTimeStep] * x, invarientProjVectors)
+
+                        mul!(tempM, Φ, PhiDict[currentTimeStep])
+                        copy!(Φ, tempM)
+
+                    else
+                        # TODO - The input gets used or referenced somewhere even with the zero flag..
+                        #d = max(2^(floor(log2((endtime - time)/δ⁻))) * δ⁻, δ⁻)
+                        #@show (endtime - time, d)
+                        #input = linear_map(PhiDict[d], input) + inputDiscretizationDict[d]
+                        #mul!(tempM, Φ, PhiDict[d])
+                        #copy!(Φ, tempM)
+                        #time = time + d
+                        return (endtime, discritezationDict[δ⁻], input, 0)
+                    end
+                else
+
+                    currentTimeStep /= 2
+                    attempts += 1
+                end
+            elseif currentTimeStep == δ⁻
                 #linear_map!(Z, Φ, discritezationDict[currentTimeStep])
                 #check = guardCheck(minkowski_sum(input, linear_map(Φ, discritezationDict[currentTimeStep])), constraint, guards, invariant)
                 if fast_guards_check_b(discritezationDict[currentTimeStep], input, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds) || (0 == guardCheck(input, Φ, discritezationDict[currentTimeStep], constraint, guards, invariant)) # check if fast or slow fails.

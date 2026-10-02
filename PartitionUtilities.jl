@@ -315,6 +315,8 @@ function get_touching_cell_idxs_t(grid::Grid, convexSet::LazySet)
 end
 
 # TODO - Right now uses unique to remove duplicate indices in the case that splitting_dim has an odd number of elements.   
+# Also we shift the box back and forth every time, when we could just propagate along the sweeping axis... 
+# Also i think the sweeping principle can be extended to the projection of the zonotope on dimensions that dont get sweeped...
 function get_touching_cell_idxs_b(grid::Grid, convexSet::Zonotope)#, hbox::Hyperrectangle)
     touching_cell_idxs = []
 
@@ -326,6 +328,7 @@ function get_touching_cell_idxs_b(grid::Grid, convexSet::Zonotope)#, hbox::Hyper
     splitting_dim = argmax(upper_bounds[i]-lower_bounds[i] for i in 1:grid.dimension)
     hbox = Hyperrectangle(grid.lower .+ (granularity/2), fill(granularity/2, grid.dimension))
     if upper_bounds[splitting_dim] - lower_bounds[splitting_dim] > 1
+        #println("gets used : )")
         cartesian_max = CartesianIndex(upper_bounds...)
         cartesian_min = CartesianIndex(lower_bounds...)
 
@@ -336,9 +339,22 @@ function get_touching_cell_idxs_b(grid::Grid, convexSet::Zonotope)#, hbox::Hyper
 
         sweeping_range = range(lower_bounds[sweeping_dim], upper_bounds[sweeping_dim])
         rev_sweeping_range = range(upper_bounds[sweeping_dim], lower_bounds[sweeping_dim]; step=-1)
+        #c = vec([i -> i == sweeping_dim ? Float64(lower_bounds[i] + upper_bounds[i]) / 2 : 0.0 for i in grid.dimension])
+        #r = vec([i -> i == sweeping_dim ? Float64(upper_bounds[i] - lower_bounds[i]) / 2 : 0.0 for i in grid.dimension])
+        #=
+        c = grid.lower .+ (granularity/2)
+        c[sweeping_dim] += ((lower_bounds[sweeping_dim]-1) * granularity)
+        r = fill(granularity/2, grid.dimension)#grid.lower .+ (1.5 * granularity)
+        r[sweeping_dim] = ((upper_bounds[sweeping_dim] - lower_bounds[sweeping_dim]) * granularity)
+        sbox = Hyperrectangle(c, r)
+        =#
         for idx in CartesianIndices(ntuple(i -> i == sweeping_dim ? (0:0) : (lower_bounds[i]:max(upper_bounds[i], 1)), grid.dimension))
             lower_idx = 0
             upper_idx = 0
+
+
+
+
             for off in sweeping_range
                 of = (car2vec((idx + (cartesian_offset * off))) .- 1) .* granularity
 
@@ -374,6 +390,33 @@ function get_touching_cell_idxs_b(grid::Grid, convexSet::Zonotope)#, hbox::Hyper
             if upper_idx == 0
                 continue
             end
+            #=
+            sof = (car2vec(idx)) .* granularity
+            LazySets.API.translate!(sbox, sof)
+            if isdisjoint(convexSet, sbox) && !((upper_idx == 0) && lower_idx == 0)
+                @show (idx, sbox, sweeping_dim, lower_bounds, upper_bounds, upper_idx, lower_idx)
+                LazySets.API.translate!(sbox, -sof)
+
+                @show (idx, sbox, sweeping_dim, lower_bounds, upper_bounds, upper_idx, lower_idx)
+                throw(Exception("fukcing shit"))
+                continue
+                #println("shit happens")
+                #LazySets.API.translate!(sbox, -(car2vec(idx + cartesian_offset) .- 1) .* granularity)
+            end
+            
+            if isdisjoint(convexSet, sbox) && (upper_idx == 0) && lower_idx == 0
+                LazySets.API.translate!(sbox, -(car2vec(idx + cartesian_offset) .- 1) .* granularity)
+                println("correct!")
+                continue
+                #@show (idx, (car2vec(idx) .- 1) .* granularity)
+            elseif (upper_idx == 0) || lower_idx == 0
+                println("not correct..")
+                LazySets.API.translate!(sbox, -(car2vec(idx + cartesian_offset) .- 1) .* granularity)
+
+                continue
+            end
+            LazySets.API.translate!(sbox, -(car2vec(idx + cartesian_offset) .- 1) .* granularity)
+            =#
 
             for elem in lower_idx:upper_idx
                 symmetric_id = cartesian_max - ((idx + (cartesian_offset * elem)) - cartesian_min)

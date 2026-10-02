@@ -9,8 +9,8 @@ include("models/bouncingBall.jl")
 include("ReACTedShielding.jl")
 
 fresh_grid = false
-make_plot = false
-granularity = 0.5  # Example granularity
+make_plot = true
+granularity = 0.1  # Example granularity
 grid_name = "ball" * string(granularity)
 savefile = grid_name * ".jld2"
 
@@ -47,7 +47,7 @@ close(f)
 
 #@allocations ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 @time grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-ProfileView.@profview _, _, _ = ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+#ProfileView.@profview _, _, _ = ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 
 
 #=

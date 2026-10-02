@@ -10,7 +10,7 @@ include("ReACTedShielding.jl")
 
 fresh_grid = false
 make_plot = false
-granularity = 0.1  # Example granularity
+granularity = 0.5  # Example granularity
 grid_name = "ball" * string(granularity)
 savefile = grid_name * ".jld2"
 
@@ -44,10 +44,14 @@ reach_by_Act = read(f, "r")
 close(f)
 @show reach_by_Act
 =#
+
+#@allocations ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 @time grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+ProfileView.@profview _, _, _ = ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+
+
 #=
 test_Z = Zonotope([-13.1, 0.0], diagm([1., 1.1]))
-#ProfileView.@profview _ = get_touching_cell_idxs_b(grid, test_Z)
 #ProfileView.@profview _ = get_touching_cell_idxs_t(grid, test_Z)
 _ = get_touching_cell_idxs_b(grid, test_Z)
 _ = get_touching_cell_idxs_t(grid, test_Z)
@@ -97,7 +101,10 @@ for act in euclideanHybridSystem.Act
     end
 end
 =#
-@time shield, iters = make_shield(grid, reach_by_Act, reach_by_no_Act, 15, euclideanHybridSystem.Act)
+#@show (length(keys(reach_by_Act)), length(keys(reach_by_no_Act)))
+@time shield, iters, act_set, no_act_set = make_shield(grid, reach_by_Act, reach_by_no_Act, 500, euclideanHybridSystem.Act)
+#@show (length(keys(act_set)), length(keys(no_act_set)))
+#ProfileView.@profview shield, iters = make_shield(grid, reach_by_Act, reach_by_no_Act, 50, euclideanHybridSystem.Act)
 #@time _, _ = make_shield(grid, reach_by_Act, reach_by_no_Act, 500, euclideanHybridSystem.Act)
 #=
 @show length(reach_by_Act), length(reach_by_no_Act)
@@ -117,7 +124,7 @@ if make_plot
 
     act_translation = Dict()
     for (i, act) in pairs(euclideanHybridSystem.Act)
-        act_translation[act] = 2^i
+        act_translation[act] = 2^(i-1)
     end
 
     for act in euclideanHybridSystem.Act
@@ -131,15 +138,12 @@ if make_plot
     for idx in CartesianIndices(shield.deadCells)
         #@show cell.pCells
 
-        if shield.deadCells[idx]
-            heatmap_matrix[idx] = 0
-            #push!(unsafe, zonotopeArray3d[cell.id])
-        end
+
         #@show any(x -> haskey(reach_by_Act, (x, cell.id)), euclideanHybridSystem.Act)
-        if any(x -> haskey(reach_by_Act, (x, idx)), euclideanHybridSystem.Act)
+        if any(x -> haskey(act_set, (x, idx)), euclideanHybridSystem.Act)
             possible_acts = []
             for act in euclideanHybridSystem.Act
-                if haskey(reach_by_Act, (act, idx))
+                if haskey(act_set, (act, idx))
                     #push!(actDict[act], zonotopeArray3d[idx])
                     push!(possible_acts, act)
                 end
@@ -147,15 +151,19 @@ if make_plot
             for act in possible_acts
                 heatmap_matrix[idx] += act_translation[act]
             end
-        else
-            #push!(noAct, zonotopeArray3d[idx])
-            if !haskey(reach_by_no_Act, idx)
-                push!(invalid_cells, idx)
-                #push!(unsafe, zonotopeArray3d[idx])
-            else
-                heatmap_matrix[idx] = 1
+        end
 
-            end
+        #push!(noAct, zonotopeArray3d[idx])
+        if !haskey(no_act_set, idx)
+            push!(invalid_cells, idx)
+            #push!(unsafe, zonotopeArray3d[idx])
+        else
+            heatmap_matrix[idx] += 1
+
+        end
+        if shield.deadCells[idx]
+            heatmap_matrix[idx] = 0
+            #push!(unsafe, zonotopeArray3d[cell.id])
         end
     end
 

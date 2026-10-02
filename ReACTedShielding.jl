@@ -199,23 +199,15 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
     constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(system.globalConstraints[1])
     guardProjVectors, guardProjBounds = getHalfSpaceProjections(system.edges[1].guard)
 
+    hbox = Hyperrectangle(grid.lower .+ (granularity/2), fill(granularity/2, grid.dimension))
 
     for idx in CartesianIndices(grid.deadCells)
         count += 1
         of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
         LazySets.API.translate!(Z, of)
         #@show Z, idx, of
-        for act in system.Act
-            if !LazySets.API.isdisjoint(act.guard, Z)
-                #touches_list = get_touching_cell_idxs(grid, z)
-                #touches_list = get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
-                #if !isempty(touches_list)
-                #    reachable_by_action[(act, idx)] = copy(touches_list)
-                #reachable_by_flow[idx] = get_touching_cell_idxs(grid, z)
-                #end
-                reachable_by_action[(act, idx)] = get_touching_cell_idxs_b(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
-            end
-        end
+
+
         ReACT_discretize_combine_with_offset_vector!(preallocated_center, preallocated_genmat, preallocated_inter_genmat, discretizationDict, of, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict)
         #z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
 
@@ -234,9 +226,13 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
             #if !isempty(touches_list)
             #    reachable_by_flow[idx] = copy(touches_list)#get_touching_cell_idxs(grid, z)
             #end
+
+
             reachable_by_flow[idx] = get_touching_cell_idxs_b(grid, z)
             #else
             #grid.array[idx].pCells = get_touching_cell_idxs(grid, z)
+        else
+            grid.deadCells[idx] = true
         end
         #grid.array[idx].sidx[1] = copy(f)
         LazySets.API.translate!(Z, -of)
@@ -244,6 +240,26 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
             println(count)
         end
     end
+
+    #can_act = false
+    for act in system.Act
+        for idx in get_touching_cell_idxs_l(grid, act.guard)
+            of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
+            LazySets.API.translate!(Z, of)
+            #touches_list = get_touching_cell_idxs(grid, z)
+            #touches_list = get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
+            #if !isempty(touches_list)
+            #    reachable_by_action[(act, idx)] = copy(touches_list)
+            #reachable_by_flow[idx] = get_touching_cell_idxs(grid, z)
+            #end
+            reachable_by_action[(act, idx)] = get_touching_cell_idxs_b(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
+            if !grid.deadCells[idx]
+                grid.deadCells[idx] = false
+            end
+            LazySets.API.translate!(Z, -of)
+        end
+    end
+
     #@show dc
     return grid, reachable_by_action, reachable_by_flow
 
@@ -863,6 +879,7 @@ function ReACT_time_touches_set(X0, set, δ⁻::Float64, δ⁺::Float64, interva
     return (LazySets.API.issubset(tempSet, set), time)
 end
 
+# TODO - Optimize this! We know that the set will be intersecting initially, thus we can just use the fast disjoint check and actually use larger step sizes as long as we dont hit the constraint!!!
 function ReACT_touches_set_constant_input(X0, U, set, δ⁻::Float64, interval, PhiDict, inputDiscretizationDict)
     # Note that in touches we always use δ⁻
     # That is, we do not adjust timestep sizes

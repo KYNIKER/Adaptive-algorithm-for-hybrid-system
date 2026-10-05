@@ -83,7 +83,7 @@ function loadBouncingBallShieldedWithInput()
     c = [-9.81, 0.0]
     u = Zonotope(c, [zero(c)])
     #u = Zonotope(zeros(2), [zero(c)])
-    S = Hyperrectangle([0.0, 5.45], [12., 5.5]) # p: [-1, 16], v: [-15, 15], g: [1,1]
+    S = Hyperrectangle([0.0, 7.5], [15., 7.5]) # p: [-1, 16], v: [-15, 15], g: [1,1]
 
     guard = HPolyhedron([
         LazySets.HalfSpace(sparsevec([2], [1.], 2), 0.0), # p <= 0
@@ -91,7 +91,7 @@ function loadBouncingBallShieldedWithInput()
         LazySets.HalfSpace(sparsevec([1], [1.], 2), 0.0)  # v <= 0
     ])
 
-    jumpMatrix = [-0.85 0.0; 0.0 1.]
+    jumpMatrix = [-1. 0.0; 0.0 1.]
 
     edges::Vector{Edge} = [Edge(1, guard, jumpMatrix, zeros(2))]
 
@@ -108,7 +108,7 @@ function loadBouncingBallShieldedWithInput()
         LazySets.HalfSpace(sparsevec([2], [-1.], 2), -4.0), # p >= 4
         LazySets.HalfSpace(sparsevec([1], [1.], 2), 0.0),  # v <= 0
         LazySets.HalfSpace(sparsevec([1], [-1.], 2), 4.0)  # v > -4
-    ]), diagm([0.0, 1.0]), [-4.0, 0.0])
+    ]), diagm([0.01, 1.0]), [-4.0, 0.0])
 
     act2 = Action(2, HPolyhedron([
         LazySets.HalfSpace(sparsevec([2], [-1.], 2), -4.0), # p >= 4

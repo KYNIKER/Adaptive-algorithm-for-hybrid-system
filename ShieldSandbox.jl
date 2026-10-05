@@ -10,7 +10,7 @@ include("ReACTedShielding.jl")
 
 fresh_grid = false
 make_plot = true
-granularity = 0.1  # Example granularity
+granularity = 0.5  # Example granularity
 grid_name = "ball" * string(granularity)
 savefile = grid_name * ".jld2"
 
@@ -102,7 +102,7 @@ for act in euclideanHybridSystem.Act
 end
 =#
 #@show (length(keys(reach_by_Act)), length(keys(reach_by_no_Act)))
-@time shield, iters, act_set, no_act_set = make_shield(grid, reach_by_Act, reach_by_no_Act, 500, euclideanHybridSystem.Act)
+@time shield, iters, act_set, no_act_set = make_shield(grid, reach_by_Act, reach_by_no_Act, 21, euclideanHybridSystem.Act)
 #@show (length(keys(act_set)), length(keys(no_act_set)))
 #ProfileView.@profview shield, iters = make_shield(grid, reach_by_Act, reach_by_no_Act, 50, euclideanHybridSystem.Act)
 #@time _, _ = make_shield(grid, reach_by_Act, reach_by_no_Act, 500, euclideanHybridSystem.Act)
@@ -124,32 +124,36 @@ if make_plot
 
     act_translation = Dict()
     for (i, act) in pairs(euclideanHybridSystem.Act)
-        act_translation[act] = 2^(i-1)
+        act_translation[act.id] = 2^(i-1)
     end
 
     for act in euclideanHybridSystem.Act
-        actDict[act] = []
+        actDict[act.id] = []
     end
 
     #zonotopeArray3d = initialize_zonotope_array(shield)  # Initialize the zonotope array for the grid
     invalid_cells = []
     heatmap_matrix = zeros(Int64, shield.numCells...)
-
+    #@show keys(act_set)
     for idx in CartesianIndices(shield.deadCells)
         #@show cell.pCells
 
 
         #@show any(x -> haskey(reach_by_Act, (x, cell.id)), euclideanHybridSystem.Act)
-        if any(x -> haskey(act_set, (x, idx)), euclideanHybridSystem.Act)
+        if any(x -> haskey(act_set, (x.id, idx)), euclideanHybridSystem.Act)
             possible_acts = []
             for act in euclideanHybridSystem.Act
-                if haskey(act_set, (act, idx))
-                    #push!(actDict[act], zonotopeArray3d[idx])
-                    push!(possible_acts, act)
+
+                if haskey(act_set, (act.id, idx))
+                    #push!(actDict[act.id], zonotopeArray3d[idx])
+
+                    #@show idx
+                    push!(possible_acts, act.id)
                 end
+
             end
-            for act in possible_acts
-                heatmap_matrix[idx] += act_translation[act]
+            for actid in possible_acts
+                heatmap_matrix[idx] += act_translation[actid]
             end
         end
 
@@ -194,7 +198,7 @@ if make_plot
         end
     end
     #plot!(plt, heatmap(transpose(heatmap_matrix), c=cscheme, colorbar=nothing))
-    heatmap(transpose(heatmap_matrix), c=cscheme, colorbar=nothing)
+    plot(heatmap(transpose(heatmap_matrix), c=cgrad([:black, :white, :purple, :yellow, :red], 5, categorical=true), clim=(0, 4), colorbar=true, xlabel="v", ylabel="p"); colorbar_ticks=([0.0, 1.0, 2.0, 3.0, 4.0], ["dead", "no action", "act1", "act2", "act1 + act2"]))
 end
 
 

@@ -317,6 +317,7 @@ end
 # TODO - Right now uses unique to remove duplicate indices in the case that splitting_dim has an odd number of elements.   
 # Also we shift the box back and forth every time, when we could just propagate along the sweeping axis... 
 # Also i think the sweeping principle can be extended to the projection of the zonotope on dimensions that dont get sweeped...
+# Bug: returns empty if zonotope has degenerate dimension.
 function get_touching_cell_idxs_b(grid::Grid, convexSet::Zonotope)#, hbox::Hyperrectangle)
     touching_cell_idxs = []
 
@@ -601,7 +602,7 @@ function grow_indices(grid::Grid, idxs, offset)
 end
 
 # https://github.com/AstridHornBrorholt/Shielded-Learning-for-Hybrid-Systems/blob/22c9fc220ef40d55877ff1360be7286a7a506620/Shared%20Code/ShieldSynthesis.jl#L88
-function make_shield(grid::Grid, action_set::Dict{Tuple{Action,CartesianIndex},AbstractArray{CartesianIndex}}, no_action_set::Dict{CartesianIndex,AbstractArray{CartesianIndex}}, max_steps::Int, Act::Vector{Action})
+function make_shield(grid::Grid, action_set::Dict{Tuple{Int64,CartesianIndex},AbstractArray{CartesianIndex}}, no_action_set::Dict{CartesianIndex,AbstractArray{CartesianIndex}}, max_steps::Int, Act::Vector{Action})
     i = max_steps
     dims = grid.dimension
     dead = grid.deadCells
@@ -614,7 +615,7 @@ function make_shield(grid::Grid, action_set::Dict{Tuple{Action,CartesianIndex},A
     n_tombstones = 0
     #filter!(p -> !isempty(p.second), no_action_set)
     filter!(p -> !isempty(p.second), action_set)
-    action_set = Dict{Tuple{Action,CartesianIndex},AbstractArray{CartesianIndex}}(action_set)
+    action_set = Dict{Tuple{Int64,CartesianIndex},AbstractArray{CartesianIndex}}(action_set)
     no_action_set = Dict{CartesianIndex,AbstractArray{CartesianIndex}}(no_action_set)
 
     @show length(keys(action_set))
@@ -646,7 +647,7 @@ function make_shield(grid::Grid, action_set::Dict{Tuple{Action,CartesianIndex},A
             #filter!(k -> !in(k.first, a_pops), action_set)
             #@show length(keys(action_set))
             #filter!(k -> !in(k.first, n_pops), no_action_set)
-            action_set = Dict{Tuple{Action,CartesianIndex},AbstractArray{CartesianIndex}}(action_set)
+            action_set = Dict{Tuple{Int64,CartesianIndex},AbstractArray{CartesianIndex}}(action_set)
             no_action_set = Dict{CartesianIndex,AbstractArray{CartesianIndex}}(no_action_set)
             a_tombstones = 0
             n_tombstones = 0
@@ -666,9 +667,9 @@ function make_shield(grid::Grid, action_set::Dict{Tuple{Action,CartesianIndex},A
     return (grid, max_steps - i, action_set, no_action_set)
 end
 
-function shield_step!(deadCells::BitArray, can_act_matrix, no_action_bad_matrix, action_set::Dict{Tuple{Action,CartesianIndex},AbstractArray{CartesianIndex}}, no_action_set::Dict{CartesianIndex,AbstractArray{CartesianIndex}}, Act::Vector{Action}, dims::Int64)
+function shield_step!(deadCells::BitArray, can_act_matrix, no_action_bad_matrix, action_set::Dict{Tuple{Int64,CartesianIndex},AbstractArray{CartesianIndex}}, no_action_set::Dict{CartesianIndex,AbstractArray{CartesianIndex}}, Act::Vector{Action}, dims::Int64)
     #deadCells´ = copy(deadCells)
-    act_pop_keys = Tuple{Action,CartesianIndex{dims}}[]
+    act_pop_keys = Tuple{Int64,CartesianIndex{dims}}[]
     no_act_pop_keys = CartesianIndex{dims}[]
     new_dead_cells = CartesianIndex{dims}[]
     for idx in CartesianIndices(deadCells)
@@ -690,17 +691,17 @@ function shield_step!(deadCells::BitArray, can_act_matrix, no_action_bad_matrix,
             approved_action_count = 0
             if can_act_matrix[idx]
                 for act in Act
-                    if haskey(action_set, (act, idx))
+                    if haskey(action_set, (act.id, idx))
                         approved_action_count += 1
                         #=
-                        if isempty(collect(deadCells[idxx] for idxx in action_set[(act, idx)]))
-                            #@show action_set[(act, cell.id)]
-                            push!(act_pop_keys, (act, idx))
+                        if isempty(collect(deadCells[idxx] for idxx in action_set[(act.id, idx)]))
+                            #@show action_set[(act.id, cell.id)]
+                            push!(act_pop_keys, (act.id, idx))
                             approved_action_count -= 1
                         end
                         =#
-                        if any(deadCells[idxx] for idxx in action_set[(act, idx)])
-                            push!(act_pop_keys, (act, idx))
+                        if any(deadCells[idxx] for idxx in action_set[(act.id, idx)])
+                            push!(act_pop_keys, (act.id, idx))
                             approved_action_count -= 1
                         end
                     end

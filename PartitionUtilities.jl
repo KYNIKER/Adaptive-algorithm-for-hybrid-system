@@ -602,6 +602,7 @@ function grow_indices(grid::Grid, idxs, offset)
 end
 
 # https://github.com/AstridHornBrorholt/Shielded-Learning-for-Hybrid-Systems/blob/22c9fc220ef40d55877ff1360be7286a7a506620/Shared%20Code/ShieldSynthesis.jl#L88
+# Looks to terminate early..
 function make_shield(grid::Grid, action_set::Dict{Tuple{Int64,CartesianIndex},AbstractArray{CartesianIndex}}, no_action_set::Dict{CartesianIndex,AbstractArray{CartesianIndex}}, max_steps::Int, Act::Vector{Action})
     i = max_steps
     dims = grid.dimension
@@ -613,7 +614,7 @@ function make_shield(grid::Grid, action_set::Dict{Tuple{Int64,CartesianIndex},Ab
     no_action_set´ = nothing
     a_tombstones = 0
     n_tombstones = 0
-    #filter!(p -> !isempty(p.second), no_action_set)
+    filter!(p -> !isempty(p.second), no_action_set)
     filter!(p -> !isempty(p.second), action_set)
     action_set = Dict{Tuple{Int64,CartesianIndex},AbstractArray{CartesianIndex}}(action_set)
     no_action_set = Dict{CartesianIndex,AbstractArray{CartesianIndex}}(no_action_set)
@@ -632,6 +633,7 @@ function make_shield(grid::Grid, action_set::Dict{Tuple{Int64,CartesianIndex},Ab
             dead = dead´
             #action_set = action_set´
             #no_action_set = no_action_set´
+            @show shield_step!(dead, can_act_matrix, no_action_bad_matrix, action_set, no_action_set, Act, dims)
             break
         end
         a_tombstones += la
@@ -693,14 +695,14 @@ function shield_step!(deadCells::BitArray, can_act_matrix, no_action_bad_matrix,
                 for act in Act
                     if haskey(action_set, (act.id, idx))
                         approved_action_count += 1
-                        #=
+
                         if isempty(collect(deadCells[idxx] for idxx in action_set[(act.id, idx)]))
                             #@show action_set[(act.id, cell.id)]
                             push!(act_pop_keys, (act.id, idx))
                             approved_action_count -= 1
-                        end
-                        =#
-                        if any(deadCells[idxx] for idxx in action_set[(act.id, idx)])
+                            #end
+
+                        elseif any(deadCells[idxx] for idxx in action_set[(act.id, idx)])
                             push!(act_pop_keys, (act.id, idx))
                             approved_action_count -= 1
                         end

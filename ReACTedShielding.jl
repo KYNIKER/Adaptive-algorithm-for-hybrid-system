@@ -201,7 +201,7 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
     invariantProjVectors, invariantProjBounds = getHalfSpaceProjections(invariant)
 
     hbox = Hyperrectangle(grid.lower .+ (granularity/2), fill(granularity/2, grid.dimension))
-
+    guard_invariant_intersection = intersection(system.edges[1].guard, invariant)
     for idx in CartesianIndices(grid.deadCells)
         count += 1
         of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
@@ -212,12 +212,14 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
         ReACT_discretize_combine_with_offset_vector!(preallocated_center, preallocated_genmat, preallocated_inter_genmat, discretizationDict, of, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict)
         #z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
 
-        z, f = propagate_set_b(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, discretizationDict, phiDict, tPhiDict, inputDict, max_input, max_flow, invariant, invariantProjVectors, invariantProjBounds, alg, maxOrder, reduceOrder)
+        z, f = propagate_set_b(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, discretizationDict, phiDict, tPhiDict, inputDict, max_input, max_flow, guard_invariant_intersection, invariant, invariantProjVectors, invariantProjBounds, alg, maxOrder, reduceOrder)
 
         #=if !LazySets.API.isdisjoint(z, system.edges[1].guard)
             dc += 1
         end=#
-
+        #if idx == CartesianIndex(2, 9)
+        #    @show z, f
+        #end
         if f != 1
             #@show LazySets.API.isdisjoint(Z, system.globalConstraints[1]), Z, idx
             #grid.deadCells[idx] = true
@@ -346,7 +348,7 @@ function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ�
 
 end
 
-function propagate_set_b(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ₂, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, discretizationDict, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, invariantProjVectors, invariantProjBounds, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5)
+function propagate_set_b(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ₂, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, discretizationDict, PhiDict, TPhiDict, inputDict, max_input, max_flow, guard_intersection, invariant, invariantProjVectors, invariantProjBounds, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5)
 
     #discretizationDict = newReACTDiscretizePlus(X0, δ⁻, δ⁺, system.flowMatrix, Φ₂, PhiDict, inputDict, alg, maxOrder, reduceOrder)
     time::Float64 = copy(minimum(interval))
@@ -396,7 +398,7 @@ function propagate_set_b(X0, interval, δ⁻::Float64, δ⁺::Float64, system, �
             #@show length(intersectingSetsList)
             tempIntersect = foldl(ConvexHull, intersectingSetsList)
             intersectedSet = convert(Zonotope, box_approximation(tempIntersect))
-            jumpSet = linear_map(edge.jumpMatrix, zonotopeStripIntersection(intersectedSet, intersection(edge.guard, invariant)))
+            jumpSet = linear_map(edge.jumpMatrix, zonotopeStripIntersection(intersectedSet, guard_intersection))
             if !isnothing(edge.jumpVector)
                 LazySets.translate!(jumpSet, edge.jumpVector)
             end
@@ -601,7 +603,7 @@ function ReACT_touches_set_constant_input_b(X0, U, set, projection_vectors, proj
         #if all((ρ(x, tempSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
         #   all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) &&
         #   all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
-        if !allunder(tempSet, projection_vectors, projection_bounds) && someunder(tempSet, invariantProjVectors, invariantProjBounds) #touchesCheck(tempSet, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, invarientProjVectors, invarientProjBounds)
+        if !allunder(tempSet, projection_vectors, projection_bounds) && someinside(tempSet, invariantProjVectors, invariantProjBounds) #touchesCheck(tempSet, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, invarientProjVectors, invarientProjBounds)
             #@show time
             push!(intersectingSetsList, copy(tempSet))
 
@@ -1133,6 +1135,15 @@ function someinside(set, input::LazySet, dir, bound)
     res = true
     @inbounds @simd for i in eachindex(dir, bound)
         res = res && (-ρ(-dir[i], set)+(-ρ(-dir[i], input)) <= bound[i])
+    end
+    return res
+    #return !allunder(set, dir, bound)
+end
+
+function someinside(set, dir, bound)
+    res = true
+    @inbounds @simd for i in eachindex(dir, bound)
+        res = res && (-ρ(-dir[i], set) <= bound[i])
     end
     return res
     #return !allunder(set, dir, bound)

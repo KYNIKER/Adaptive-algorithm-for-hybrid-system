@@ -213,7 +213,15 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
         #z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
 
         z, f = propagate_set_b(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, discretizationDict, phiDict, tPhiDict, inputDict, max_input, max_flow, guard_invariant_intersection, invariant, invariantProjVectors, invariantProjBounds, alg, maxOrder, reduceOrder)
-
+        if idx == CartesianIndex(18, 8)
+            @show invariant, invariantProjVectors
+            @show f
+            @show remove_zero_generators(z)
+            @show LazySets.API.isdisjoint(z, invariant)
+            @show get_touching_cell_idxs_b(grid, z)
+            @show get_touching_cell_idxs_t(grid, z)
+            @show get_touching_cell_idxs(grid, z)
+        end
         #=if !LazySets.API.isdisjoint(z, system.edges[1].guard)
             dc += 1
         end=#
@@ -230,12 +238,30 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
             #    reachable_by_flow[idx] = copy(touches_list)#get_touching_cell_idxs(grid, z)
             #end
 
+            # Maybe check if flag is 2 and handle this seperatly. 
             if f == 3
-                grid.deadCells[idx] = true
+                #grid.deadCells[idx] = true
+                #=
+            elseif f == 2
+                intersectingSetsList = ReACT_touches_set_constant_input_b(newSet, inputSet, edge.guard, copy(guardProjVectors), copy(guardProjBounds), invariantProjVectors, invariantProjBounds, δ⁻, [reachtime, endtime], PhiDict, inputDict)
+
+
+                tempIntersect = foldl(ConvexHull, intersectingSetsList)
+                intersectedSet = convert(Zonotope, box_approximation(tempIntersect))
+                jumpSet = linear_map(edge.jumpMatrix, zonotopeStripIntersection(intersectedSet, guard_intersection))
+                if !isnothing(edge.jumpVector)
+                    LazySets.translate!(jumpSet, edge.jumpVector)
+                end
+
+                return propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, invariantProjVectors, invariantProjBounds, alg, maxOrder, reduceOrder)
+                =#
             else
-                reachable_by_flow[idx] = get_touching_cell_idxs_b(grid, z)
+                reachable_by_flow[idx] = get_touching_cell_idxs_l(grid, z)
 
             end
+
+
+
 
             #reachable_by_flow[idx] = get_touching_cell_idxs_b(grid, z)
             #else
@@ -389,30 +415,23 @@ function propagate_set_b(X0, interval, δ⁻::Float64, δ⁺::Float64, system, �
         elseif flag == 1 # Hit constraint
             return (nothing, 1)
         elseif flag == 2
+            # Move this outside the function
+            #return (minkowski_sum(newSet, inputSet), 2)
 
-            #@show flag
-            #@show inputSet
-            #@show reachtime, newSet, X0, LazySets.API.isdisjoint(newSet, edge.guard), LazySets.API.isdisjoint(X0, edge.guard)
             intersectingSetsList = ReACT_touches_set_constant_input_b(newSet, inputSet, edge.guard, copy(guardProjVectors), copy(guardProjBounds), invariantProjVectors, invariantProjBounds, δ⁻, [reachtime, endtime], PhiDict, inputDict)
-            #intersectingSetsList = ReACT_touches_set_constant_input(newSet, inputSet, edge.guard, δ⁻, [reachtime, endtime], PhiDict, inputDict)
-            #@show length(intersectingSetsList)
+
+
             tempIntersect = foldl(ConvexHull, intersectingSetsList)
             intersectedSet = convert(Zonotope, box_approximation(tempIntersect))
             jumpSet = linear_map(edge.jumpMatrix, zonotopeStripIntersection(intersectedSet, guard_intersection))
             if !isnothing(edge.jumpVector)
                 LazySets.translate!(jumpSet, edge.jumpVector)
             end
-            #res = propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, PhiDict, TPhiDict, inputDict, alg, maxOrder, reduceOrder)
-            #@show res
-            #@show reachtime
-            #resset, flg = propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, invariantProjVectors, invariantProjBounds, alg, maxOrder, reduceOrder)
-            #if flg == 3
-            #@show resset, jumpSet, newSet, intersectingSetsList
-            #throw(error("Ah shit"))
-            #end
+
             return propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, invariantProjVectors, invariantProjBounds, alg, maxOrder, reduceOrder)
             # Cant use propagate_set_b here because we need to recompute the discretizationDict for the new jumpSet. This is because the jumpSet may be a different shape than the original set and thus the discretization may be different. We could try to reuse the discretizationDict but this would require a lot of work and is not worth it for now.
             #return propagate_set_b(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, discretizationDict, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
+
         end
         #println("shiit")
         return (newSet, 3)
@@ -603,7 +622,7 @@ function ReACT_touches_set_constant_input_b(X0, U, set, projection_vectors, proj
         #if all((ρ(x, tempSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
         #   all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) &&
         #   all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
-        if !allunder(tempSet, projection_vectors, projection_bounds) && someinside(tempSet, invariantProjVectors, invariantProjBounds) #touchesCheck(tempSet, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, invarientProjVectors, invarientProjBounds)
+        if !allunder(tempSet, projection_vectors, projection_bounds) && someinside(tempSet, projection_vectors, projection_bounds) && someinside(tempSet, invariantProjVectors, invariantProjBounds) #touchesCheck(tempSet, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, invarientProjVectors, invarientProjBounds)
             #@show time
             push!(intersectingSetsList, copy(tempSet))
 

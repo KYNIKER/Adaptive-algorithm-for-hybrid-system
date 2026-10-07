@@ -262,11 +262,14 @@ function get_touching_cell_idxs(grid::Grid, convexSet::LazySet)
     touching_cell_idxs = []
 
     lower_bounds, upper_bounds = clamp.(LazySets.low(convexSet), grid.lower, grid.upper), clamp.(LazySets.high(convexSet), grid.lower, grid.upper)
+    #@show lower_bounds, upper_bounds
     lower_bounds = Int.(floor.(abs.(lower_bounds .- grid.lower) ./ grid.granularity) .+ 1)
 
     upper_bounds = Int.(ceil.(abs.(upper_bounds .- grid.lower) ./ grid.granularity)) #floor.(min.(upper_bounds, grid.upper) .- grid.lower) ./ grid.granularity
+    #@show lower_bounds, upper_bounds
+    #upper_bounds = Int.(floor.(min.(upper_bounds, grid.upper) .- grid.lower) ./ grid.granularity)
     ranges = [lower_bounds[i]:max(upper_bounds[i], 1) for i in 1:grid.dimension]
-
+    #@show ranges
     idxs = CartesianIndices((ranges...,))
     #@show idxs
     hbox = Hyperrectangle(grid.lower .+ (granularity/2), fill(granularity/2, grid.dimension))
@@ -614,8 +617,8 @@ function make_shield(grid::Grid, action_set::Dict{Tuple{Int64,CartesianIndex},Ab
     no_action_set´ = nothing
     a_tombstones = 0
     n_tombstones = 0
-    filter!(p -> !isempty(p.second), no_action_set)
-    filter!(p -> !isempty(p.second), action_set)
+    #filter!(p -> !isempty(p.second), no_action_set)
+    #filter!(p -> !isempty(p.second), action_set)
     action_set = Dict{Tuple{Int64,CartesianIndex},AbstractArray{CartesianIndex}}(action_set)
     no_action_set = Dict{CartesianIndex,AbstractArray{CartesianIndex}}(no_action_set)
 
@@ -633,7 +636,7 @@ function make_shield(grid::Grid, action_set::Dict{Tuple{Int64,CartesianIndex},Ab
             dead = dead´
             #action_set = action_set´
             #no_action_set = no_action_set´
-            @show shield_step!(dead, can_act_matrix, no_action_bad_matrix, action_set, no_action_set, Act, dims)
+            #@show shield_step!(dead, can_act_matrix, no_action_bad_matrix, action_set, no_action_set, Act, dims)
             break
         end
         a_tombstones += la

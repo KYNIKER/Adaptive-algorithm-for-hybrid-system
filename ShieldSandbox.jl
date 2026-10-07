@@ -10,7 +10,7 @@ include("ReACTedShielding.jl")
 
 fresh_grid = false
 make_plot = true
-granularity = 0.01  # Example granularity
+granularity = 0.05  # Example granularity
 grid_name = "ball" * string(granularity)
 savefile = grid_name * ".jld2"
 
@@ -48,7 +48,12 @@ close(f)
 #@allocations ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 @time grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 #ProfileView.@profview _, _, _ = ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-
+@show length(values(reach_by_no_Act))
+@show length(unique(values(reach_by_no_Act)))
+@show in([], values(reach_by_no_Act))
+@show length(values(reach_by_Act))
+@show length(unique(values(reach_by_Act)))
+@show in([], values(reach_by_Act))
 
 #=
 test_Z = Zonotope([-13.1, 0.0], diagm([1., 1.1]))
@@ -102,7 +107,7 @@ for act in euclideanHybridSystem.Act
 end
 =#
 #@show (length(keys(reach_by_Act)), length(keys(reach_by_no_Act)))
-@time shield, iters, act_set, no_act_set = make_shield(grid, reach_by_Act, reach_by_no_Act, 1200, euclideanHybridSystem.Act)
+@time shield, iters, act_set, no_act_set = make_shield(grid, reach_by_Act, reach_by_no_Act, 0, euclideanHybridSystem.Act)
 #@show (length(keys(act_set)), length(keys(no_act_set)))
 #ProfileView.@profview shield, iters = make_shield(grid, reach_by_Act, reach_by_no_Act, 50, euclideanHybridSystem.Act)
 #@time _, _ = make_shield(grid, reach_by_Act, reach_by_no_Act, 500, euclideanHybridSystem.Act)
@@ -198,18 +203,24 @@ if make_plot
         end
     end
     #plot!(plt, heatmap(transpose(heatmap_matrix), c=cscheme, colorbar=nothing))
-    #=
-    tidx = CartesianIndex(52, 27)
+
+    tidx = CartesianIndex(18, 8)
+    #tidx = CartesianIndex(91, 1)
     heatmap_matrix[tidx] = 4
     @show haskey(no_act_set, tidx)
     if haskey(no_act_set, tidx)
         for v in no_act_set[tidx]
-            heatmap_matrix[v] = 4
+            if heatmap_matrix[v] == 0
+                heatmap_matrix[v] = 3
+            else
+                heatmap_matrix[v] = 4
+            end
+            #heatmap_matrix[v] = 4
 
         end
         @show no_act_set[tidx]
     end
-    =#
+
     plot(heatmap(transpose(heatmap_matrix), c=cgrad([:black, :white, :purple, :yellow, :red], 5, categorical=true), clim=(0, 4), colorbar=true, xlabel="v", ylabel="p", xticks=([0.0, shield.numCells[1]/2, shield.numCells[1]], [string(shield.lower[1]), "0", string(shield.upper[1])]), yticks=([0.0, shield.numCells[2]/2, shield.numCells[2]], [string(shield.lower[2]), string((shield.lower[2]+shield.upper[2])/2), string(shield.upper[2])])); colorbar_ticks=([0.0, 1.0, 2.0, 3.0, 4.0], ["dead", "no action", "act1", "act2", "act1 + act2"]))
 end
 

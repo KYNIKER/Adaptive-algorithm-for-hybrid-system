@@ -202,6 +202,7 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
 
     hbox = Hyperrectangle(grid.lower .+ (granularity/2), fill(granularity/2, grid.dimension))
     guard_invariant_intersection = intersection(system.edges[1].guard, invariant)
+    @show get_touching_cell_idxs_l(grid, system.globalConstraints[1])
     for idx in CartesianIndices(grid.deadCells)
         count += 1
         of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
@@ -213,11 +214,11 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
         #z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
 
         z, f = propagate_set_b(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, discretizationDict, phiDict, tPhiDict, inputDict, max_input, max_flow, guard_invariant_intersection, invariant, invariantProjVectors, invariantProjBounds, alg, maxOrder, reduceOrder)
-        if idx == CartesianIndex(18, 8)
-            @show invariant, invariantProjVectors
+        if idx == CartesianIndex(200, 8)
+            #@show invariant, invariantProjVectors
             @show f
-            @show remove_zero_generators(z)
-            @show LazySets.API.isdisjoint(z, invariant)
+            @show box_approximation(z)
+            @show LazySets.API.isdisjoint(z, system.globalConstraints[1])
             @show get_touching_cell_idxs_b(grid, z)
             @show get_touching_cell_idxs_t(grid, z)
             @show get_touching_cell_idxs(grid, z)
@@ -356,6 +357,8 @@ function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ�
             return (minkowski_sum(linear_map(exp((endtime - time) .* system.flowMatrix), X0), linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, endtime - time, alg, false, nothing), system.input)), 0)
             #end
         elseif flag == 1 # Hit constraint
+            #@show LazySets.API.isdisjoint(minkowski_sum(newSet, inputSet), system.globalConstraints[1]), newSet.center, flag, reachtime
+
             return (nothing, 1)
         elseif flag == 2
             throw(error("Nope not happening"))
@@ -371,7 +374,7 @@ function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ�
             #@show res
             return propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
         end
-        @show LazySets.API.isdisjoint(newSet, invariant), newSet.center, flag, reachtime
+        @show LazySets.API.isdisjoint(minkowski_sum(newSet, inputSet), invariant), newSet.center, flag, reachtime
         return (newSet, 3)
     end
 
@@ -416,7 +419,7 @@ function propagate_set_b(X0, interval, δ⁻::Float64, δ⁺::Float64, system, �
                 return (minkowski_sum(linear_map(exp((endtime - time) .* system.flowMatrix), X0), linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, endtime - time, alg, false, nothing), system.input)), 0)
             end
         elseif flag == 1 # Hit constraint
-            return (nothing, 1)
+            return (minkowski_sum(newSet, inputSet), 1)
         elseif flag == 2
             # Move this outside the function
             #return (minkowski_sum(newSet, inputSet), 2)
@@ -426,11 +429,19 @@ function propagate_set_b(X0, interval, δ⁻::Float64, δ⁺::Float64, system, �
 
             tempIntersect = foldl(ConvexHull, intersectingSetsList)
             intersectedSet = convert(Zonotope, box_approximation(tempIntersect))
+            #jumpSet = linear_map(edge.jumpMatrix, zonotopeStripIntersection(minkowski_sum(newSet, inputSet), guard_intersection))
             jumpSet = linear_map(edge.jumpMatrix, zonotopeStripIntersection(intersectedSet, guard_intersection))
+            #jumpSet = linear_map(edge.jumpMatrix, getBoxIntersection(intersectedSet, guard_intersection))
             if !isnothing(edge.jumpVector)
                 LazySets.translate!(jumpSet, edge.jumpVector)
             end
-
+            #=
+            if LazySets.API.isdisjoint(jumpSet, invariant)
+                @show jumpSet
+                @show newSet, inputSet
+                @show reachtime
+            end
+            =#
             return propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, invariantProjVectors, invariantProjBounds, alg, maxOrder, reduceOrder)
             # Cant use propagate_set_b here because we need to recompute the discretizationDict for the new jumpSet. This is because the jumpSet may be a different shape than the original set and thus the discretization may be different. We could try to reuse the discretizationDict but this would require a lot of work and is not worth it for now.
             #return propagate_set_b(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, discretizationDict, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)

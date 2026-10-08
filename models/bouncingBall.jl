@@ -83,8 +83,8 @@ function loadBouncingBallShieldedWithInput()
     c = [-9.81, 0.0]
     u = Zonotope(c, [zero(c)])
     #u = Zonotope(zeros(2), [zero(c)])
-    #S = Hyperrectangle([0.0, 5.], [14., 5.0]) # p: [-1, 16], v: [-15, 15], g: [1,1]. Should be [0.0, 5.0], [14., 5.0]
-    S = Hyperrectangle([0.0, 2.], [7., 2.0]) # TEST 
+    S = Hyperrectangle([0.0, 5.], [14., 5.0]) # p: [-1, 16], v: [-15, 15], g: [1,1]. Should be [0.0, 5.0], [14., 5.0]
+    #S = Hyperrectangle([0.0, 0.25], [3., 0.25]) # TEST 
 
     guard = HPolyhedron([
         LazySets.HalfSpace(sparsevec([2], [1.], 2), 0.0), # p <= 0
@@ -97,10 +97,10 @@ function loadBouncingBallShieldedWithInput()
     edges::Vector{Edge} = [Edge(1, guard, jumpMatrix, zeros(2))]
 
     constraint = HPolyhedron([
-        LazySets.HalfSpace(sparsevec([2], [1.], 2), 0.1), # p <= 0
+        LazySets.HalfSpace(sparsevec([2], [1.], 2), 0.0), # p <= 0
         #LazySets.HalfSpace(sparsevec([1], [-1.], 2), 0.0),  # p >= 0
-        LazySets.HalfSpace(sparsevec([1], [1.], 2), 0.0),  # v <= 0
-        LazySets.HalfSpace(sparsevec([1], [-1.], 2), 1e-5)  # v >= 1e-5
+        LazySets.HalfSpace(sparsevec([1], [1.], 2), 1.0),  # v <= 0
+        LazySets.HalfSpace(sparsevec([1], [-1.], 2), 1.0)  # v >= 1e-5
     ])
 
     #constraint = LazySets.API.intersection(constraint, S)

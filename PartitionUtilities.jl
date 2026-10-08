@@ -607,6 +607,10 @@ end
 # https://github.com/AstridHornBrorholt/Shielded-Learning-for-Hybrid-Systems/blob/22c9fc220ef40d55877ff1360be7286a7a506620/Shared%20Code/ShieldSynthesis.jl#L88
 # Looks to terminate early..
 function make_shield(grid::Grid, action_set::Dict{Tuple{Int64,CartesianIndex},AbstractArray{CartesianIndex}}, no_action_set::Dict{CartesianIndex,AbstractArray{CartesianIndex}}, max_steps::Int, Act::Vector{Action})
+    if max_steps == 0
+        return (grid, max_steps, action_set, no_action_set)
+    end
+
     i = max_steps
     dims = grid.dimension
     dead = grid.deadCells
@@ -617,13 +621,13 @@ function make_shield(grid::Grid, action_set::Dict{Tuple{Int64,CartesianIndex},Ab
     no_action_set´ = nothing
     a_tombstones = 0
     n_tombstones = 0
-    filter!(p -> !isempty(p.second), no_action_set)
+    #filter!(p -> !isempty(p.second), no_action_set)
     #filter!(p -> !isempty(p.second), action_set)
     action_set = Dict{Tuple{Int64,CartesianIndex},AbstractArray{CartesianIndex}}(action_set)
     no_action_set = Dict{CartesianIndex,AbstractArray{CartesianIndex}}(no_action_set)
 
-    @show length(keys(action_set))
-    @show length(keys(no_action_set))
+    #@show length(keys(action_set))
+    #@show length(keys(no_action_set))
 
     while i > 0
         #grid´, action_set´ = shield_step!(grid, action_set, no_action_set, Act)
@@ -663,11 +667,11 @@ function make_shield(grid::Grid, action_set::Dict{Tuple{Int64,CartesianIndex},Ab
         i -= 1
 
     end
-    @show length(keys(action_set))
-    @show length(keys(no_action_set))
+    #@show length(keys(action_set))
+    #@show length(keys(no_action_set))
 
-    @show can_act_matrix == trues(grid.numCells...)
-    @show no_action_bad_matrix == falses(grid.numCells...)
+    #@show can_act_matrix == trues(grid.numCells...)
+    #@show no_action_bad_matrix == falses(grid.numCells...)
 
     return (grid, max_steps - i, action_set, no_action_set)
 end

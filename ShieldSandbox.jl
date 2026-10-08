@@ -10,7 +10,7 @@ include("ReACTedShielding.jl")
 
 fresh_grid = false
 make_plot = true
-granularity = 0.05  # Example granularity
+granularity = 0.02  # Example granularity
 grid_name = "ball" * string(granularity)
 savefile = grid_name * ".jld2"
 
@@ -107,7 +107,7 @@ for act in euclideanHybridSystem.Act
 end
 =#
 #@show (length(keys(reach_by_Act)), length(keys(reach_by_no_Act)))
-@time shield, iters, act_set, no_act_set = make_shield(grid, reach_by_Act, reach_by_no_Act, 0, euclideanHybridSystem.Act)
+@time shield, iters, act_set, no_act_set = make_shield(grid, reach_by_Act, reach_by_no_Act, 1200, euclideanHybridSystem.Act)
 #@show (length(keys(act_set)), length(keys(no_act_set)))
 #ProfileView.@profview shield, iters = make_shield(grid, reach_by_Act, reach_by_no_Act, 50, euclideanHybridSystem.Act)
 #@time _, _ = make_shield(grid, reach_by_Act, reach_by_no_Act, 500, euclideanHybridSystem.Act)

@@ -239,9 +239,11 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
             #end
 
             # Maybe check if flag is 2 and handle this seperatly. 
-            if f == 3
-                #grid.deadCells[idx] = true
-                #=
+            #if f == 3
+            #@show LazySets.API.isdisjoint(z, invariant)
+
+            #grid.deadCells[idx] = true
+            #=
             elseif f == 2
                 intersectingSetsList = ReACT_touches_set_constant_input_b(newSet, inputSet, edge.guard, copy(guardProjVectors), copy(guardProjBounds), invariantProjVectors, invariantProjBounds, δ⁻, [reachtime, endtime], PhiDict, inputDict)
 
@@ -255,10 +257,10 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
 
                 return propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, invariantProjVectors, invariantProjBounds, alg, maxOrder, reduceOrder)
                 =#
-            else
-                reachable_by_flow[idx] = get_touching_cell_idxs_l(grid, z)
+            #else
+            reachable_by_flow[idx] = get_touching_cell_idxs_l(grid, z)
 
-            end
+            #end
 
 
 
@@ -345,18 +347,18 @@ function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ�
         #@show flag, time, reachtime, newSet
         if flag == 0
             #@show time
-            if time == 0.0
-                return (minkowski_sum(linear_map(max_flow, X0), max_input), 0)
-            else
-                A_abs = abs.(system.flowMatrix)
-                max_input = linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, endtime - time, alg, false, nothing), system.input)
+            #if time == 0.0
+            #    return (minkowski_sum(linear_map(max_flow, X0), max_input), 0)
+            #else
+            A_abs = abs.(system.flowMatrix)
+            max_input = linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, endtime - time, alg, false, nothing), system.input)
 
-                return (minkowski_sum(linear_map(exp((endtime - time) .* system.flowMatrix), X0), linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, endtime - time, alg, false, nothing), system.input)), 0)
-            end
+            return (minkowski_sum(linear_map(exp((endtime - time) .* system.flowMatrix), X0), linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, endtime - time, alg, false, nothing), system.input)), 0)
+            #end
         elseif flag == 1 # Hit constraint
             return (nothing, 1)
         elseif flag == 2
-
+            throw(error("Nope not happening"))
             #@show inputSet
             intersectingSetsList = ReACT_touches_set_constant_input(newSet, inputSet, edge.guard, δ⁻, [reachtime, endtime], PhiDict, inputDict)
             tempIntersect = foldl(ConvexHull, intersectingSetsList)
@@ -369,6 +371,7 @@ function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ�
             #@show res
             return propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
         end
+        @show LazySets.API.isdisjoint(newSet, invariant), newSet.center, flag, reachtime
         return (newSet, 3)
     end
 
@@ -853,12 +856,12 @@ function ReACT_guards_b(δ⁻::Float64, δ⁺::Float64, interval, statespace, gu
 
                     else
                         # TODO - The input gets used or referenced somewhere even with the zero flag..
-                        d = max(2^(floor(log2((endtime - time)/δ⁻))) * δ⁻, δ⁻)
+                        #d = max(2^(floor(log2((endtime - time)/δ⁻))) * δ⁻, δ⁻)
                         #@show (endtime - time, d)
-                        input = linear_map(PhiDict[d], input) + inputDiscretizationDict[d]
-                        mul!(tempM, Φ, PhiDict[d])
-                        copy!(Φ, tempM)
-                        time = time + d
+                        #input = linear_map(PhiDict[d], input) + inputDiscretizationDict[d]
+                        #mul!(tempM, Φ, PhiDict[d])
+                        #copy!(Φ, tempM)
+                        #time = time + d
                         #println("from coarse")
                         return (endtime, discritezationDict[δ⁻], input, 0)
                     end
@@ -893,12 +896,12 @@ function ReACT_guards_b(δ⁻::Float64, δ⁺::Float64, interval, statespace, gu
 
                     else
                         # TODO - The input gets used or referenced somewhere even with the zero flag..
-                        d = max(2^(floor(log2((endtime - time)/δ⁻))) * δ⁻, δ⁻)
+                        #d = max(2^(floor(log2((endtime - time)/δ⁻))) * δ⁻, δ⁻)
                         #@show (endtime - time, d)
-                        input = linear_map(PhiDict[d], input) + inputDiscretizationDict[d]
-                        mul!(tempM, Φ, PhiDict[d])
-                        copy!(Φ, tempM)
-                        time = time + d
+                        #input = linear_map(PhiDict[d], input) + inputDiscretizationDict[d]
+                        #mul!(tempM, Φ, PhiDict[d])
+                        #copy!(Φ, tempM)
+                        #time = time + d
                         #println("from precise")
                         return (endtime, discritezationDict[δ⁻], input, 0)
                     end
@@ -1022,6 +1025,17 @@ function guardCheck(input::Zonotope, Φ, X::Zonotope, constraint, guard, invaria
     end
     =#
     newR = minkowski_sum(input, linear_map(Φ, X))
+    if LazySets.API.isdisjoint(newR, constraint)
+        if LazySets.API.isdisjoint(newR, guard)
+            return 0
+        else
+            return 2
+        end
+
+    else
+        return 1
+    end
+
     if !LazySets.API.isdisjoint(newR, invariant)
         if LazySets.API.isdisjoint(newR, constraint)
             if LazySets.API.isdisjoint(newR, guard)

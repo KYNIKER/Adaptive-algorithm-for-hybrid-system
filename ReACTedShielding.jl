@@ -214,7 +214,7 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
         #z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
 
         z, f = propagate_set_b(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, discretizationDict, phiDict, tPhiDict, inputDict, max_input, max_flow, guard_invariant_intersection, invariant, invariantProjVectors, invariantProjBounds, alg, maxOrder, reduceOrder)
-        if idx == CartesianIndex(200, 8)
+        #=if idx == CartesianIndex(200, 8)
             #@show invariant, invariantProjVectors
             @show f
             @show box_approximation(z)
@@ -222,7 +222,7 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
             @show get_touching_cell_idxs_b(grid, z)
             @show get_touching_cell_idxs_t(grid, z)
             @show get_touching_cell_idxs(grid, z)
-        end
+        end=#
         #=if !LazySets.API.isdisjoint(z, system.edges[1].guard)
             dc += 1
         end=#
@@ -291,12 +291,13 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
             #    reachable_by_action[(act, idx)] = copy(touches_list)
             #reachable_by_flow[idx] = get_touching_cell_idxs(grid, z)
             #end
-            reachable_by_action[(act.id, idx)] = get_touching_cell_idxs_b(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
+            reachable_by_action[(act.id, idx)] = get_touching_cell_idxs_l(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
 
-            #if act.id == 1
-            #    @show reachable_by_action[(act.id, idx)], LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector)
-            #end
-            if !grid.deadCells[idx]
+            if act.id == 1
+                #@show get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector)), LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector)
+                #reachable_by_action[(act.id, idx)] = get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
+            end
+            if grid.deadCells[idx]
                 grid.deadCells[idx] = false
             end
             LazySets.API.translate!(Z, -of)

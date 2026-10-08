@@ -10,7 +10,7 @@ include("ReACTedShielding.jl")
 
 fresh_grid = false
 make_plot = true
-granularity = 0.1  # Example granularity
+granularity = 0.4  # Example granularity
 grid_name = "ball" * string(granularity)
 savefile = grid_name * ".jld2"
 
@@ -164,7 +164,7 @@ if make_plot
 
             end
             for actid in possible_acts
-                heatmap_matrix[idx] += act_translation[actid]
+                heatmap_matrix[idx] = 2 #+= act_translation[actid]
             end
         end
 
@@ -210,7 +210,7 @@ if make_plot
     end
     #plot!(plt, heatmap(transpose(heatmap_matrix), c=cscheme, colorbar=nothing))
 
-    tidx = CartesianIndex(51, 1)
+    tidx = CartesianIndex(35, 20)
     #tidx = CartesianIndex(91, 1)
     heatmap_matrix[tidx] = 4
     @show haskey(no_act_set, tidx)
@@ -223,6 +223,18 @@ if make_plot
             end
             #heatmap_matrix[v] = 4
 
+        end
+
+        for key in euclideanHybridSystem.Act
+            if haskey(act_set, (key.id, tidx))
+                for v in act_set[(key.id, tidx)]
+                    if heatmap_matrix[v] == 0
+                        heatmap_matrix[v] = 0
+                    else
+                        heatmap_matrix[v] = 2
+                    end
+                end
+            end
         end
         @show no_act_set[tidx]
     end

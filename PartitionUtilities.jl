@@ -268,10 +268,10 @@ function get_touching_cell_idxs(grid::Grid, convexSet::LazySet)
     upper_bounds = Int.(ceil.(abs.(upper_bounds .- grid.lower) ./ grid.granularity)) #floor.(min.(upper_bounds, grid.upper) .- grid.lower) ./ grid.granularity
     #@show lower_bounds, upper_bounds
     #upper_bounds = Int.(floor.(min.(upper_bounds, grid.upper) .- grid.lower) ./ grid.granularity)
-    ranges = [lower_bounds[i]:max(upper_bounds[i], 1) for i in 1:grid.dimension]
+    ranges = [lower_bounds[i]:max(upper_bounds[i], lower_bounds[i]) for i in 1:grid.dimension]
     #@show ranges
     idxs = CartesianIndices((ranges...,))
-    #@show idxs
+    @show idxs
     hbox = Hyperrectangle(grid.lower .+ (granularity/2), fill(granularity/2, grid.dimension))
     for idx in idxs
         #cell = grid.array[idx]
@@ -352,7 +352,7 @@ function get_touching_cell_idxs_b(grid::Grid, convexSet::Zonotope)#, hbox::Hyper
         r[sweeping_dim] = ((upper_bounds[sweeping_dim] - lower_bounds[sweeping_dim]) * granularity)
         sbox = Hyperrectangle(c, r)
         =#
-        for idx in CartesianIndices(ntuple(i -> i == sweeping_dim ? (0:0) : (lower_bounds[i]:max(upper_bounds[i], 1)), grid.dimension))
+        for idx in CartesianIndices(ntuple(i -> i == sweeping_dim ? (0:0) : (lower_bounds[i]:max(upper_bounds[i], lower_bounds[i])), grid.dimension))
             lower_idx = 0
             upper_idx = 0
 
@@ -429,7 +429,7 @@ function get_touching_cell_idxs_b(grid::Grid, convexSet::Zonotope)#, hbox::Hyper
 
         end
     else
-        for idx in CartesianIndices(ntuple(i -> lower_bounds[i]:max(upper_bounds[i], 1), grid.dimension))
+        for idx in CartesianIndices(ntuple(i -> lower_bounds[i]:max(upper_bounds[i], lower_bounds[i]), grid.dimension))
             of = (car2vec(idx) .- 1) .* granularity
             LazySets.API.translate!(hbox, of)
             if !isdisjoint(convexSet, hbox)
@@ -446,7 +446,9 @@ function get_touching_cell_idxs_l(grid::Grid, convexSet::LazySet)
     touching_cell_idxs = []
 
     lower_bounds, upper_bounds = clamp.(LazySets.low(convexSet), grid.lower, grid.upper), clamp.(LazySets.high(convexSet), grid.lower, grid.upper)
-    lower_bounds = Int.(floor.(abs.(lower_bounds .- grid.lower) ./ grid.granularity) .+ 1)
+    #lower_bounds = Int.(floor.(abs.(lower_bounds .- grid.lower) ./ grid.granularity) .+ 1)
+    lower_bounds = Int.(max.(floor.(abs.(lower_bounds .- grid.lower) ./ grid.granularity), 1))
+
 
     upper_bounds = Int.(ceil.(abs.(upper_bounds .- grid.lower) ./ grid.granularity)) #floor.(min.(upper_bounds, grid.upper) .- grid.lower) ./ grid.granularity
 
@@ -461,7 +463,7 @@ function get_touching_cell_idxs_l(grid::Grid, convexSet::LazySet)
 
         sweeping_range = range(lower_bounds[sweeping_dim], upper_bounds[sweeping_dim])
         rev_sweeping_range = range(upper_bounds[sweeping_dim], lower_bounds[sweeping_dim]; step=-1)
-        for idx in CartesianIndices(ntuple(i -> i == sweeping_dim ? (0:0) : (lower_bounds[i]:max(upper_bounds[i], 1)), grid.dimension))
+        for idx in CartesianIndices(ntuple(i -> i == sweeping_dim ? (0:0) : (lower_bounds[i]:max(upper_bounds[i], lower_bounds[i])), grid.dimension))
             lower_idx = 0
             upper_idx = 0
             for off in sweeping_range
@@ -510,7 +512,8 @@ function get_touching_cell_idxs_l(grid::Grid, convexSet::LazySet)
         #idxs = CartesianIndices(ntuple(i -> lower_bounds[i]:max(upper_bounds[i], 1), grid.dimension))
 
 
-        for idx in CartesianIndices(ntuple(i -> lower_bounds[i]:max(upper_bounds[i], 1), grid.dimension))
+        #for idx in CartesianIndices(ntuple(i -> lower_bounds[i] > upper_bounds[i] ? (min(lower_bounds[i], grid.numCells[i]):upper_bounds[i]) : lower_bounds[i]:min(upper_bounds[i], grid.numCells[i]), grid.dimension))
+        for idx in CartesianIndices(ntuple(i -> lower_bounds[i]:upper_bounds[i], grid.dimension))
             of = (car2vec(idx) .- 1) .* granularity
             LazySets.API.translate!(hbox, of)
             if !isdisjoint(convexSet, hbox)
@@ -621,7 +624,7 @@ function make_shield(grid::Grid, action_set::Dict{Tuple{Int64,CartesianIndex},Ab
     no_action_set´ = nothing
     a_tombstones = 0
     n_tombstones = 0
-    #filter!(p -> !isempty(p.second), no_action_set)
+    dead[findall(p -> isempty(p), no_action_set)] .= true
     #filter!(p -> !isempty(p.second), action_set)
     action_set = Dict{Tuple{Int64,CartesianIndex},AbstractArray{CartesianIndex}}(action_set)
     no_action_set = Dict{CartesianIndex,AbstractArray{CartesianIndex}}(no_action_set)

@@ -92,7 +92,7 @@ function loadBouncingBallShieldedWithInput()
         LazySets.HalfSpace(sparsevec([1], [1.], 2), 0.0)  # v <= 0
     ])
 
-    jumpMatrix = [-1.0 0.0; 0.0 0.]
+    jumpMatrix = [-0.85 0.0; 0.0 0.]
 
     edges::Vector{Edge} = [Edge(1, guard, jumpMatrix, zeros(2))]
 
@@ -109,7 +109,7 @@ function loadBouncingBallShieldedWithInput()
         LazySets.HalfSpace(sparsevec([2], [-1.], 2), -4.0), # p >= 4
         LazySets.HalfSpace(sparsevec([1], [1.], 2), 0.0),  # v <= 0
         LazySets.HalfSpace(sparsevec([1], [-1.], 2), 4.0)  # v > -4
-    ]), diagm([0.001, 1.0]), [-4.0, 0.0])
+    ]), diagm([0.0, 1.0]), [-4.0, 0.0])
 
     act2 = Action(2, HPolyhedron([
         LazySets.HalfSpace(sparsevec([2], [-1.], 2), -4.0), # p >= 4

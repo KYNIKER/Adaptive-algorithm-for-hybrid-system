@@ -93,6 +93,7 @@ function loadBouncingBallShieldedWithInput()
     ])
 
     jumpMatrix = [-0.85 0.0; 0.0 0.]
+    #jumpMatrix = [-1.0 0.0; 0.0 0.]
 
     edges::Vector{Edge} = [Edge(1, guard, jumpMatrix, zeros(2))]
 

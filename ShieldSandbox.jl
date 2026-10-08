@@ -10,7 +10,7 @@ include("ReACTedShielding.jl")
 
 fresh_grid = false
 make_plot = true
-granularity = 0.4  # Example granularity
+granularity = 0.02  # Example granularity
 grid_name = "ball" * string(granularity)
 savefile = grid_name * ".jld2"
 
@@ -48,12 +48,12 @@ close(f)
 #@allocations ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 @time grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 #ProfileView.@profview _, _, _ = ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-@show length(values(reach_by_no_Act))
-@show length(unique(values(reach_by_no_Act)))
-@show in([], values(reach_by_no_Act))
-@show length(values(reach_by_Act))
-@show length(unique(values(reach_by_Act)))
-@show in([], values(reach_by_Act))
+#@show length(values(reach_by_no_Act))
+#@show length(unique(values(reach_by_no_Act)))
+#@show in([], values(reach_by_no_Act))
+#@show length(values(reach_by_Act))
+#@show length(unique(values(reach_by_Act)))
+#@show in([], values(reach_by_Act))
 
 #=
 test_Z = Zonotope([-13.1, 0.0], diagm([1., 1.1]))
@@ -108,7 +108,7 @@ end
 =#
 #@show (length(keys(reach_by_Act)), length(keys(reach_by_no_Act)))
 
-@time shield, iters, act_set, no_act_set = make_shield(grid, reach_by_Act, reach_by_no_Act, 0, euclideanHybridSystem.Act)
+@time shield, iters, act_set, no_act_set = make_shield(grid, reach_by_Act, reach_by_no_Act, 200, euclideanHybridSystem.Act)
 
 #shield = grid
 #act_set = reach_by_Act

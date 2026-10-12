@@ -10,7 +10,7 @@ include("ReACTedShielding.jl")
 
 fresh_grid = false
 make_plot = true
-granularity = 0.02  # Example granularity
+granularity = 0.1  # Example granularity
 grid_name = "ball" * string(granularity)
 savefile = grid_name * ".jld2"
 
@@ -108,7 +108,7 @@ end
 =#
 #@show (length(keys(reach_by_Act)), length(keys(reach_by_no_Act)))
 
-@time shield, iters, act_set, no_act_set = make_shield(grid, reach_by_Act, reach_by_no_Act, 200, euclideanHybridSystem.Act)
+@time shield, iters, act_set, no_act_set = make_shield(grid, reach_by_Act, reach_by_no_Act, 70, euclideanHybridSystem.Act)
 
 #shield = grid
 #act_set = reach_by_Act
@@ -210,7 +210,7 @@ if make_plot
     end
     #plot!(plt, heatmap(transpose(heatmap_matrix), c=cscheme, colorbar=nothing))
 
-    tidx = CartesianIndex(35, 20)
+    tidx = CartesianIndex(90, 42)
     #tidx = CartesianIndex(91, 1)
     heatmap_matrix[tidx] = 4
     @show haskey(no_act_set, tidx)
@@ -225,18 +225,19 @@ if make_plot
 
         end
 
-        for key in euclideanHybridSystem.Act
-            if haskey(act_set, (key.id, tidx))
-                for v in act_set[(key.id, tidx)]
-                    if heatmap_matrix[v] == 0
-                        heatmap_matrix[v] = 0
-                    else
-                        heatmap_matrix[v] = 2
-                    end
+        @show no_act_set[tidx]
+    end
+    for key in euclideanHybridSystem.Act
+        if haskey(act_set, (key.id, tidx))
+            for v in act_set[(key.id, tidx)]
+                if heatmap_matrix[v] == 0
+                    heatmap_matrix[v] = 0
+                else
+                    heatmap_matrix[v] = 2
+                    @show v
                 end
             end
         end
-        @show no_act_set[tidx]
     end
 
     plot(heatmap(transpose(heatmap_matrix), c=cgrad([:black, :white, :purple, :yellow, :red], 5, categorical=true), clim=(0, 4), colorbar=true, xlabel="v", ylabel="p", xticks=([0.0, shield.numCells[1]/2, shield.numCells[1]], [string(shield.lower[1]), "0", string(shield.upper[1])]), yticks=([0.0, shield.numCells[2]/2, shield.numCells[2]], [string(shield.lower[2]), string((shield.lower[2]+shield.upper[2])/2), string(shield.upper[2])])); colorbar_ticks=([0.0, 1.0, 2.0, 3.0, 4.0], ["dead", "no action", "act1", "act2", "act1 + act2"]))

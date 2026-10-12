@@ -202,7 +202,12 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
 
     hbox = Hyperrectangle(grid.lower .+ (granularity/2), fill(granularity/2, grid.dimension))
     guard_invariant_intersection = intersection(system.edges[1].guard, invariant)
-    @show get_touching_cell_idxs_l(grid, system.globalConstraints[1])
+    for global_constraint in system.globalConstraints
+        #guard_invariant_intersection = intersection(guard_invariant_intersection, global_constraint)
+        for didx in get_touching_cell_idxs_l(grid, global_constraint)
+            grid.deadCells[didx] = true
+        end
+    end
     for idx in CartesianIndices(grid.deadCells)
         count += 1
         of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
@@ -214,22 +219,32 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
         #z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
 
         z, f = propagate_set_b(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, discretizationDict, phiDict, tPhiDict, inputDict, max_input, max_flow, guard_invariant_intersection, invariant, invariantProjVectors, invariantProjBounds, alg, maxOrder, reduceOrder)
-        #=if idx == CartesianIndex(200, 8)
+        #=
+        if idx == CartesianIndex(100, 10)
+            #@show propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, discretizationDict, phiDict, tPhiDict, inputDict, max_input, max_flow, guard_invariant_intersection, invariant, invariantProjVectors, invariantProjBounds, alg, maxOrder, reduceOrder)
             #@show invariant, invariantProjVectors
             @show f
-            @show box_approximation(z)
+            @show z
+            @show minkowski_sum(linear_map(max_flow, Z), max_input)
+            @show minkowski_sum(linear_map(exp((p-δ⁻) .* system.flowMatrix), Z), linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, p-δ⁻, alg, false, nothing), U))
             @show LazySets.API.isdisjoint(z, system.globalConstraints[1])
+            @show LazySets.API.isdisjoint(z, system.edges[1].guard)
+            @show LazySets.API.isdisjoint(z, invariant)
             @show get_touching_cell_idxs_b(grid, z)
             @show get_touching_cell_idxs_t(grid, z)
             @show get_touching_cell_idxs(grid, z)
-        end=#
+            reachtime, newSet, inputSet, flag = ReACT_guards_b(δ⁻, δ⁺, [0.0, p], system.statespace, system.edges[1].guard, copy(guardProjVectors), copy(guardProjBounds), system.globalConstraints[1], copy(constraintProjVectors), copy(constraintProjBounds), invariant, copy(invariantProjVectors), copy(invariantProjBounds), 2, phiDict, tPhiDict, discretizationDict, inputDict)
+            @show reachtime, newSet, inputSet, flag
+            @show minkowski_sum(newSet, inputSet)
+        end
+        =#
         #=if !LazySets.API.isdisjoint(z, system.edges[1].guard)
             dc += 1
         end=#
         #if idx == CartesianIndex(2, 9)
         #    @show z, f
         #end
-        if f != 1
+        if f != 1 #&& f != 3
             #@show LazySets.API.isdisjoint(Z, system.globalConstraints[1]), Z, idx
             #grid.deadCells[idx] = true
 
@@ -375,8 +390,8 @@ function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ�
             #@show res
             return propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
         end
-        @show LazySets.API.isdisjoint(minkowski_sum(newSet, inputSet), invariant), newSet.center, flag, reachtime
-        return (newSet, 3)
+        #@show LazySets.API.isdisjoint(minkowski_sum(newSet, inputSet), invariant), newSet.center, flag, reachtime
+        return (minkowski_sum(newSet, inputSet), 3)
     end
 
 end
@@ -428,9 +443,14 @@ function propagate_set_b(X0, interval, δ⁻::Float64, δ⁺::Float64, system, �
             intersectingSetsList = ReACT_touches_set_constant_input_b(newSet, inputSet, edge.guard, copy(guardProjVectors), copy(guardProjBounds), invariantProjVectors, invariantProjBounds, δ⁻, [reachtime, endtime], PhiDict, inputDict)
 
 
+
             tempIntersect = foldl(ConvexHull, intersectingSetsList)
             intersectedSet = convert(Zonotope, box_approximation(tempIntersect))
             #jumpSet = linear_map(edge.jumpMatrix, zonotopeStripIntersection(minkowski_sum(newSet, inputSet), guard_intersection))
+            #if !LazySets.API.issubset(minkowski_sum(newSet, inputSet), invariant)
+            #    @show minkowski_sum(newSet, inputSet), reachtime
+            #    return (minkowski_sum(newSet, inputSet), 3)
+            #end
             jumpSet = linear_map(edge.jumpMatrix, zonotopeStripIntersection(intersectedSet, guard_intersection))
             #jumpSet = linear_map(edge.jumpMatrix, getBoxIntersection(intersectedSet, guard_intersection))
             if !isnothing(edge.jumpVector)
@@ -695,108 +715,6 @@ function ReACT_touches_set(X0, set, δ⁻::Float64, δ⁺::Float64, interval, Ph
     return (LazySets.API.issubset(tempSet, set), intersectingSetsList, time)
 end
 
-function ReACT_guards(δ⁻::Float64, δ⁺::Float64, interval, statespace, guards, constraint, invariant, STRATEGY::Integer, PhiDict, permutedphiDict, discritezationDict, inputDiscretizationDict)
-
-    #
-    #   These functions should be evaluated outside ReACT_guards and passed as parameters
-    #
-    #constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint)
-    #guardProjVectors, guardProjBounds = getHalfSpaceProjections(guards)
-    #invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(invariant)
-
-    dims = LazySets.API.dim(statespace)
-
-    time::Float64 = copy(minimum(interval))
-    endtime::Float64 = maximum(interval)
-
-    currentTimeStep = copy(δ⁻)
-
-    attemptsRecorder = zeros(4)
-
-    Φ::Matrix{Float64} = diagm(ones(Float64, dims))
-
-    tempM = diagm(ones(Float64, dims))
-
-    #   Because we assume an empty input set i have trouble seeing how these can become relevant.
-    #   But i am keeping them for now to reuse as much as possible
-    #=
-    Sρ = zeros(Float64, length(constraintProjVectors))
-    Gρ = zeros(Float64, length(guardProjVectors))
-    Iρ = zeros(Float64, length(invarientProjVectors))
-    =#
-
-    i = 1
-    input = Zonotope(zeros(dims), zeros(size(genmat((inputDiscretizationDict[δ⁻])))))
-    while time < endtime
-
-        attempts = 1
-        approveFlag = false
-        check = 0
-        while !approveFlag
-            # Handle if we can no longer reduce the reachset (we keep hitting something)
-            if currentTimeStep >= δ⁻
-                #linear_map!(Z, Φ, discritezationDict[currentTimeStep])
-                check = guardCheck(input, Φ, discritezationDict[currentTimeStep], constraint, guards, invariant)
-                if 0 == check
-                    #if 0 == guardCheck(discritezationDict[currentTimeStep], Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds)
-                    approveFlag = true
-                    if currentTimeStep + time < endtime
-                        input = input + linear_map(Φ, inputDiscretizationDict[currentTimeStep])
-                        mul!(tempM, Φ, PhiDict[currentTimeStep])
-                        copy!(Φ, tempM)
-
-                    else
-                        # TODO - The input gets used or referenced somewhere even with the zero flag..
-                        #d = max(2^(floor(log2((endtime - time)/δ⁻))) * δ⁻, δ⁻)
-                        #@show (endtime - time, d)
-                        #input = linear_map(PhiDict[d], input) + inputDiscretizationDict[d]
-                        #mul!(tempM, Φ, PhiDict[d])
-                        #copy!(Φ, tempM)
-                        #time = time + d
-                        return (endtime, discritezationDict[δ⁻], input, 0)
-                    end
-                else
-
-                    currentTimeStep /= 2
-                    attempts += 1
-                end
-            else
-                #@show check
-                return (time, linear_map(Φ, discritezationDict[δ⁻]), input, check)
-            end
-        end
-
-        attemptsRecorder[(i%4)+1] = attempts
-        i = i + 1
-        time = time + currentTimeStep
-
-        # Reset / apply strategy
-        # Only do this if the current timestep is less than the initial
-        if STRATEGY == 0
-            # Only reduce
-        elseif STRATEGY == 1
-            # always try double
-            if currentTimeStep < δ⁺
-                currentTimeStep = currentTimeStep * 2
-                #changedTimeStep = true
-            end
-        elseif STRATEGY == 2
-            # If attemptsrecorder past 4 are successes, double timestep
-            if currentTimeStep < δ⁺
-                #lowest = min(4, i - 1)
-                #window = @view attemptsRecorder[i-lowest:i-1]
-                if all(==(1), attemptsRecorder)
-                    currentTimeStep = currentTimeStep * 2
-                    #changedTimeStep = true
-                end
-
-            end
-        end
-    end
-    #println("ever")
-    return (endtime, linear_map(Φ, discritezationDict[δ⁻]), input, 0)
-end
-
 
 # TODO - For some reason changing this to only use the more precise method when the smallest time step is used gives a different answer than the previous version...
 function ReACT_guards_b(δ⁻::Float64, δ⁺::Float64, interval, statespace, guards, guardProjVectors, guardProjBounds, constraint, constraintProjVectors, constraintProjBounds, invariant, invariantProjVectors, invariantProjBounds, STRATEGY::Integer, PhiDict, permutedphiDict, discritezationDict, inputDiscretizationDict)
@@ -813,7 +731,7 @@ function ReACT_guards_b(δ⁻::Float64, δ⁺::Float64, interval, statespace, gu
     time::Float64 = copy(minimum(interval))
     endtime::Float64 = maximum(interval)
 
-    currentTimeStep = copy(δ⁻)
+    currentTimeStep = copy(δ⁺)
 
     attemptsRecorder = zeros(4)
 
@@ -853,6 +771,7 @@ function ReACT_guards_b(δ⁻::Float64, δ⁺::Float64, interval, statespace, gu
                     if currentTimeStep + time < endtime
                         #input = input + linear_map(Φ, inputDiscretizationDict[currentTimeStep])
                         input = linear_map(Φ, input) + inputDiscretizationDict[currentTimeStep]
+                        #input = linear_map(PhiDict[currentTimeStep], input) + inputDiscretizationDict[currentTimeStep]
 
                         #Sρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), constraintProjVectors)
                         #Gρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), guardProjVectors)
@@ -868,13 +787,19 @@ function ReACT_guards_b(δ⁻::Float64, δ⁺::Float64, interval, statespace, gu
 
                     else
                         # TODO - The input gets used or referenced somewhere even with the zero flag..
-                        #d = max(2^(floor(log2((endtime - time)/δ⁻))) * δ⁻, δ⁻)
+                        #=
+                        d = max(2^(floor(log2((endtime - time)/δ⁻))) * δ⁻, δ⁻)
                         #@show (endtime - time, d)
-                        #input = linear_map(PhiDict[d], input) + inputDiscretizationDict[d]
-                        #mul!(tempM, Φ, PhiDict[d])
-                        #copy!(Φ, tempM)
-                        #time = time + d
+                        input = linear_map(PhiDict[δ⁻], input) + inputDiscretizationDict[δ⁻]
+                        input = linear_map(PhiDict[d], input) + inputDiscretizationDict[d]
+                        mul!(tempM, Φ, PhiDict[d])
+                        copy!(Φ, tempM)
+                        mul!(tempM, Φ, PhiDict[δ⁻])
+                        copy!(Φ, tempM)
+                        time = time + d #+ δ⁻
                         #println("from coarse")
+                        =#
+                        #return (time, linear_map(Φ, discritezationDict[δ⁻]), input, guardCheck(input, Φ, discritezationDict[δ⁻], constraint, guards, invariant))
                         return (endtime, discritezationDict[δ⁻], input, 0)
                     end
                 else
@@ -885,47 +810,45 @@ function ReACT_guards_b(δ⁻::Float64, δ⁺::Float64, interval, statespace, gu
 
 
             elseif currentTimeStep == δ⁻
+                #elseif currentTimeStep == (δ⁻/2)
+                #    currentTimeStep = δ⁻
                 #linear_map!(Z, Φ, discritezationDict[currentTimeStep])
-                #check = guardCheck(minkowski_sum(input, linear_map(Φ, discritezationDict[currentTimeStep])), constraint, guards, invariant)
+                check = guardCheck(input, Φ, discritezationDict[currentTimeStep], constraint, guards, invariant)
+                #if check == 0 && !allunder(discritezationDict[δ⁻], input, invariantProjVectors, invariantProjBounds)
+                #println
+                #return (time, linear_map(Φ, discritezationDict[δ⁻]), input, 3)
+                #end
                 #if fast_guards_check_b(discritezationDict[currentTimeStep], input, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds) || (0 == guardCheck(input, Φ, discritezationDict[currentTimeStep], constraint, guards, invariant)) # check if fast or slow fails.
-                if (0 == guardCheck(input, Φ, discritezationDict[currentTimeStep], constraint, guards, invariant)) # check if fast or slow fails.
+                if (0 == check) # check if fast or slow fails.
                     #if 0 == guardCheck(discritezationDict[currentTimeStep], Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds)
                     approveFlag = true
-                    if currentTimeStep + time < endtime
-                        input = linear_map(Φ, input) + inputDiscretizationDict[currentTimeStep]
 
-                        #Sρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), constraintProjVectors)
-                        #Gρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), guardProjVectors)
-                        #Iρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), invarientProjVectors)
+                    input = linear_map(Φ, input) + inputDiscretizationDict[currentTimeStep]
+
+                    #Sρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), constraintProjVectors)
+                    #Gρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), guardProjVectors)
+                    #Iρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), invarientProjVectors)
 
 
-                        map!(x -> permutedphiDict[currentTimeStep] * x, constraintProjVectors)
-                        map!(x -> permutedphiDict[currentTimeStep] * x, guardProjVectors)
-                        map!(x -> permutedphiDict[currentTimeStep] * x, invariantProjVectors)
+                    map!(x -> permutedphiDict[currentTimeStep] * x, constraintProjVectors)
+                    map!(x -> permutedphiDict[currentTimeStep] * x, guardProjVectors)
+                    map!(x -> permutedphiDict[currentTimeStep] * x, invariantProjVectors)
 
-                        mul!(tempM, Φ, PhiDict[currentTimeStep])
-                        copy!(Φ, tempM)
+                    mul!(tempM, Φ, PhiDict[currentTimeStep])
+                    copy!(Φ, tempM)
 
-                    else
-                        # TODO - The input gets used or referenced somewhere even with the zero flag..
-                        #d = max(2^(floor(log2((endtime - time)/δ⁻))) * δ⁻, δ⁻)
-                        #@show (endtime - time, d)
-                        #input = linear_map(PhiDict[d], input) + inputDiscretizationDict[d]
-                        #mul!(tempM, Φ, PhiDict[d])
-                        #copy!(Φ, tempM)
-                        #time = time + d
-                        #println("from precise")
-                        return (endtime, discritezationDict[δ⁻], input, 0)
-                    end
+
                 else
+                    #currentTimeStep /= 2
+                    #attempts += 1
 
-                    currentTimeStep /= 2
-                    attempts += 1
+                    return (time, linear_map(Φ, discritezationDict[δ⁻]), input, check)
+
                 end
 
-            else
+                #else
                 #println("hit something")
-                return (time, linear_map(Φ, discritezationDict[δ⁻]), input, guardCheck(input, Φ, discritezationDict[δ⁻], constraint, guards, invariant))
+                #eturn (time, linear_map(Φ, discritezationDict[δ⁻]), input, check)
             end
         end
 
@@ -960,7 +883,129 @@ function ReACT_guards_b(δ⁻::Float64, δ⁺::Float64, interval, statespace, gu
     return (endtime, linear_map(Φ, discritezationDict[δ⁻]), input, 0)
 end
 
+function ReACT_guards_t(δ⁻::Float64, δ⁺::Float64, interval, statespace, guards, guardProjVectors, guardProjBounds, constraint, constraintProjVectors, constraintProjBounds, invariant, invariantProjVectors, invariantProjBounds, STRATEGY::Integer, PhiDict, permutedphiDict, discritezationDict, inputDiscretizationDict)
 
+    #
+    #   These functions should be evaluated outside ReACT_guards and passed as parameters
+    #
+    #constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint)
+    #guardProjVectors, guardProjBounds = getHalfSpaceProjections(guards)
+    #invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(invariant)
+
+    dims = LazySets.API.dim(statespace)
+
+    time::Float64 = copy(minimum(interval))
+    endtime::Float64 = maximum(interval)
+
+    currentTimeStep = copy(δ⁺)
+
+    attemptsRecorder = zeros(4)
+
+    Φ::Matrix{Float64} = diagm(ones(Float64, dims))
+
+    tempM = diagm(ones(Float64, dims))
+
+    #   Because we assume an empty input set i have trouble seeing how these can become relevant.
+    #   But i am keeping them for now to reuse as much as possible
+
+    #Sρ = zeros(Float64, length(constraintProjVectors))
+    #Gρ = zeros(Float64, length(guardProjVectors))
+    #Iρ = zeros(Float64, length(invarientProjVectors))
+
+
+    i = 1
+    input = Zonotope(zeros(dims), zeros(size(genmat((inputDiscretizationDict[δ⁻])))))
+    while time < endtime
+
+        attempts = 1
+        approveFlag = false
+        check = 0
+        while !approveFlag
+            # Handle if we can no longer reduce the reachset (we keep hitting something)
+            if currentTimeStep >= δ⁻
+                #linear_map!(Z, Φ, discritezationDict[currentTimeStep])
+                #check = guardCheck(minkowski_sum(input, linear_map(Φ, discritezationDict[currentTimeStep])), constraint, guards, invariant)
+                if fast_guards_check_t(discritezationDict[currentTimeStep], input, guardProjVectors, guardProjBounds)# || (0 == guardCheck(input, Φ, discritezationDict[currentTimeStep], constraint, guards, invariant)) # check if fast or slow fails.
+
+                    approveFlag = true
+                    if currentTimeStep + time < endtime
+                        #input = input + linear_map(Φ, inputDiscretizationDict[currentTimeStep])
+                        input = linear_map(Φ, input) + inputDiscretizationDict[currentTimeStep]
+                        #input = linear_map(PhiDict[currentTimeStep], input) + inputDiscretizationDict[currentTimeStep]
+
+                        map!(x -> permutedphiDict[currentTimeStep] * x, guardProjVectors)
+
+                        mul!(tempM, Φ, PhiDict[currentTimeStep])
+                        copy!(Φ, tempM)
+
+                    else
+                        # TODO - The input gets used or referenced somewhere even with the zero flag..
+                        #=
+                        d = max(2^(floor(log2((endtime - time)/δ⁻))) * δ⁻, δ⁻)
+                        #@show (endtime - time, d)
+                        input = linear_map(PhiDict[δ⁻], input) + inputDiscretizationDict[δ⁻]
+                        input = linear_map(PhiDict[d], input) + inputDiscretizationDict[d]
+                        mul!(tempM, Φ, PhiDict[d])
+                        copy!(Φ, tempM)
+                        mul!(tempM, Φ, PhiDict[δ⁻])
+                        copy!(Φ, tempM)
+                        time = time + d #+ δ⁻
+                        #println("from coarse")
+                        =#
+                        #return (time, linear_map(Φ, discritezationDict[δ⁻]), input, guardCheck(input, Φ, discritezationDict[δ⁻], constraint, guards, invariant))
+                        return (endtime, discritezationDict[δ⁻], input, 0)
+                    end
+                else
+
+                    currentTimeStep /= 2
+                    attempts += 1
+                end
+
+
+
+                #else
+                #println("hit something")
+                #eturn (time, linear_map(Φ, discritezationDict[δ⁻]), input, check)
+            else
+                #currentTimeStep /= 2
+                #attempts += 1
+
+                return (time, linear_map(Φ, discritezationDict[δ⁻]), input, 2)
+
+            end
+
+        end
+
+        attemptsRecorder[(i%4)+1] = attempts
+        i = i + 1
+        time = time + currentTimeStep
+
+        # Reset / apply strategy
+        # Only do this if the current timestep is less than the initial
+        if STRATEGY == 0
+            # Only reduce
+        elseif STRATEGY == 1
+            # always try double
+            if currentTimeStep < δ⁺
+                currentTimeStep = currentTimeStep * 2
+                #changedTimeStep = true
+            end
+        elseif STRATEGY == 2
+            # If attemptsrecorder past 4 are successes, double timestep
+            if currentTimeStep < δ⁺
+                #lowest = min(4, i - 1)
+                #window = @view attemptsRecorder[i-lowest:i-1]
+                if all(==(1), attemptsRecorder)
+                    currentTimeStep = currentTimeStep * 2
+                    #changedTimeStep = true
+                end
+
+            end
+        end
+    end
+
+    return (endtime, linear_map(Φ, discritezationDict[δ⁻]), input, 0)
+end
 
 # This can be replaced with throwing an error. Currently we continue and just print
 function handleHitConstraint(time, locationId)
@@ -1048,7 +1093,8 @@ function guardCheck(input::Zonotope, Φ, X::Zonotope, constraint, guard, invaria
         return 1
     end
 
-    if !LazySets.API.isdisjoint(newR, invariant)
+    #=
+    if LazySets.API.issubset(newR, invariant)
         if LazySets.API.isdisjoint(newR, constraint)
             if LazySets.API.isdisjoint(newR, guard)
                 return 0
@@ -1063,6 +1109,7 @@ function guardCheck(input::Zonotope, Φ, X::Zonotope, constraint, guard, invaria
         #@show LazySets.API.isdisjoint(newR, guard)
         return 3
     end
+    =#
 
 end
 
@@ -1087,7 +1134,11 @@ function fast_guards_check_b(newR::Zonotope, input, constraintProjVectors, const
     return !(someinside(newR, input, constraintProjVectors, constraintProjBounds) || someinside(newR, input, guardProjVectors, guardProjBounds)) && allunder(newR, input, invariantProjVectors, invariantProjBounds)
 
 end
+function fast_guards_check_t(newR::Zonotope, input, guardProjVectors, guardProjBounds) #; solver=model
+    #return all((input + ρ(x, newR)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) && any((input + -ρ(-x, newR)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) && all((input - ρ(-x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
+    return !someinside(newR, input, guardProjVectors, guardProjBounds)
 
+end
 function touchesCheck(newR::Zonotope, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, invarientProjVectors, invarientProjBounds) #; solver=model
     #cache = map((input, x, y) -> input + ρ(x, newR) <= y, Sρ, constraintProjVectors, constraintProjBounds)
     #abssum = 0.0
@@ -1522,3 +1573,106 @@ function auxReACTedShielding(waitinglist, hybridSystem, loc::Location, currentEd
 
 
 end
+#=
+function ReACT_guards(δ⁻::Float64, δ⁺::Float64, interval, statespace, guards, constraint, invariant, STRATEGY::Integer, PhiDict, permutedphiDict, discritezationDict, inputDiscretizationDict)
+
+    #
+    #   These functions should be evaluated outside ReACT_guards and passed as parameters
+    #
+    #constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint)
+    #guardProjVectors, guardProjBounds = getHalfSpaceProjections(guards)
+    #invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(invariant)
+
+    dims = LazySets.API.dim(statespace)
+
+    time::Float64 = copy(minimum(interval))
+    endtime::Float64 = maximum(interval)
+
+    currentTimeStep = copy(δ⁻)
+
+    attemptsRecorder = zeros(4)
+
+    Φ::Matrix{Float64} = diagm(ones(Float64, dims))
+
+    tempM = diagm(ones(Float64, dims))
+
+    #   Because we assume an empty input set i have trouble seeing how these can become relevant.
+    #   But i am keeping them for now to reuse as much as possible
+    #=
+    Sρ = zeros(Float64, length(constraintProjVectors))
+    Gρ = zeros(Float64, length(guardProjVectors))
+    Iρ = zeros(Float64, length(invarientProjVectors))
+    =#
+
+    i = 1
+    input = Zonotope(zeros(dims), zeros(size(genmat((inputDiscretizationDict[δ⁻])))))
+    while time < endtime
+
+        attempts = 1
+        approveFlag = false
+        check = 0
+        while !approveFlag
+            # Handle if we can no longer reduce the reachset (we keep hitting something)
+            if currentTimeStep >= δ⁻
+                #linear_map!(Z, Φ, discritezationDict[currentTimeStep])
+                check = guardCheck(input, Φ, discritezationDict[currentTimeStep], constraint, guards, invariant)
+                if 0 == check
+                    #if 0 == guardCheck(discritezationDict[currentTimeStep], Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds)
+                    approveFlag = true
+                    if currentTimeStep + time < endtime
+                        input = input + linear_map(Φ, inputDiscretizationDict[currentTimeStep])
+                        mul!(tempM, Φ, PhiDict[currentTimeStep])
+                        copy!(Φ, tempM)
+
+                    else
+                        # TODO - The input gets used or referenced somewhere even with the zero flag..
+                        #d = max(2^(floor(log2((endtime - time)/δ⁻))) * δ⁻, δ⁻)
+                        #@show (endtime - time, d)
+                        #input = linear_map(PhiDict[d], input) + inputDiscretizationDict[d]
+                        #mul!(tempM, Φ, PhiDict[d])
+                        #copy!(Φ, tempM)
+                        #time = time + d
+                        return (endtime, discritezationDict[δ⁻], input, 0)
+                    end
+                else
+
+                    currentTimeStep /= 2
+                    attempts += 1
+                end
+            else
+                #@show check
+                return (time, linear_map(Φ, discritezationDict[δ⁻]), input, check)
+            end
+        end
+
+        attemptsRecorder[(i%4)+1] = attempts
+        i = i + 1
+        time = time + currentTimeStep
+
+        # Reset / apply strategy
+        # Only do this if the current timestep is less than the initial
+        if STRATEGY == 0
+            # Only reduce
+        elseif STRATEGY == 1
+            # always try double
+            if currentTimeStep < δ⁺
+                currentTimeStep = currentTimeStep * 2
+                #changedTimeStep = true
+            end
+        elseif STRATEGY == 2
+            # If attemptsrecorder past 4 are successes, double timestep
+            if currentTimeStep < δ⁺
+                #lowest = min(4, i - 1)
+                #window = @view attemptsRecorder[i-lowest:i-1]
+                if all(==(1), attemptsRecorder)
+                    currentTimeStep = currentTimeStep * 2
+                    #changedTimeStep = true
+                end
+
+            end
+        end
+    end
+    #println("ever")
+    return (endtime, linear_map(Φ, discritezationDict[δ⁻]), input, 0)
+end
+=#

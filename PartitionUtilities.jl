@@ -611,6 +611,7 @@ end
 # Looks to terminate early..
 function make_shield(grid::Grid, action_set::Dict{Tuple{Int64,CartesianIndex},AbstractArray{CartesianIndex}}, no_action_set::Dict{CartesianIndex,AbstractArray{CartesianIndex}}, max_steps::Int, Act::Vector{Action})
     if max_steps == 0
+        #@show findall(p -> isempty(p), no_action_set)
         return (grid, max_steps, action_set, no_action_set)
     end
 
@@ -702,10 +703,12 @@ function shield_step!(deadCells::BitArray, can_act_matrix, no_action_bad_matrix,
             #can_act = can_act_matrix[idx]
             approved_action_count = 0
             if can_act_matrix[idx]
+                should_act = false
                 for act in Act
+                    # maybe we should check if the action is even in the action_set first, but this is probably faster than checking for every action. 
                     if haskey(action_set, (act.id, idx))
                         approved_action_count += 1
-
+                        should_act = true
                         if isempty(collect(deadCells[idxx] for idxx in action_set[(act.id, idx)]))
                             #@show action_set[(act.id, cell.id)]
                             push!(act_pop_keys, (act.id, idx))
@@ -715,8 +718,15 @@ function shield_step!(deadCells::BitArray, can_act_matrix, no_action_bad_matrix,
                         elseif any(deadCells[idxx] for idxx in action_set[(act.id, idx)])
                             push!(act_pop_keys, (act.id, idx))
                             approved_action_count -= 1
+                        elseif any(no_action_bad_matrix[idxx] for idxx in action_set[(act.id, idx)])
+                            push!(act_pop_keys, (act.id, idx))
+                            approved_action_count -= 1
                         end
                     end
+                end
+                if !should_act
+                    #can_act_matrix[idx] = false
+                    #push!(act_pop_keys, (0, idx))
                 end
             end
             #@show can_act
@@ -726,7 +736,7 @@ function shield_step!(deadCells::BitArray, can_act_matrix, no_action_bad_matrix,
                 #deadCells´[idx] = true
                 #push!(no_act_pop_keys, cell.id)
                 #@show grid´.deadCells[cell.id] == grid.deadCells[cell.id]
-
+                no_action_bad_matrix[idx] = true
                 can_act_matrix[idx] = false
                 push!(new_dead_cells, idx)
             end

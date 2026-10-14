@@ -351,8 +351,8 @@ function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity,
     #   3: Hit invariant surface
     #
 
-    reachable_by_action = Dict{Tuple{Int64,CartesianIndex},AbstractArray{CartesianIndex}}()
-    reachable_by_flow = Dict{CartesianIndex,AbstractArray{CartesianIndex}}()
+    reachable_by_action::Dict{Tuple{Int64,CartesianIndex{grid.dimension}},AbstractArray{CartesianIndex{grid.dimension}}} = Dict{Tuple{Int64,CartesianIndex{grid.dimension}},AbstractArray{CartesianIndex{grid.dimension}}}()
+    reachable_by_flow::Dict{CartesianIndex{grid.dimension},AbstractArray{CartesianIndex{grid.dimension}}} = Dict{CartesianIndex{grid.dimension},AbstractArray{CartesianIndex{grid.dimension}}}()
     degenerate_dimensions = collect(u - l == l ? l - (granularity / 2) : 0. for (l, u) in zip(grid.lower, grid.upper))
     #@show degenerate_dimensions
     Z = remove_zero_generators(Zonotope(degenerate_dimensions, diagm(map(x -> x == 1 ? 0. : granularity/2, grid.numCells))))
@@ -476,8 +476,9 @@ function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity,
         end
         #grid.array[idx].sidx[1] = copy(f)
         LazySets.API.translate!(Z, -of)
-        if count % 1000 == 0
+        if count % 10000 == 0
             println(count)
+            #GC.gc()
         end
     end
 

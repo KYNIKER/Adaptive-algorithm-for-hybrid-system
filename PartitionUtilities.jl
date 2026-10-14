@@ -694,7 +694,7 @@ end
 
 # https://github.com/AstridHornBrorholt/Shielded-Learning-for-Hybrid-Systems/blob/22c9fc220ef40d55877ff1360be7286a7a506620/Shared%20Code/ShieldSynthesis.jl#L88
 # Looks to terminate early..
-function make_shield(grid::Grid, action_set::Dict{Tuple{Int64,CartesianIndex},AbstractArray{CartesianIndex}}, no_action_set::Dict{CartesianIndex,AbstractArray{CartesianIndex}}, max_steps::Int, Act::Vector{Action})
+function make_shield(grid::Grid, action_set::Dict{Tuple{Int64,CartesianIndex{N}},AbstractArray{CartesianIndex{N}}}, no_action_set::Dict{CartesianIndex{N},AbstractArray{CartesianIndex{N}}}, max_steps::Int, Act::Vector{Action}) where N
     if max_steps == 0
         #@show findall(p -> isempty(p), no_action_set)
         return (grid, max_steps, action_set, no_action_set)
@@ -712,8 +712,8 @@ function make_shield(grid::Grid, action_set::Dict{Tuple{Int64,CartesianIndex},Ab
     n_tombstones = 0
     #dead[findall(p -> isempty(p), no_action_set)] .= true
     #filter!(p -> !isempty(p.second), action_set)
-    action_set = Dict{Tuple{Int64,CartesianIndex},AbstractArray{CartesianIndex}}(action_set)
-    no_action_set = Dict{CartesianIndex,AbstractArray{CartesianIndex}}(no_action_set)
+    action_set::Dict{Tuple{Int64,CartesianIndex{N}},AbstractArray{CartesianIndex{N}}} = Dict{Tuple{Int64,CartesianIndex{N}},AbstractArray{CartesianIndex{N}}}(action_set)
+    no_action_set::Dict{CartesianIndex{N},AbstractArray{CartesianIndex{N}}} = Dict{CartesianIndex{N},AbstractArray{CartesianIndex{N}}}(no_action_set)
 
     #@show length(keys(action_set))
     #@show length(keys(no_action_set))
@@ -748,8 +748,8 @@ function make_shield(grid::Grid, action_set::Dict{Tuple{Int64,CartesianIndex},Ab
             #filter!(k -> !in(k.first, a_pops), action_set)
             #@show length(keys(action_set))
             #filter!(k -> !in(k.first, n_pops), no_action_set)
-            action_set = Dict{Tuple{Int64,CartesianIndex},AbstractArray{CartesianIndex}}(action_set)
-            no_action_set = Dict{CartesianIndex,AbstractArray{CartesianIndex}}(no_action_set)
+            action_set = Dict{Tuple{Int64,CartesianIndex{N}},AbstractArray{CartesianIndex{N}}}(action_set)
+            no_action_set = Dict{CartesianIndex{N},AbstractArray{CartesianIndex{N}}}(no_action_set)
             a_tombstones = 0
             n_tombstones = 0
 
@@ -767,11 +767,11 @@ function make_shield(grid::Grid, action_set::Dict{Tuple{Int64,CartesianIndex},Ab
     return (grid, max_steps - i, action_set, no_action_set)
 end
 
-function shield_step!(deadCells::BitArray, can_act_matrix, no_action_bad_matrix, action_set::Dict{Tuple{Int64,CartesianIndex},AbstractArray{CartesianIndex}}, no_action_set::Dict{CartesianIndex,AbstractArray{CartesianIndex}}, Act::Vector{Action}, dims::Int64)
+function shield_step!(deadCells::BitArray, can_act_matrix, no_action_bad_matrix, action_set::Dict{Tuple{Int64,CartesianIndex{N}},AbstractArray{CartesianIndex{N}}}, no_action_set::Dict{CartesianIndex{N},AbstractArray{CartesianIndex{N}}}, Act::Vector{Action}, dims::Int64) where N
     #deadCells´ = copy(deadCells)
-    act_pop_keys = Tuple{Int64,CartesianIndex{dims}}[]
-    no_act_pop_keys = CartesianIndex{dims}[]
-    new_dead_cells = CartesianIndex{dims}[]
+    act_pop_keys = Tuple{Int64,CartesianIndex{N}}[]
+    no_act_pop_keys = CartesianIndex{N}[]
+    new_dead_cells = CartesianIndex{N}[]
     for idx in CartesianIndices(deadCells)
         if !deadCells[idx]
             #no_action_bad = any(i -> i == 0, collect(grid.array[nc].sidx[1] for nc in cell.pCells))
@@ -779,7 +779,8 @@ function shield_step!(deadCells::BitArray, can_act_matrix, no_action_bad_matrix,
             no_action_bad = no_action_bad_matrix[idx]
             if !no_action_bad && haskey(no_action_set, idx)
                 #@show collect(deadCells[idxx] for idxx in no_action_set[idx])
-                if any(deadCells[idxx] for idxx in no_action_set[idx])
+                #if any(deadCells[idxx] for idxx in no_action_set[idx])
+                if any(deadCells[no_action_set[idx]])# for idxx in no_action_set[idx])
                     #println("has key")
                     no_action_bad = true
                     no_action_bad_matrix[idx] = true
@@ -796,16 +797,19 @@ function shield_step!(deadCells::BitArray, can_act_matrix, no_action_bad_matrix,
                     if haskey(action_set, (act.id, idx))
                         approved_action_count += 1
                         should_act = true
-                        if isempty(collect(deadCells[idxx] for idxx in action_set[(act.id, idx)]))
+                        #if isempty(collect(deadCells[idxx] for idxx in action_set[(act.id, idx)]))
+                        if isempty(collect(deadCells[action_set[(act.id, idx)]]))# for idxx in action_set[(act.id, idx)]))
                             #@show action_set[(act.id, cell.id)]
                             push!(act_pop_keys, (act.id, idx))
                             approved_action_count -= 1
                             #end
 
-                        elseif any(deadCells[idxx] for idxx in action_set[(act.id, idx)])
+                            #elseif any(deadCells[idxx] for idxx in action_set[(act.id, idx)])
+                        elseif any(deadCells[action_set[(act.id, idx)]])# for idxx in action_set[(act.id, idx)])
                             push!(act_pop_keys, (act.id, idx))
                             approved_action_count -= 1
-                        elseif any(no_action_bad_matrix[idxx] for idxx in action_set[(act.id, idx)])
+                            #elseif any(no_action_bad_matrix[idxx] for idxx in action_set[(act.id, idx)])
+                        elseif any(no_action_bad_matrix[action_set[(act.id, idx)]])# for idxx in action_set[(act.id, idx)])
                             push!(act_pop_keys, (act.id, idx))
                             approved_action_count -= 1
                         end

@@ -3,14 +3,14 @@ using LazySets, ReachabilityAnalysis, LinearAlgebra, Polyhedra, Optim
 export HybridSystem, HybridSystemV2, Location, Edge, overapproximateIntervalReachset, intersects, splitZonotope, getBoxIntersection, getHalfSpaceProjections, ∔
 
 struct Edge
-    targetLoc::Int
+    targetLoc::Int64
     guard::Union{HPolyhedron,Nothing}
     jumpMatrix::Matrix{Float64}
     jumpVector::Vector{Float64}
 end
 
 struct Action
-    id::Int
+    id::Int64
     guard::Union{HPolyhedron,Nothing}
     jumpMatrix::Matrix{Float64}
     jumpVector::Vector{Float64}
@@ -20,7 +20,7 @@ Base.show(io::Core.IO, e::Edge) = print(io, "Edge going to: ", e.targetLoc)
 
 
 struct Location
-    id::Int
+    id::Int64
     invarient::Union{HPolyhedron,Nothing}
     A::Matrix{Float64}
     B::Union{Nothing,Matrix{Float64}}

@@ -1,4 +1,4 @@
-using LazySets, LinearAlgebra, ReachabilityAnalysis
+using LazySets, LinearAlgebra, ReachabilityAnalysis, Dates
 include("Utilities.jl")
 
 ### Following code is adapted from "https://github.com/AstridHornBrorholt/Shielded-Learning-for-Hybrid-Systems/blob/main/Shared%20Code/Squares.jl"
@@ -625,7 +625,7 @@ function make_shield(grid::Grid, action_set::Dict{Tuple{Int64,CartesianIndex},Ab
     no_action_set´ = nothing
     a_tombstones = 0
     n_tombstones = 0
-    dead[findall(p -> isempty(p), no_action_set)] .= true
+    #dead[findall(p -> isempty(p), no_action_set)] .= true
     #filter!(p -> !isempty(p.second), action_set)
     action_set = Dict{Tuple{Int64,CartesianIndex},AbstractArray{CartesianIndex}}(action_set)
     no_action_set = Dict{CartesianIndex,AbstractArray{CartesianIndex}}(no_action_set)
@@ -669,7 +669,9 @@ function make_shield(grid::Grid, action_set::Dict{Tuple{Int64,CartesianIndex},Ab
 
         #@show action_set == action_set´
         i -= 1
-
+        if i % 10 == 0
+            println("$(max_steps - i) : $(Dates.format(now(), "HH:MM:SS"))")
+        end
     end
     #@show length(keys(action_set))
     #@show length(keys(no_action_set))
@@ -703,7 +705,7 @@ function shield_step!(deadCells::BitArray, can_act_matrix, no_action_bad_matrix,
             #can_act = can_act_matrix[idx]
             approved_action_count = 0
             if can_act_matrix[idx]
-                should_act = false
+                #should_act = false
                 for act in Act
                     # maybe we should check if the action is even in the action_set first, but this is probably faster than checking for every action. 
                     if haskey(action_set, (act.id, idx))
@@ -724,10 +726,10 @@ function shield_step!(deadCells::BitArray, can_act_matrix, no_action_bad_matrix,
                         end
                     end
                 end
-                if !should_act
-                    #can_act_matrix[idx] = false
-                    #push!(act_pop_keys, (0, idx))
-                end
+                #if !should_act
+                #can_act_matrix[idx] = false
+                #push!(act_pop_keys, (0, idx))
+                #end
             end
             #@show can_act
             #@show can_act, isempty(cell.pCells)

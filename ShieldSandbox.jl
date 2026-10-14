@@ -20,9 +20,9 @@ cscheme = palette(:matter, 2^length(euclideanHybridSystem.Act)+1; rev=true)
 
 δ⁻ = 0.001
 
+#GC.gc(true)
 # TODO - Looking at the serialized reach by act dict it looks like it maps to cells that only have a idx but no other information.
 #=
-GC.gc(true)
 grid = nothing
 reach_by_Act = nothing
 if fresh_grid
@@ -46,7 +46,9 @@ close(f)
 =#
 
 #@allocations ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-@time grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+#_, _, _ = ReACTed_reachable_cell_t(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+@time grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell_t(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+#ProfileView.@profview _, _, _ = ReACTed_reachable_cell_t(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 #ProfileView.@profview _, _, _ = ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 #@show length(values(reach_by_no_Act))
 #@show length(unique(values(reach_by_no_Act)))
@@ -108,7 +110,9 @@ end
 =#
 #@show (length(keys(reach_by_Act)), length(keys(reach_by_no_Act)))
 
-@time shield, iters, act_set, no_act_set = make_shield(grid, reach_by_Act, reach_by_no_Act, 70, euclideanHybridSystem.Act)
+#ProfileView.@profview _, _, _, _ = make_shield(grid, reach_by_Act, reach_by_no_Act, 70, euclideanHybridSystem.Act)
+#@show typeof(reach_by_Act)
+shield, iters, act_set, no_act_set = make_shield(grid, reach_by_Act, reach_by_no_Act, 70, euclideanHybridSystem.Act)
 
 #shield = grid
 #act_set = reach_by_Act
@@ -173,7 +177,7 @@ if make_plot
             push!(invalid_cells, idx)
             #push!(unsafe, zonotopeArray3d[idx])
         else
-            heatmap_matrix[idx] += 1
+            heatmap_matrix[idx] = 1
 
         end
         if shield.deadCells[idx]

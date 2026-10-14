@@ -83,7 +83,8 @@ function loadBouncingBallShieldedWithInput()
     c = [-9.81, 0.0]
     u = Zonotope(c, [zero(c)])
     #u = Zonotope(zeros(2), [zero(c)])
-    S = Hyperrectangle([0.0, 5.], [14., 5.0]) # p: [-1, 16], v: [-15, 15], g: [1,1]. Should be [0.0, 5.0], [14., 5.0]
+    S = Hyperrectangle([0.0, 7.5], [15., 7.5]) # p: [-1, 16], v: [-15, 15], g: [1,1]. Should be [0.0, 5.0], [14., 5.0]
+    #S = Hyperrectangle([0.0, 3.5], [13., 3.5]) # p: [-1, 16], v: [-15, 15], g: [1,1]. Should be [0.0, 5.0], [14., 5.0]
     #S = Hyperrectangle([0.0, 0.25], [3., 0.25]) # TEST 
 
     guard = HPolyhedron([

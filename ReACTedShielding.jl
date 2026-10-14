@@ -461,7 +461,7 @@ function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity,
                 return propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, invariantProjVectors, invariantProjBounds, alg, maxOrder, reduceOrder)
                 =#
             #else
-            reachable_by_flow[idx] = get_touching_cell_idxs_l(grid, z)
+            reachable_by_flow[idx] = get_touching_cell_idxs_lz(grid, z)
 
             #end
 
@@ -493,7 +493,7 @@ function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity,
             #    reachable_by_action[(act, idx)] = copy(touches_list)
             #reachable_by_flow[idx] = get_touching_cell_idxs(grid, z)
             #end
-            reachable_by_action[(act.id, idx)] = get_touching_cell_idxs_l(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
+            reachable_by_action[(act.id, idx)] = get_touching_cell_idxs_lz(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
 
             if act.id == 1
                 #@show get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector)), LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector)

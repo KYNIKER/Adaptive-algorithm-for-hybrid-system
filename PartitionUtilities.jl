@@ -526,6 +526,91 @@ function get_touching_cell_idxs_l(grid::Grid, convexSet::LazySet)
     return unique(touching_cell_idxs)
 end
 
+function get_touching_cell_idxs_lz(grid::Grid, convexSet::Zonotope{Float64,Vector{Float64},Matrix{Float64}})
+    touching_cell_idxs = []
+
+    lower_bounds, upper_bounds = clamp.(LazySets.low(convexSet), grid.lower, grid.upper), clamp.(LazySets.high(convexSet), grid.lower, grid.upper)
+    #lower_bounds = Int.(floor.(abs.(lower_bounds .- grid.lower) ./ grid.granularity) .+ 1)
+    lower_bounds = Int.(max.(floor.(abs.(lower_bounds .- grid.lower) ./ grid.granularity), 1))
+
+
+    upper_bounds = Int.(ceil.(abs.(upper_bounds .- grid.lower) ./ grid.granularity)) #floor.(min.(upper_bounds, grid.upper) .- grid.lower) ./ grid.granularity
+
+    sweeping_dim = argmax(upper_bounds[i]-lower_bounds[i] for i in 1:grid.dimension)
+    hbox::LazySets.HyperrectangleModule.Hyperrectangle{Float64,Vector{Float64},Vector{Float64}} = Hyperrectangle(grid.lower .+ (granularity/2), fill(granularity/2, grid.dimension))
+    #hbox = Hyperrectangle(grid.lower .+ (granularity/2), fill(granularity/2, grid.dimension))
+    if upper_bounds[sweeping_dim] - lower_bounds[sweeping_dim] > 1
+        #println("f'ing hope so")
+        #upper_bounds[splitting_dim] = lower_bounds[splitting_dim] + cld(upper_bounds[splitting_dim] - lower_bounds[splitting_dim], 2) #cld(upper_bounds[splitting_dim], 2)
+
+
+        cartesian_offset = CartesianIndex(ntuple(i -> i == sweeping_dim ? 1 : 0, grid.dimension))
+
+        sweeping_range = range(lower_bounds[sweeping_dim], upper_bounds[sweeping_dim])
+        rev_sweeping_range = range(upper_bounds[sweeping_dim], lower_bounds[sweeping_dim]; step=-1)
+        for idx in CartesianIndices(ntuple(i -> i == sweeping_dim ? (0:0) : (lower_bounds[i]:max(upper_bounds[i], lower_bounds[i])), grid.dimension))
+            lower_idx = 0
+            upper_idx = 0
+            for off in sweeping_range
+                of = (car2vec((idx + (cartesian_offset * off))) .- 1) .* granularity
+
+                LazySets.API.translate!(hbox, of)
+                if !isdisjoint(convexSet, hbox)
+                    LazySets.API.translate!(hbox, -of)
+
+
+                    lower_idx = off
+                    break
+
+                end
+                LazySets.API.translate!(hbox, -of)
+            end
+            if lower_idx == 0
+                continue
+            end
+            for off in rev_sweeping_range
+
+                of = (car2vec(idx + (cartesian_offset * off)) .- 1) .* granularity
+
+
+                LazySets.API.translate!(hbox, of)
+                if !isdisjoint(convexSet, hbox)
+                    LazySets.API.translate!(hbox, -of)
+
+                    upper_idx = off
+                    break
+
+                end
+                LazySets.API.translate!(hbox, -of)
+            end
+            if upper_idx == 0
+                continue
+            end
+
+            for elem in lower_idx:upper_idx
+
+                push!(touching_cell_idxs, idx + (cartesian_offset * elem))
+            end
+
+        end
+    else
+        #idxs = CartesianIndices(ntuple(i -> lower_bounds[i]:max(upper_bounds[i], 1), grid.dimension))
+
+
+        #for idx in CartesianIndices(ntuple(i -> lower_bounds[i] > upper_bounds[i] ? (min(lower_bounds[i], grid.numCells[i]):upper_bounds[i]) : lower_bounds[i]:min(upper_bounds[i], grid.numCells[i]), grid.dimension))
+        for idx in CartesianIndices(ntuple(i -> lower_bounds[i]:upper_bounds[i], grid.dimension))
+            of = (car2vec(idx) .- 1) .* granularity
+            LazySets.API.translate!(hbox, of)
+            if !isdisjoint(convexSet, hbox)
+                push!(touching_cell_idxs, idx)
+            end
+            LazySets.API.translate!(hbox, -of)
+        end
+
+    end
+    return unique(touching_cell_idxs)
+end
+
 function get_contained_cells(grid::Grid, convexSet::LazySet)
     contained_cells = []
 
@@ -637,6 +722,9 @@ function make_shield(grid::Grid, action_set::Dict{Tuple{Int64,CartesianIndex},Ab
         #grid´, action_set´ = shield_step!(grid, action_set, no_action_set, Act)
         #dead´, la, ln, ld, action_set´, no_action_set´ = shield_step!(dead, can_act_matrix, no_action_bad_matrix, action_set, no_action_set, Act, dims)
         dead´, la, ln, ld = shield_step!(dead, can_act_matrix, no_action_bad_matrix, action_set, no_action_set, Act, dims)
+        if i % 10 == 0
+            println("$(max_steps - i) : $(Dates.format(now(), "HH:MM:SS"))")
+        end
         #@show can_act_matrix == trues(grid.numCells...)
         if la == 0 && ln == 0 && ld == 0
 
@@ -669,9 +757,6 @@ function make_shield(grid::Grid, action_set::Dict{Tuple{Int64,CartesianIndex},Ab
 
         #@show action_set == action_set´
         i -= 1
-        if i % 10 == 0
-            println("$(max_steps - i) : $(Dates.format(now(), "HH:MM:SS"))")
-        end
     end
     #@show length(keys(action_set))
     #@show length(keys(no_action_set))

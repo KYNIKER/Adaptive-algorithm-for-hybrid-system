@@ -512,6 +512,210 @@ function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity,
 
 end
 
+function ReACTed_reachable_cell_online(system::EuclideanHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true)
+    grid = Grid(system.statespace, granularity)
+    @show foldl(*, grid.numCells), grid.numCells
+
+
+    phiDict, tPhiDict, inputDict = phi_input_dict(system.flowMatrix, system.input, δ⁻, δ⁺, alg, maxOrder, reduceOrder)
+    d = δ⁻
+    #dia::Matrix{Float64} = diagm(δ⁻ * ones(XDim))
+    isInvA = isinvertible(system.flowMatrix)
+    A = system.flowMatrix
+    #Φ = copy(phiDict[d])
+    A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(system.flowMatrix)
+    Φcache = system.flowMatrix == A_abs ? phiDict[d] : nothing
+    P2A_abs = ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, isInvA, Φcache)
+
+    #frontierZonotopes = zonotopeArray[collect(CartesianIndex(c) for c in [gFrontierN; cFrontierN])]#zonotopeArray[collect(c.id for c in frontierN)]
+    #push!(frontierZonotopes, zonotopeArray[40, 40, 1])
+    #reachtimes = map(z -> propagate_set(z, [0.0, p], δ⁻, δ⁺, system, phiDict, tPhiDict, alg, maxOrder, reduceOrder), frontierZonotopes)
+
+    #
+    #   0: Didnt hit either constraint, guard or invariant
+    #   1: Hit constraint
+    #   2: Hit guard
+    #   3: Hit invariant surface
+    #
+
+    reachable_by_action::Dict{Tuple{Int64,CartesianIndex{grid.dimension}},AbstractArray{CartesianIndex{grid.dimension}}} = Dict{Tuple{Int64,CartesianIndex{grid.dimension}},AbstractArray{CartesianIndex{grid.dimension}}}()
+    reachable_by_flow::Dict{CartesianIndex{grid.dimension},AbstractArray{CartesianIndex{grid.dimension}}} = Dict{CartesianIndex{grid.dimension},AbstractArray{CartesianIndex{grid.dimension}}}()
+    degenerate_dimensions = collect(u - l == l ? l - (granularity / 2) : 0. for (l, u) in zip(grid.lower, grid.upper))
+    #@show degenerate_dimensions
+    Z = remove_zero_generators(Zonotope(degenerate_dimensions, diagm(map(x -> x == 1 ? 0. : granularity/2, grid.numCells))))
+    #dc = 0
+    count = 0
+    #@show grid.lower
+    U = system.input
+    max_input = linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, p, alg, false, nothing), U)
+    max_flow = exp(p .* system.flowMatrix)
+    lower_offset = grid.lower .+ (granularity/2)
+    generatorDict = ReACT_discretize_decomposed_generators(Z, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict)
+    invariant = hyperrectangle_to_HPolyhedron(system.statespace)
+    #discretizationDict = Dict()
+    discretizationDict, finaldims = ReACT_discretize_combine_with_offsets(Z, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict)
+    preallocated_center = zeros(grid.dimension)
+    preallocated_genmat = zeros(grid.dimension, finaldims)
+    preallocated_inter_genmat = zeros(grid.dimension, finaldims)
+
+    constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(system.globalConstraints[1])
+    guardProjVectors, guardProjBounds = getHalfSpaceProjections(system.edges[1].guard)
+    invariantProjVectors, invariantProjBounds = getHalfSpaceProjections(invariant)
+
+    hbox = Hyperrectangle(grid.lower .+ (granularity/2), fill(granularity/2, grid.dimension))
+    guard_invariant_intersection = intersection(system.edges[1].guard, invariant)
+
+    attempt_recorder = zeros(4)
+    identity_matrix = diagm(ones(grid.dimension))
+
+    done_list = CartesianIndex{grid.dimension}[]
+    frontier_list = CartesianIndex{grid.dimension}[]
+
+    offset_list = offsets(grid)
+
+    for edge in system.edges
+        for didx in get_touching_cell_idxs_l(grid, edge.guard)
+            #@show didx
+            push!(frontier_list, didx)
+        end
+    end
+
+    for global_constraint in system.globalConstraints
+        #guard_invariant_intersection = intersection(guard_invariant_intersection, global_constraint)
+        for didx in get_touching_cell_idxs_l(grid, global_constraint)
+            #@show didx
+            grid.deadCells[didx] = true
+            push!(done_list, didx)
+        end
+    end
+    push!(frontier_list, grow_indices(grid, done_list, offset_list)...)
+
+    @show frontier_list
+    throw(ArgumentError("Not implemented yet."))
+    for idx in CartesianIndices(grid.deadCells)
+        if grid.deadCells[idx]
+            #println("Skipping dead cell: ", idx)
+            continue
+
+            #else
+            #@show "Processing cell: ", idx
+        end
+        count += 1
+        of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
+        LazySets.API.translate!(Z, of)
+        #@show Z, idx, of
+
+
+        ReACT_discretize_combine_with_offset_vector!(preallocated_center, preallocated_genmat, preallocated_inter_genmat, discretizationDict, of, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict)
+        #z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
+
+        z, f = propagate_set_t(Z, [0.0, p], δ⁻, δ⁺, system, system.edges, identity_matrix, attempt_recorder, grid.dimension, P2A_abs, guardProjVectors, guardProjBounds, discretizationDict, phiDict, tPhiDict, inputDict, max_input, max_flow, guard_invariant_intersection, alg, maxOrder, reduceOrder)
+        #=
+        if idx == CartesianIndex(100, 10)
+            #@show propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, discretizationDict, phiDict, tPhiDict, inputDict, max_input, max_flow, guard_invariant_intersection, invariant, invariantProjVectors, invariantProjBounds, alg, maxOrder, reduceOrder)
+            #@show invariant, invariantProjVectors
+            @show f
+            @show z
+            @show minkowski_sum(linear_map(max_flow, Z), max_input)
+            @show minkowski_sum(linear_map(exp((p-δ⁻) .* system.flowMatrix), Z), linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, p-δ⁻, alg, false, nothing), U))
+            @show LazySets.API.isdisjoint(z, system.globalConstraints[1])
+            @show LazySets.API.isdisjoint(z, system.edges[1].guard)
+            @show LazySets.API.isdisjoint(z, invariant)
+            @show get_touching_cell_idxs_b(grid, z)
+            @show get_touching_cell_idxs_t(grid, z)
+            @show get_touching_cell_idxs(grid, z)
+            reachtime, newSet, inputSet, flag = ReACT_guards_b(δ⁻, δ⁺, [0.0, p], system.statespace, system.edges[1].guard, copy(guardProjVectors), copy(guardProjBounds), system.globalConstraints[1], copy(constraintProjVectors), copy(constraintProjBounds), invariant, copy(invariantProjVectors), copy(invariantProjBounds), 2, phiDict, tPhiDict, discretizationDict, inputDict)
+            @show reachtime, newSet, inputSet, flag
+            @show minkowski_sum(newSet, inputSet)
+        end
+        =#
+        #=if !LazySets.API.isdisjoint(z, system.edges[1].guard)
+            dc += 1
+        end=#
+        #if idx == CartesianIndex(2, 9)
+        #    @show z, f
+        #end
+        if f != 1 #&& f != 3
+            #@show LazySets.API.isdisjoint(Z, system.globalConstraints[1]), Z, idx
+            #grid.deadCells[idx] = true
+
+            #println("so deads")
+            #touches_list = get_touching_cell_idxs(grid, z)
+            #if !isempty(touches_list)
+            #    reachable_by_flow[idx] = copy(touches_list)#get_touching_cell_idxs(grid, z)
+            #end
+
+            # Maybe check if flag is 2 and handle this seperatly. 
+            #if f == 3
+            #@show LazySets.API.isdisjoint(z, invariant)
+
+            #grid.deadCells[idx] = true
+            #=
+            elseif f == 2
+                intersectingSetsList = ReACT_touches_set_constant_input_b(newSet, inputSet, edge.guard, copy(guardProjVectors), copy(guardProjBounds), invariantProjVectors, invariantProjBounds, δ⁻, [reachtime, endtime], PhiDict, inputDict)
+
+
+                tempIntersect = foldl(ConvexHull, intersectingSetsList)
+                intersectedSet = convert(Zonotope, box_approximation(tempIntersect))
+                jumpSet = linear_map(edge.jumpMatrix, zonotopeStripIntersection(intersectedSet, guard_intersection))
+                if !isnothing(edge.jumpVector)
+                    LazySets.translate!(jumpSet, edge.jumpVector)
+                end
+
+                return propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, invariantProjVectors, invariantProjBounds, alg, maxOrder, reduceOrder)
+                =#
+            #else
+            reachable_by_flow[idx] = get_touching_cell_idxs_lz(grid, z)
+
+            #end
+
+
+
+
+            #reachable_by_flow[idx] = get_touching_cell_idxs_b(grid, z)
+            #else
+            #grid.array[idx].pCells = get_touching_cell_idxs(grid, z)
+        else
+            grid.deadCells[idx] = true
+        end
+        #grid.array[idx].sidx[1] = copy(f)
+        LazySets.API.translate!(Z, -of)
+        if count % 10000 == 0
+            println(count)
+            #GC.gc()
+        end
+    end
+
+    #can_act = false
+    for act in system.Act
+        #@show size(get_touching_cell_idxs_l(grid, act.guard))
+        for idx in get_touching_cell_idxs_l(grid, act.guard)
+            of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
+            LazySets.API.translate!(Z, of)
+            #touches_list = get_touching_cell_idxs(grid, z)
+            #touches_list = get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
+            #if !isempty(touches_list)
+            #    reachable_by_action[(act, idx)] = copy(touches_list)
+            #reachable_by_flow[idx] = get_touching_cell_idxs(grid, z)
+            #end
+            reachable_by_action[(act.id, idx)] = get_touching_cell_idxs_lz(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
+
+            if act.id == 1
+                #@show get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector)), LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector)
+                #reachable_by_action[(act.id, idx)] = get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
+            end
+            if grid.deadCells[idx]
+                grid.deadCells[idx] = false
+            end
+            LazySets.API.translate!(Z, -of)
+        end
+    end
+
+    #@show dc
+    return grid, reachable_by_action, reachable_by_flow
+
+end
+
 #
 #   Right now this makes quite a bit of allocations.
 #   TODO - Needs a fix for determining the final reachset. Right now it is overapproximated and this is worse for large timestep sizes.

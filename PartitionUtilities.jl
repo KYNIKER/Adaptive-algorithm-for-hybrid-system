@@ -665,15 +665,16 @@ end
 
 function offsets(grid::Grid)
     offsets = [Tuple(id) for id in CartesianIndices(([1:1:3 for i in 1:grid.dimension]...,))]
-    offsets = [t .- Tuple(fill(2, grid.dimension)) for t in offsets]
-    return delete!(Set(offsets), Tuple(fill(0, grid.dimension)))
+    offsets = [CartesianIndex(t .- Tuple(fill(2, grid.dimension))) for t in offsets]
+    return delete!(Set(offsets), CartesianIndex(Tuple(fill(0, grid.dimension))))
 end
 
 function grow_indices(grid::Grid, idxs)
     offset = offsets(grid)
     res = []
     for idx in idxs
-        union!(res, collect(Tuple(idx .+ of) for of in offset))
+        @show idx, offset
+        union!(res, collect(idx + CartesianIndex(of) for of in offset))
     end
 
     intersect!(res, union(Tuple(idx) for idx in CartesianIndices(grid.array)))
@@ -684,11 +685,12 @@ end
 function grow_indices(grid::Grid, idxs, offset)
     res = []
     for idx in idxs
-        union!(res, collect(Tuple(idx .+ of) for of in offset))
+        union!(res, collect(idx .+ of for of in offset))
     end
 
-    intersect!(res, union(Tuple(idx) for idx in CartesianIndices(grid.array)))
-    setdiff!(res, collect(Tuple(id) for id in idxs))
+    intersect!(res, union(idx for idx in CartesianIndices(grid.deadCells)))
+    setdiff!(res, collect(CartesianIndex(id) for id in idxs))
+    @show res
     return res
 end
 

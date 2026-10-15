@@ -83,7 +83,7 @@ function loadBouncingBallShieldedWithInput()
     c = [-9.81, 0.0]
     u = Zonotope(c, [zero(c)])
     #u = Zonotope(zeros(2), [zero(c)])
-    S = Hyperrectangle([0.0, 7.5], [15., 7.5]) # p: [-1, 16], v: [-15, 15], g: [1,1]. Should be [0.0, 5.0], [14., 5.0]
+    S = Hyperrectangle([0.0, 5.5], [15., 5.5]) # p: [-1, 16], v: [-15, 15], g: [1,1]. Should be [0.0, 5.0], [14., 5.0]
     #S = Hyperrectangle([0.0, 3.5], [13., 3.5]) # p: [-1, 16], v: [-15, 15], g: [1,1]. Should be [0.0, 5.0], [14., 5.0]
     #S = Hyperrectangle([0.0, 0.25], [3., 0.25]) # TEST 
 
@@ -94,7 +94,7 @@ function loadBouncingBallShieldedWithInput()
     ])
 
     jumpMatrix = [-0.85 0.0; 0.0 0.]
-    #jumpMatrix = [-1.0 0.0; 0.0 0.]
+    #jumpMatrix = [-1. 0.0; 0.0 0.0]
 
     edges::Vector{Edge} = [Edge(1, guard, jumpMatrix, zeros(2))]
 
@@ -116,7 +116,7 @@ function loadBouncingBallShieldedWithInput()
     act2 = Action(2, HPolyhedron([
         LazySets.HalfSpace(sparsevec([2], [-1.], 2), -4.0), # p >= 4
         LazySets.HalfSpace(sparsevec([1], [-1.], 2), 0.0)  # v >= 0
-    ]), diagm([0.9, 1.]), [-4.0, 0.0])
+    ]), diagm([-0.9, 1.]), [-4.0, 0.0])
 
     Act = [act1, act2]
 

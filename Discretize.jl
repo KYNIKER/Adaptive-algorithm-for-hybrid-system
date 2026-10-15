@@ -588,7 +588,8 @@ function PhiInputDict(A, U, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAna
     #println("Here")
     dU = linear_map(dia, U)#LinearMap(δ⁻, U)#
     E_ψ = symmetric_interval_hull(linear_map(P2A_abs, symmetric_interval_hull(LazySets.linear_map(A, U))))
-    inputDiscritezationDict[0] = overapproximate(minkowski_sum(dU, E_ψ), Zonotope)
+    #inputDiscritezationDict[0] = overapproximate(minkowski_sum(dU, E_ψ), Zonotope)
+    inputDiscritezationDict[0] = minkowski_sum(dU, E_ψ)
     #E_ψ = SymmetricIntervalHull(LinearMap(P2A_abs, SymmetricIntervalHull(A * U)))
     #P = overapproximate(minkowski_sum(dU, E_ψ), Zonotope) #
 

@@ -699,6 +699,8 @@ end
 function make_shield(grid::Grid, action_set::Dict{Tuple{Int64,CartesianIndex{N}},AbstractArray{CartesianIndex{N}}}, no_action_set::Dict{CartesianIndex{N},AbstractArray{CartesianIndex{N}}}, max_steps::Int, Act::Vector{Action}) where N
     if max_steps == 0
         #@show findall(p -> isempty(p), no_action_set)
+        grid.deadCells[findall(p -> isempty(p), no_action_set)] .= true
+
         return (grid, max_steps, action_set, no_action_set)
     end
 

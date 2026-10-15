@@ -407,7 +407,7 @@ function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity,
 
         z, f = propagate_set_t(Z, [0.0, p], δ⁻, δ⁺, system, system.edges, identity_matrix, attempt_recorder, grid.dimension, P2A_abs, guardProjVectors, guardProjBounds, discretizationDict, phiDict, tPhiDict, inputDict, max_input, max_flow, guard_invariant_intersection, alg, maxOrder, reduceOrder)
         #=
-        if idx == CartesianIndex(100, 10)
+        if idx == CartesianIndex(319, 2)
             #@show propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, discretizationDict, phiDict, tPhiDict, inputDict, max_input, max_flow, guard_invariant_intersection, invariant, invariantProjVectors, invariantProjBounds, alg, maxOrder, reduceOrder)
             #@show invariant, invariantProjVectors
             @show f
@@ -417,12 +417,16 @@ function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity,
             @show LazySets.API.isdisjoint(z, system.globalConstraints[1])
             @show LazySets.API.isdisjoint(z, system.edges[1].guard)
             @show LazySets.API.isdisjoint(z, invariant)
-            @show get_touching_cell_idxs_b(grid, z)
+            @show get_touching_cell_idxs_t(grid, minkowski_sum(linear_map(max_flow, Z), max_input))
             @show get_touching_cell_idxs_t(grid, z)
-            @show get_touching_cell_idxs(grid, z)
-            reachtime, newSet, inputSet, flag = ReACT_guards_b(δ⁻, δ⁺, [0.0, p], system.statespace, system.edges[1].guard, copy(guardProjVectors), copy(guardProjBounds), system.globalConstraints[1], copy(constraintProjVectors), copy(constraintProjBounds), invariant, copy(invariantProjVectors), copy(invariantProjBounds), 2, phiDict, tPhiDict, discretizationDict, inputDict)
+            #reachtime, newSet, inputSet, flag = ReACT_guards_t(δ⁻, δ⁺, [0.0, p], system.statespace, system.edges[1].guard, copy(guardProjVectors), copy(guardProjBounds), system.globalConstraints[1], copy(constraintProjVectors), copy(constraintProjBounds), invariant, copy(invariantProjVectors), copy(invariantProjBounds), 2, phiDict, tPhiDict, discretizationDict, inputDict)
+            reachtime, newSet, inputSet, flag = ReACT_guards_t(δ⁻, δ⁺, [0.0, p], identity_matrix, attempt_recorder, Zonotope(zeros(grid.dimension), zeros(size(genmat((inputDict[δ⁻]))))), copy(guardProjVectors), copy(guardProjBounds), 2, phiDict, tPhiDict, discretizationDict, inputDict)
+
             @show reachtime, newSet, inputSet, flag
+            @show linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, reachtime, alg, false, nothing), U)
             @show minkowski_sum(newSet, inputSet)
+            @show get_touching_cell_idxs_t(grid, minkowski_sum(newSet, inputSet))
+
         end
         =#
         #=if !LazySets.API.isdisjoint(z, system.edges[1].guard)
@@ -461,6 +465,8 @@ function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity,
                 return propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, invariantProjVectors, invariantProjBounds, alg, maxOrder, reduceOrder)
                 =#
             #else
+
+
             reachable_by_flow[idx] = get_touching_cell_idxs_lz(grid, z)
 
             #end
@@ -476,7 +482,7 @@ function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity,
         end
         #grid.array[idx].sidx[1] = copy(f)
         LazySets.API.translate!(Z, -of)
-        if count % 10000 == 0
+        if count % 1000 == 0
             println(count)
             #GC.gc()
         end
@@ -494,12 +500,12 @@ function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity,
             #    reachable_by_action[(act, idx)] = copy(touches_list)
             #reachable_by_flow[idx] = get_touching_cell_idxs(grid, z)
             #end
-            reachable_by_action[(act.id, idx)] = get_touching_cell_idxs_lz(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
+            reachable_by_action[(act.id, idx)] = get_touching_cell_idxs_lz(grid, minkowski_sum(linear_map(max_flow, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector)), max_input))
 
-            if act.id == 1
-                #@show get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector)), LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector)
-                #reachable_by_action[(act.id, idx)] = get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
-            end
+            #if act.id == 1
+            #@show get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector)), LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector)
+            #reachable_by_action[(act.id, idx)] = get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
+            #end
             if grid.deadCells[idx]
                 grid.deadCells[idx] = false
             end
@@ -808,7 +814,7 @@ function propagate_jumpset(X0, interval, δ⁻::Float64, δ⁺::Float64, system,
         A_abs = abs.(system.flowMatrix)
         max_input = linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, endtime - time, alg, false, nothing), system.input)
 
-        return (minkowski_sum(linear_map(exp((endtime - time) .* system.flowMatrix), X0), max_input), 0)
+        #return (minkowski_sum(linear_map(exp((endtime - time) .* system.flowMatrix), X0), max_input), 0)
         #
         #   0: Didnt hit either constraint, guard or invariant
         #   1: Hit constraint
@@ -828,6 +834,9 @@ function propagate_jumpset(X0, interval, δ⁻::Float64, δ⁺::Float64, system,
             #end
 
         elseif flag == 2
+            return (minkowski_sum(newSet, inputSet), 0)
+            #return (minkowski_sum(linear_map(exp((endtime - time) .* system.flowMatrix), X0), max_input), 0)
+
             #@show reachtime, newSet, inputSet, time
             #throw(error("Nope not happening"))
             #@show inputSet
@@ -843,7 +852,7 @@ function propagate_jumpset(X0, interval, δ⁻::Float64, δ⁺::Float64, system,
             return propagate_jumpset(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, identity_matrix, attemptsRecorder, dims, Φ₂, guardProjVectors, guardProjBounds, PhiDict, TPhiDict, inputDict, alg, maxOrder, reduceOrder)
         end
         #@show LazySets.API.isdisjoint(minkowski_sum(newSet, inputSet), invariant), newSet.center, flag, reachtime
-        return (minkowski_sum(newSet, inputSet), 3)
+        return (minkowski_sum(newSet, inputSet), 1)
     end
 
 end
@@ -948,8 +957,8 @@ function propagate_set_t(X0, interval, δ⁻::Float64, δ⁺::Float64, system, l
         #   3: Hit invariant surface
         #
         if flag == 0
+            return (minkowski_sum(linear_map(max_flow, X0), max_input), 0)
             if time == 0.0
-                return (minkowski_sum(linear_map(max_flow, X0), max_input), 0)
             else
                 A_abs = abs.(system.flowMatrix)
                 max_input = linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, endtime - time, alg, false, nothing), inputDict[0])
@@ -1287,8 +1296,8 @@ function ReACT_guards_b(δ⁻::Float64, δ⁺::Float64, interval, statespace, gu
                     approveFlag = true
                     if currentTimeStep + time < endtime
                         #input = input + linear_map(Φ, inputDiscretizationDict[currentTimeStep])
-                        input = linear_map(Φ, input) + inputDiscretizationDict[currentTimeStep]
-                        #input = linear_map(PhiDict[currentTimeStep], input) + inputDiscretizationDict[currentTimeStep]
+                        #input = linear_map(Φ, input) + inputDiscretizationDict[currentTimeStep]
+                        input = linear_map(PhiDict[currentTimeStep], input) + inputDiscretizationDict[currentTimeStep]
 
                         #Sρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), constraintProjVectors)
                         #Gρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), guardProjVectors)
@@ -1340,7 +1349,8 @@ function ReACT_guards_b(δ⁻::Float64, δ⁺::Float64, interval, statespace, gu
                     #if 0 == guardCheck(discritezationDict[currentTimeStep], Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds)
                     approveFlag = true
 
-                    input = linear_map(Φ, input) + inputDiscretizationDict[currentTimeStep]
+                    #input = linear_map(Φ, input) + inputDiscretizationDict[currentTimeStep]
+                    input = linear_map(PhiDict[currentTimeStep], input) + inputDiscretizationDict[currentTimeStep]
 
                     #Sρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), constraintProjVectors)
                     #Gρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), guardProjVectors)

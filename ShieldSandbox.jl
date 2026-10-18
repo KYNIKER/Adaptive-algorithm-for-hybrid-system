@@ -10,7 +10,7 @@ include("ReACTedShielding.jl")
 
 fresh_grid = false
 make_plot = true
-granularity = 0.1  # Example granularity
+granularity::Float64 = 0.1  # Example granularity
 grid_name = "ball" * string(granularity)
 savefile = grid_name * ".jld2"
 
@@ -46,73 +46,14 @@ close(f)
 =#
 
 #@allocations ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-_, _, _ = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+#_, _, _ = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 @time grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell_t(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-#ProfileView.@profview _, _, _ = ReACTed_reachable_cell_t(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+ProfileView.@profview _, _, _ = ReACTed_reachable_cell_t(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 #ProfileView.@profview _, _, _ = ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-#@show length(values(reach_by_no_Act))
-#@show length(unique(values(reach_by_no_Act)))
-#@show in([], values(reach_by_no_Act))
-#@show length(values(reach_by_Act))
-#@show length(unique(values(reach_by_Act)))
-#@show in([], values(reach_by_Act))
-
-#=
-test_Z = Zonotope([-13.1, 0.0], diagm([1., 1.1]))
-#ProfileView.@profview _ = get_touching_cell_idxs_t(grid, test_Z)
-_ = get_touching_cell_idxs_b(grid, test_Z)
-_ = get_touching_cell_idxs_t(grid, test_Z)
-_ = get_touching_cell_idxs(grid, test_Z)
-@time res1 = get_touching_cell_idxs_b(grid, test_Z)
-@time res2 = get_touching_cell_idxs_t(grid, test_Z)
-@time res3 = get_touching_cell_idxs(grid, test_Z)
-@show res1
-@show res3
-@show issubset(res1, res2)
-@show issubset(res2, res1)
-@show issubset(res1, res3)
-=#
-#=
-@show maximum(length, values(reach_by_Act))
-@show maximum(length, values(reach_by_no_Act))
-@show minimum(length, values(reach_by_Act))
-@show minimum(length, values(reach_by_no_Act))
-=#
-#@time _, _, _ = ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-#=
-_, _, _ = ReACTed_reachable_cell(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-@time _, _, _ = ReACTed_reachable_cell(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-=#
-#ProfileView.@profview _, _, _ = ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^6 * δ⁻)
-#=
-@show length(reach_by_Act), length(reach_by_no_Act)
-
-@show grid.array[40, 6]
-@show grid.array[40, 5]
-@show grid.deadCells[40, 6]
-@show grid.deadCells[40, 5]
-=#
-#tidx = CartesianIndex(20, 3)
-#=
-tidx = CartesianIndex(30, 20)
-@show haskey(reach_by_no_Act, tidx)
-if haskey(reach_by_no_Act, tidx)
-    @show reach_by_no_Act[tidx]
-end
-
-for act in euclideanHybridSystem.Act
-    @show haskey(reach_by_Act, (act, tidx))
-    if haskey(reach_by_Act, (act, tidx))
-        @show reach_by_Act[(act, tidx)]
-    end
-end
-=#
-#@show (length(keys(reach_by_Act)), length(keys(reach_by_no_Act)))
-
+#@show grid.deadCells
 #ProfileView.@profview _, _, _, _ = make_shield(grid, reach_by_Act, reach_by_no_Act, 70, euclideanHybridSystem.Act)
 #@show typeof(reach_by_Act)
-shield, iters, act_set, no_act_set = make_shield(grid, reach_by_Act, reach_by_no_Act, 70, euclideanHybridSystem.Act)
+shield, iters, act_set, no_act_set = make_shield(grid, reach_by_Act, reach_by_no_Act, 2, euclideanHybridSystem.Act)
 
 #shield = grid
 #act_set = reach_by_Act
@@ -121,15 +62,7 @@ shield, iters, act_set, no_act_set = make_shield(grid, reach_by_Act, reach_by_no
 #@show (length(keys(act_set)), length(keys(no_act_set)))
 #ProfileView.@profview shield, iters = make_shield(grid, reach_by_Act, reach_by_no_Act, 50, euclideanHybridSystem.Act)
 #@time _, _ = make_shield(grid, reach_by_Act, reach_by_no_Act, 500, euclideanHybridSystem.Act)
-#=
-@show length(reach_by_Act), length(reach_by_no_Act)
 
-@show shield.array[40, 6]
-@show shield.array[40, 5]
-@show shield.deadCells[40, 6]
-@show shield.deadCells[40, 5]
-#@show reach_by_Act
-=#
 if make_plot
     unsafe = []
     jumping = []
@@ -183,6 +116,8 @@ if make_plot
         if shield.deadCells[idx]
             heatmap_matrix[idx] = 0
             #push!(unsafe, zonotopeArray3d[cell.id])
+        else
+            #heatmap_matrix[idx] = 1
         end
     end
 
@@ -214,37 +149,60 @@ if make_plot
     end
     #plot!(plt, heatmap(transpose(heatmap_matrix), c=cscheme, colorbar=nothing))
 
-    tidx = CartesianIndex(90, 42)
-    #tidx = CartesianIndex(91, 1)
-    heatmap_matrix[tidx] = 4
-    @show haskey(no_act_set, tidx)
-    if haskey(no_act_set, tidx)
-        for v in no_act_set[tidx]
-            if heatmap_matrix[v] == 0
-                heatmap_matrix[v] = 3
-            else
-                heatmap_matrix[v] = 4
+    #for i in 270:280
+    lower_offset = grid.lower .+ (granularity/2)
+
+    A_abs = abs.(euclideanHybridSystem.flowMatrix)
+    max_input = linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, timePeriod, ReachabilityAnalysis.Exponentiation.BaseExp, false, nothing), euclideanHybridSystem.input)
+    degenerate_dimensions = collect(u - l == l ? l - (granularity / 2) : 0. for (l, u) in zip(grid.lower, grid.upper))
+    #@show degenerate_dimensions
+    aexp = exp(timePeriod * euclideanHybridSystem.flowMatrix)
+    Z = remove_zero_generators(Zonotope(degenerate_dimensions, diagm(map(x -> x == 1 ? 0. : granularity/2, grid.numCells))))
+    #=
+    for i in 319:320
+        for j in 2:2
+            tidx = CartesianIndex(i, j)
+            of = lower_offset + ((car2vec(tidx) .- 1) .* granularity)
+            LazySets.API.translate!(Z, of)
+            @show tidx, get_touching_cell_idxs_lz(grid, minkowski_sum(linear_map(aexp, Z), max_input))
+            #tidx = CartesianIndex(91, 1)
+            heatmap_matrix[tidx] = 4
+            #@show haskey(no_act_set, tidx)
+            if haskey(no_act_set, tidx)
+                for v in no_act_set[tidx]
+                    if heatmap_matrix[v] == 0 || heatmap_matrix[v] == 3 || heatmap_matrix[v] == 2
+                        heatmap_matrix[v] = 3
+                        heatmap_matrix[tidx] = 2
+                    else
+                        heatmap_matrix[v] = 4
+                    end
+                    #heatmap_matrix[v] = 4
+
+                end
+
+                #@show no_act_set[tidx]
             end
-            #heatmap_matrix[v] = 4
-
-        end
-
-        @show no_act_set[tidx]
-    end
-    for key in euclideanHybridSystem.Act
-        if haskey(act_set, (key.id, tidx))
-            for v in act_set[(key.id, tidx)]
-                if heatmap_matrix[v] == 0
-                    heatmap_matrix[v] = 0
-                else
-                    heatmap_matrix[v] = 2
-                    @show v
+            for key in euclideanHybridSystem.Act
+                if haskey(act_set, (key.id, tidx))
+                    for v in act_set[(key.id, tidx)]
+                        if heatmap_matrix[v] == 0 || heatmap_matrix[v] == 3
+                            heatmap_matrix[v] = 3
+                        else
+                            heatmap_matrix[v] = 2
+                            #@show v
+                        end
+                    end
                 end
             end
+            LazySets.API.translate!(Z, -of)
+
         end
     end
+    =#
 
-    plot(heatmap(transpose(heatmap_matrix), c=cgrad([:black, :white, :purple, :yellow, :red], 5, categorical=true), clim=(0, 4), colorbar=true, xlabel="v", ylabel="p", xticks=([0.0, shield.numCells[1]/2, shield.numCells[1]], [string(shield.lower[1]), "0", string(shield.upper[1])]), yticks=([0.0, shield.numCells[2]/2, shield.numCells[2]], [string(shield.lower[2]), string((shield.lower[2]+shield.upper[2])/2), string(shield.upper[2])])); colorbar_ticks=([0.0, 1.0, 2.0, 3.0, 4.0], ["dead", "no action", "act1", "act2", "act1 + act2"]))
+    fig = Plots.plot(heatmap(transpose(heatmap_matrix), c=cgrad([:black, :white, :purple, :yellow, :red], 5, categorical=true), clim=(0, 4), colorbar=true, xlabel="v", ylabel="p", xticks=([0.0, shield.numCells[1]/2, shield.numCells[1]], [string(shield.lower[1]), "0", string(shield.upper[1])]), yticks=([0.0, shield.numCells[2]/2, shield.numCells[2]], [string(shield.lower[2]), string((shield.lower[2]+shield.upper[2])/2), string(shield.upper[2])])); colorbar_ticks=([0.0, 1.0, 2.0, 3.0, 4.0], ["dead", "no action", "act1", "act2", "act1 + act2"]))
+    display(fig)
+    #savefig(fig, "plots/shield.pdf")
 end
 
 

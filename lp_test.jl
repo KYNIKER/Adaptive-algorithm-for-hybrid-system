@@ -3,6 +3,7 @@ using HiGHS
 using LinearAlgebra
 using SparseArrays
 using Plots
+using MathOptInterface
 
 mutable struct LPWorkspace
     highs::Ptr{Cvoid}
@@ -217,12 +218,12 @@ plot!(plt, intersection(hs_intersect, bbox), c=:red)
 plot!(plt, intersection(hs_miss, bbox), c=:blue)
 
 display(plt)
-#=
+
 Z = rand(Zonotope; dim=2, num_generators=20)
 
 @time begin
     for i in 1:100
-        local Z = rand(Zonotope; dim=2, num_generators=20)
+        #local Z = rand(Zonotope; dim=2, num_generators=20)
 
         _ = zonotope_polyhedron_intersect_direct(Z, hs_intersect, highs_model)
         _ = zonotope_polyhedron_intersect_direct(Z, hs_miss, highs_model)
@@ -231,11 +232,29 @@ end
 
 @time begin
     for i in 1:100
-        local Z = rand(Zonotope; dim=2, num_generators=20)
+        #local Z = rand(Zonotope; dim=2, num_generators=20)
 
         _ = LazySets.API.isdisjoint(Z, hs_intersect)
         _ = LazySets.API.isdisjoint(Z, hs_miss)
     end
 end
+solvr = LazySets.default_lp_solver(Float64)
+@time begin
+    for i in 1:100
+        #local Z = rand(Zonotope; dim=2, num_generators=20)
+
+        _ = LazySets.API.isdisjoint(Z, hs_intersect; solver=solvr)
+        _ = LazySets.API.isdisjoint(Z, hs_miss; solver=solvr)
+    end
+end
+
+@time begin
+    empty!(solvr)
+    for i in 1:100
+        #local Z = rand(Zonotope; dim=2, num_generators=20)
+
+        _ = LazySets.API.in([10.1, 1.0], Z; solver=solvr)
+        _ = LazySets.API.in([0.1, 0.1], Z; solver=solvr)
+    end
+end
 HiGHS.Highs_destroy(highs_model)
-=#

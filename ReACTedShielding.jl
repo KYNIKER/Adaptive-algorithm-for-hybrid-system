@@ -1,4 +1,4 @@
-using LazySets, LinearAlgebra, ReachabilityAnalysis
+using LazySets, LinearAlgebra, ReachabilityAnalysis, StaticArrays
 include("Discretize.jl")
 include("Utilities.jl")
 
@@ -377,6 +377,7 @@ function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity,
     preallocated_inter_genmat_big = zeros(grid.dimension, finaldims_big)
     ranges = [1:floor(Int64, grid.numCells[i]/sweep_factor) for i in 1:grid.dimension]
     #@show CartesianIndices((ranges...,))
+    solvr = LazySets.default_lp_solver(Float64)
     for bidx in CartesianIndices((ranges...,))
 
         of = lower_offset_big + ((car2vec(bidx) .- 1) .* (granularity*sweep_factor))
@@ -417,8 +418,10 @@ function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity,
     preallocated_center = zeros(grid.dimension)
     preallocated_genmat = zeros(grid.dimension, finaldims)
     preallocated_inter_genmat = zeros(grid.dimension, finaldims)
-
-
+    #tarray = MArray{Tuple{grid.dimension}}(zeros(grid.dimension))
+    #max_zonotope = Zonotope(MArray{Tuple{grid.dimension}}(max_input.center), SMatrix{grid.dimension,grid.dimension}(genmat(linear_map(max_flow, Z))))
+    max_zonotope::Zonotope{Float64,Vector{Float64},Matrix{Float64}} = Zonotope(max_input.center, genmat(linear_map(max_flow, Z)))
+    #max_zonotope = minkowski_sum(max_zonotope, Zonotope(zeros(grid.dimension), diagm(fill(granularity/2, grid.dimension))))
 
 
 
@@ -531,11 +534,16 @@ function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity,
         else
             count += 1
             of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
-            LazySets.API.translate!(Z, of)
+            of = max_flow * of
+            LazySets.API.translate!(max_zonotope, of)
 
-            reachable_by_flow[idx] = get_touching_cell_idxs_lz(grid, minkowski_sum(max_input, linear_map(max_flow, Z)))
+            # TODO - Might as well precompute the max_flow with input zonotope and just translate it back and fourth 
+            #reachable_by_flow[idx] = get_touching_cell_idxs_lz(grid, minkowski_sum(max_input, linear_map(max_flow, Z)))
+            #empty!(solvr)
+            reachable_by_flow[idx] = get_touching_cell_idxs_lz(grid, max_zonotope)
+            #reachable_by_flow[idx] = get_touching_cell_idxs_lz_reuse(grid, max_zonotope, solvr)
 
-            LazySets.API.translate!(Z, -of)
+            LazySets.API.translate!(max_zonotope, -of)
             if count % 1000 == 0
                 println(count)
                 #GC.gc()

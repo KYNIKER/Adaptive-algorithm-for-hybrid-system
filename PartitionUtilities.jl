@@ -1,4 +1,4 @@
-using LazySets, LinearAlgebra, ReachabilityAnalysis, Dates
+using LazySets, LinearAlgebra, ReachabilityAnalysis, Dates, JuMP, GLPK
 include("Utilities.jl")
 
 ### Following code is adapted from "https://github.com/AstridHornBrorholt/Shielded-Learning-for-Hybrid-Systems/blob/main/Shared%20Code/Squares.jl"
@@ -545,7 +545,7 @@ function setup_model_constant_zonotope(Z::Zonotope)
     set_attribute(model, "msg_lev", GLPK.GLP_MSG_OFF)
     set_attribute(model, "presolve", GLPK.GLP_OFF)
     #@show typeof(model)
-    @variable(model, x[1:n], lower_bound=lbounds, upper_bound=ubounds)
+    JuMP.@variable(model, x[1:n], lower_bound=lbounds, upper_bound=ubounds)
     con_vector = JuMP.@constraint(model, con_ref, G * x .== c)
     #@show model
     #@objective(model, Min, 0.0)  # No objective function, just feasibility

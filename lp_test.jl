@@ -3,7 +3,11 @@ using HiGHS
 using LinearAlgebra
 using SparseArrays
 using Plots
-using MathOptInterface
+import MathOptInterface as MOI
+using JuMP
+using GLPK
+
+include("PartitionUtilities.jl")
 
 mutable struct LPWorkspace
     highs::Ptr{Cvoid}
@@ -175,6 +179,38 @@ function zonotope_polyhedron_intersect_direct(Z::Zonotope, P::AbstractPolyhedron
     return model_status == 7 || model_status == 9
 end
 
+function setup_model_constant_zonotope(Z::Zonotope)
+    c = Z.center
+    G = genmat(Z)
+    N = eltype(c)
+    m, n = size(G)
+    lbounds = -one(N)
+    ubounds = one(N)
+
+    objective = zeros(N, n)
+
+    model = direct_model(JuMP.optimizer_with_attributes(() -> GLPK.Optimizer(; method=GLPK.SIMPLEX)))
+    set_silent(model)
+    #@show typeof(model)
+    @variable(model, x[1:n], lower_bound=lbounds, upper_bound=ubounds)
+    con_vector = JuMP.@constraint(model, con_ref, G * x .== c)
+    #@show model
+    #@objective(model, Min, 0.0)  # No objective function, just feasibility
+    return model, con_vector
+end
+
+function change_constraints!(con_ref, rhs)
+    #@show typeof(con_ref)
+    #MOI.set(model, MOI.ConstraintSet(), con_ref, rhs)
+    set_normalized_rhs.(con_ref, rhs)
+end
+
+function LinProg(x::Vector{Float64}, c::Vector{Float64}, model, con_ref)
+    change_constraints!(con_ref, x - c)
+    optimize!(model)
+    return termination_status(model) == MOI.OPTIMAL
+end
+
 # ==========================================
 # Test Example
 # ==========================================
@@ -213,14 +249,26 @@ ylims!(plt, -2.0, 10.0)
 
 bbox = Hyperrectangle([4.0, 4.0], [6.0, 6.0])
 
+#=
 plot!(plt, Z, c=:green)
 plot!(plt, intersection(hs_intersect, bbox), c=:red)
 plot!(plt, intersection(hs_miss, bbox), c=:blue)
 
 display(plt)
+=#
+
+
 
 Z = rand(Zonotope; dim=2, num_generators=20)
-
+Zx = [rand(Zonotope; dim=2, num_generators=20) for _ in 1:1000]
+missx = [rand(2) + z.center * 10 for z in Zx]
+hitx = [rand(2) * 10.1 + z.center for z in Zx]
+SingletonMissx = [Singleton(x) for x in missx]
+SingletonHitx = [Singleton(x) for x in hitx]
+ZMissx = [Zonotope(x, diagm([0.1, 0.1])) for x in missx]
+ZHitx = [Zonotope(x, diagm([0.1, 0.1])) for x in hitx]
+t1 = BitArray(undef, 1000)
+t2 = BitArray(undef, 1000)
 @time begin
     for i in 1:100
         #local Z = rand(Zonotope; dim=2, num_generators=20)
@@ -229,6 +277,8 @@ Z = rand(Zonotope; dim=2, num_generators=20)
         _ = zonotope_polyhedron_intersect_direct(Z, hs_miss, highs_model)
     end
 end
+
+
 
 @time begin
     for i in 1:100
@@ -239,22 +289,73 @@ end
     end
 end
 solvr = LazySets.default_lp_solver(Float64)
+#VSCodeServer.@profview begin
 @time begin
     for i in 1:100
         #local Z = rand(Zonotope; dim=2, num_generators=20)
 
-        _ = LazySets.API.isdisjoint(Z, hs_intersect; solver=solvr)
-        _ = LazySets.API.isdisjoint(Z, hs_miss; solver=solvr)
+        _ = LazySets.API.isdisjoint(Zx[i], SingletonHitx[i]; solver=solvr)
+        _ = LazySets.API.isdisjoint(Zx[i], SingletonMissx[i]; solver=solvr)
+    end
+end
+
+#empty!(solvr)
+@time begin
+    for i in 1:1000
+        #local Z = rand(Zonotope; dim=2, num_generators=20)
+
+        _ = LazySets.API.isdisjoint(Zx[i], ZHitx[i]; solver=solvr)
+        #_ = LazySets.API.isdisjoint(Zx[i], ZMissx[i]; solver=solvr)
+    end
+end
+
+empty!(solvr)
+#VSCodeServer.@profview begin
+@time begin
+    for i in 1:1000
+        #local Z = rand(Zonotope; dim=2, num_generators=20)
+
+        t1[i] = LazySets.API.in(hitx[i], Z; solver=solvr)
+        #_ = LazySets.API.in(missx[i], Zx[i]; solver=solvr)
+    end
+end
+#=
+grid = Grid(Hyperrectangle([0.0, 0.0], [10.0, 10.0]), 0.1)
+
+@time begin
+    #VSCodeServer.@profview begin
+    for i in 1:100
+        #local Z = rand(Zonotope; dim=2, num_generators=20)
+
+        _ = get_touching_cell_idxs_test(grid, Zx[i], solvr)
     end
 end
 
 @time begin
-    empty!(solvr)
+    #VSCodeServer.@profview begin
     for i in 1:100
         #local Z = rand(Zonotope; dim=2, num_generators=20)
 
-        _ = LazySets.API.in([10.1, 1.0], Z; solver=solvr)
-        _ = LazySets.API.in([0.1, 0.1], Z; solver=solvr)
+        _ = get_touching_cell_idxs_test(grid, Zx[i], solvr)
     end
 end
+
+@time begin
+    #VSCodeServer.@profview begin
+    for i in 1:100
+        #local Z = rand(Zonotope; dim=2, num_generators=20)
+
+        _ = get_touching_cell_idxs_lz(grid, Zx[i])
+    end
+end
+=#
+mdl, c_ref = setup_model_constant_zonotope(Z)
+@time begin
+    #VSCodeServer.@profview begin
+    for i in 1:1000
+        #_ = LinProg(missx[i], Zx[i].center, mdl, c_ref)
+        t2[i] = LinProg(hitx[i], Z.center, mdl, c_ref)
+    end
+end
+@show t1, t2, t1 == t2
 HiGHS.Highs_destroy(highs_model)

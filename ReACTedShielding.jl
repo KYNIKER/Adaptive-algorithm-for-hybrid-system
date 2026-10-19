@@ -328,7 +328,7 @@ end
 function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true)
     grid = Grid(system.statespace, granularity)
     @show foldl(*, grid.numCells), grid.numCells
-    sweep_factor = 10
+    sweep_factor = 20
 
     phiDict, tPhiDict, inputDict = phi_input_dict(system.flowMatrix, system.input, δ⁻, δ⁺, alg, maxOrder, reduceOrder)
     d = δ⁻
@@ -421,8 +421,9 @@ function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity,
     #tarray = MArray{Tuple{grid.dimension}}(zeros(grid.dimension))
     #max_zonotope = Zonotope(MArray{Tuple{grid.dimension}}(max_input.center), SMatrix{grid.dimension,grid.dimension}(genmat(linear_map(max_flow, Z))))
     max_zonotope::Zonotope{Float64,Vector{Float64},Matrix{Float64}} = Zonotope(max_input.center, genmat(linear_map(max_flow, Z)))
-    #max_zonotope = minkowski_sum(max_zonotope, Zonotope(zeros(grid.dimension), diagm(fill(granularity/2, grid.dimension))))
 
+    max_zonotope = minkowski_sum(max_zonotope, Zonotope(zeros(grid.dimension), diagm(fill(granularity/2, grid.dimension))))
+    mdl, c_ref = setup_model_constant_zonotope(max_zonotope)
 
 
     for global_constraint in system.globalConstraints
@@ -540,8 +541,8 @@ function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity,
             # TODO - Might as well precompute the max_flow with input zonotope and just translate it back and fourth 
             #reachable_by_flow[idx] = get_touching_cell_idxs_lz(grid, minkowski_sum(max_input, linear_map(max_flow, Z)))
             #empty!(solvr)
-            reachable_by_flow[idx] = get_touching_cell_idxs_lz(grid, max_zonotope)
-            #reachable_by_flow[idx] = get_touching_cell_idxs_lz_reuse(grid, max_zonotope, solvr)
+            #reachable_by_flow[idx] = get_touching_cell_idxs_lz(grid, max_zonotope)
+            reachable_by_flow[idx] = get_touching_cell_idxs_test(grid, max_zonotope, mdl, c_ref)
 
             LazySets.API.translate!(max_zonotope, -of)
             if count % 1000 == 0

@@ -189,8 +189,11 @@ function setup_model_constant_zonotope(Z::Zonotope)
 
     objective = zeros(N, n)
 
-    model = direct_model(JuMP.optimizer_with_attributes(() -> GLPK.Optimizer(; method=GLPK.SIMPLEX)))
+    model = direct_model(JuMP.optimizer_with_attributes(() -> GLPK.Optimizer(; method=GLPK.SIMPLEX, want_infeasibility_certificates=false)))
+    #model = direct_model(JuMP.optimizer_with_attributes(() -> HiGHS.Optimizer()))
     set_silent(model)
+    set_attribute(model, "msg_lev", GLPK.GLP_MSG_OFF)
+    set_attribute(model, "presolve", GLPK.GLP_OFF)
     #@show typeof(model)
     @variable(model, x[1:n], lower_bound=lbounds, upper_bound=ubounds)
     con_vector = JuMP.@constraint(model, con_ref, G * x .== c)
@@ -330,26 +333,26 @@ grid = Grid(Hyperrectangle([0.0, 0.0], [10.0, 10.0]), 0.1)
         _ = get_touching_cell_idxs_test(grid, Zx[i], solvr)
     end
 end
-
-@time begin
-    #VSCodeServer.@profview begin
-    for i in 1:100
-        #local Z = rand(Zonotope; dim=2, num_generators=20)
-
-        _ = get_touching_cell_idxs_test(grid, Zx[i], solvr)
-    end
-end
-
-@time begin
-    #VSCodeServer.@profview begin
-    for i in 1:100
-        #local Z = rand(Zonotope; dim=2, num_generators=20)
-
-        _ = get_touching_cell_idxs_lz(grid, Zx[i])
-    end
-end
 =#
 mdl, c_ref = setup_model_constant_zonotope(Z)
+
+@time begin
+    #VSCodeServer.@profview begin
+    for i in 1:100
+        #local Z = rand(Zonotope; dim=2, num_generators=20)
+
+        _ = get_touching_cell_idxs_test(grid, Z, mdl, c_ref)
+    end
+end
+
+@time begin
+    #VSCodeServer.@profview begin
+    for i in 1:100
+        #local Z = rand(Zonotope; dim=2, num_generators=20)
+
+        _ = get_touching_cell_idxs_lz(grid, Z)
+    end
+end
 @time begin
     #VSCodeServer.@profview begin
     for i in 1:1000

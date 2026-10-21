@@ -578,102 +578,115 @@ function get_touching_cell_idxs_test(grid::Grid, convexSet::Zonotope{Float64,Vec
     #upper_bounds = Int.(ceil.(abs.(upper_bounds .- grid.lower) ./ grid.granularity)) #floor.(min.(upper_bounds, grid.upper) .- grid.lower) ./ grid.granularity
 
     sweeping_dim::Int64 = argmax(upper_bounds[i]-lower_bounds[i] for i in 1:grid.dimension)
+    next_sweep = argmax(i == sweeping_dim ? 0 : upper_bounds[i]-lower_bounds[i] for i in 1:grid.dimension)
     #hbox::LazySets.HyperrectangleModule.Hyperrectangle{Float64,Vector{Float64},Vector{Float64}} = Hyperrectangle(grid.lower .+ (granularity/2), fill(granularity/2, grid.dimension))
     #hbox = Hyperrectangle(grid.lower .+ (granularity/2), fill(granularity/2, grid.dimension))
     #hbox = Zonotope(grid.lower .+ (grid.granularity/2), diagm(fill(grid.granularity/2, grid.dimension)))
     #convexSet = minkowski_sum(convexSet, Zonotope(zeros(grid.dimension), diagm(fill(granularity/2, grid.dimension))))
     of::Vector{Float64} = grid.lower .+ (grid.granularity/2)
     tup1 = ntuple(i -> 1, grid.dimension)
-    if upper_bounds[sweeping_dim] - lower_bounds[sweeping_dim] > 1
-        #println("f'ing hope so")
-        #upper_bounds[splitting_dim] = lower_bounds[splitting_dim] + cld(upper_bounds[splitting_dim] - lower_bounds[splitting_dim], 2) #cld(upper_bounds[splitting_dim], 2)
 
-
-        cartesian_offset::CartesianIndex{grid.dimension} = CartesianIndex(ntuple(i -> i == sweeping_dim ? 1 : 0, grid.dimension))
-
-        sweeping_range::StepRange{Int64,Int64} = lower_bounds[sweeping_dim]:1:upper_bounds[sweeping_dim]
-        rev_sweeping_range::StepRange{Int64,Int64} = upper_bounds[sweeping_dim]:-1:lower_bounds[sweeping_dim]
-        for idx in CartesianIndices(ntuple(i -> i == sweeping_dim ? (0:0) : (lower_bounds[i]:max(upper_bounds[i], lower_bounds[i])), grid.dimension))
-
-            #for idx in CartesianIndices(ntuple(i -> i == sweeping_dim ? (0:0) : (lower_bounds[i]:max(upper_bounds[i], lower_bounds[i])), grid.dimension))
-            lower_idx::Int64 = 0
-            upper_idx::Int64 = 0
-            for off in sweeping_range
-                #copyto!(hbox.center, (car2vecFloat((idx + (cartesian_offset * off))) .- 1.0) .* granularity + of)
-                #copyto!(hbox.center, (Tuple(idx + (cartesian_offset * off)) .- tup1) .* grid.granularity .+ of)
-                #tof = (car2vec((idx + (cartesian_offset * off))) .- 1) .* granularity
-                #tof = grid.lower .+ (car2vec((idx + (cartesian_offset * off))) .- 0.5) .* granularity
-                #LazySets.API.translate!(hbox, of)
-                #@show eltype(convexSet), eltype(hbox), promote_type(eltype(convexSet), eltype(hbox))
-                #throw(error("shshshs"))
-                #if !isdisjoint(convexSet, hbox)
-                #if !isdisjoint(convexSet, hbox, false; solver=model)
-                #if in(tof, convexSet)
-                #if LazySets.ZonotopeModule.in((Tuple(idx + (cartesian_offset * off)) .- tup1) .* grid.granularity .+ of, convexSet)
-                if LinProg((Tuple(idx + (cartesian_offset * off)) .- tup1) .* grid.granularity .+ of, convexSet.center, model, con_ref)
-                    #LazySets.API.translate!(hbox, -of)
-                    #@show typeof(tof), typeof(convexSet)
-                    #throw(error("shshshs"))
-
-                    lower_idx = off
-                    break
-
-                end
-                #LazySets.API.translate!(hbox, -of)
-            end
-            if lower_idx == 0
-                continue
-            end
-            for off in rev_sweeping_range
-
-                #copyto!(hbox.center, (car2vecFloat(idx + (cartesian_offset * off)) .- 1.0) .* granularity + of)
-                #copyto!(hbox.center, (Tuple(idx + (cartesian_offset * off)) .- tup1) .* grid.granularity .+ of)
-
-                #tof = grid.lower .+ (car2vec(idx + (cartesian_offset * off)) .- 0.5) .* granularity
-                #tof = grid.lower .+ (car2vec(idx) .- 0.5) .* granularity
-
-                #LazySets.API.translate!(hbox, of)
-                #if !isdisjoint(convexSet, hbox, false; solver=model)
-                #if LazySets.ZonotopeModule.in((Tuple(idx + (cartesian_offset * off)) .- tup1) .* grid.granularity .+ of, convexSet)
-                if LinProg((Tuple(idx + (cartesian_offset * off)) .- tup1) .* grid.granularity .+ of, convexSet.center, model, con_ref)
-
-                    #LazySets.API.translate!(hbox, -of)
-
-                    upper_idx = off
-                    break
-
-                end
-                #LazySets.API.translate!(hbox, -of)
-            end
-            if upper_idx == 0
-                continue
-            end
-
-            for elem in lower_idx:upper_idx
-
-                push!(touching_cell_idxs, idx + (cartesian_offset .* elem))
-            end
-
-        end
-    else
-        #idxs = CartesianIndices(ntuple(i -> lower_bounds[i]:max(upper_bounds[i], 1), grid.dimension))
-
-
-        #for idx in CartesianIndices(ntuple(i -> lower_bounds[i] > upper_bounds[i] ? (min(lower_bounds[i], grid.numCells[i]):upper_bounds[i]) : lower_bounds[i]:min(upper_bounds[i], grid.numCells[i]), grid.dimension))
+    if upper_bounds[next_sweep] == lower_bounds[next_sweep]
+        #throw(error("shouyld not happen!"))
         for idx in CartesianIndices(ntuple(i -> lower_bounds[i]:1:upper_bounds[i], grid.dimension))
-            #of::Vector{Float64} = (car2vec(idx) .- 1) .* granularity
-            #copyto!(hbox.center, (Tuple(idx) .- tup1) .* grid.granularity .+ of)
-            #tof = grid.lower .+ (car2vec(idx) .- 0.5) .* grid.granularity
-            #LazySets.API.translate!(hbox, of)
-            #if !isdisjoint(convexSet, hbox, false; solver=model)
-            if LinProg(grid.lower .+ (car2vec(idx) .- 0.5) .* granularity, convexSet.center, model, con_ref)
 
-                #if LazySets.ZonotopeModule.in(grid.lower .+ (car2vec(idx) .- 0.5) .* granularity, convexSet)
-                push!(touching_cell_idxs, idx)
-            end
+            push!(touching_cell_idxs, idx)
+
+
             #LazySets.API.translate!(hbox, -of)
         end
+    else
+        if upper_bounds[sweeping_dim] - lower_bounds[sweeping_dim] > 1
+            #println("f'ing hope so")
+            #upper_bounds[splitting_dim] = lower_bounds[splitting_dim] + cld(upper_bounds[splitting_dim] - lower_bounds[splitting_dim], 2) #cld(upper_bounds[splitting_dim], 2)
 
+
+            cartesian_offset::CartesianIndex{grid.dimension} = CartesianIndex(ntuple(i -> i == sweeping_dim ? 1 : 0, grid.dimension))
+
+            sweeping_range::StepRange{Int64,Int64} = lower_bounds[sweeping_dim]:1:upper_bounds[sweeping_dim]
+            rev_sweeping_range::StepRange{Int64,Int64} = upper_bounds[sweeping_dim]:-1:lower_bounds[sweeping_dim]
+            for idx in CartesianIndices(ntuple(i -> i == sweeping_dim ? (0:0) : (lower_bounds[i]:max(upper_bounds[i], lower_bounds[i])), grid.dimension))
+
+                #for idx in CartesianIndices(ntuple(i -> i == sweeping_dim ? (0:0) : (lower_bounds[i]:max(upper_bounds[i], lower_bounds[i])), grid.dimension))
+                lower_idx::Int64 = 0
+                upper_idx::Int64 = 0
+                for off in sweeping_range
+                    #copyto!(hbox.center, (car2vecFloat((idx + (cartesian_offset * off))) .- 1.0) .* granularity + of)
+                    #copyto!(hbox.center, (Tuple(idx + (cartesian_offset * off)) .- tup1) .* grid.granularity .+ of)
+                    #tof = (car2vec((idx + (cartesian_offset * off))) .- 1) .* granularity
+                    #tof = grid.lower .+ (car2vec((idx + (cartesian_offset * off))) .- 0.5) .* granularity
+                    #LazySets.API.translate!(hbox, of)
+                    #@show eltype(convexSet), eltype(hbox), promote_type(eltype(convexSet), eltype(hbox))
+                    #throw(error("shshshs"))
+                    #if !isdisjoint(convexSet, hbox)
+                    #if !isdisjoint(convexSet, hbox, false; solver=model)
+                    #if in(tof, convexSet)
+                    #if LazySets.ZonotopeModule.in((Tuple(idx + (cartesian_offset * off)) .- tup1) .* grid.granularity .+ of, convexSet)
+                    if LinProg((Tuple(idx + (cartesian_offset * off)) .- tup1) .* grid.granularity .+ of, convexSet.center, model, con_ref)
+                        #LazySets.API.translate!(hbox, -of)
+                        #@show typeof(tof), typeof(convexSet)
+                        #throw(error("shshshs"))
+
+                        lower_idx = off
+                        break
+
+                    end
+                    #LazySets.API.translate!(hbox, -of)
+                end
+                if lower_idx == 0
+                    continue
+                end
+                for off in rev_sweeping_range
+
+                    #copyto!(hbox.center, (car2vecFloat(idx + (cartesian_offset * off)) .- 1.0) .* granularity + of)
+                    #copyto!(hbox.center, (Tuple(idx + (cartesian_offset * off)) .- tup1) .* grid.granularity .+ of)
+
+                    #tof = grid.lower .+ (car2vec(idx + (cartesian_offset * off)) .- 0.5) .* granularity
+                    #tof = grid.lower .+ (car2vec(idx) .- 0.5) .* granularity
+
+                    #LazySets.API.translate!(hbox, of)
+                    #if !isdisjoint(convexSet, hbox, false; solver=model)
+                    #if LazySets.ZonotopeModule.in((Tuple(idx + (cartesian_offset * off)) .- tup1) .* grid.granularity .+ of, convexSet)
+                    if LinProg((Tuple(idx + (cartesian_offset * off)) .- tup1) .* grid.granularity .+ of, convexSet.center, model, con_ref)
+
+                        #LazySets.API.translate!(hbox, -of)
+
+                        upper_idx = off
+                        break
+
+                    end
+                    #LazySets.API.translate!(hbox, -of)
+                end
+                if upper_idx == 0
+                    continue
+                end
+
+                for elem in lower_idx:upper_idx
+
+                    push!(touching_cell_idxs, idx + (cartesian_offset .* elem))
+                end
+
+            end
+        else
+            #idxs = CartesianIndices(ntuple(i -> lower_bounds[i]:max(upper_bounds[i], 1), grid.dimension))
+
+
+            #for idx in CartesianIndices(ntuple(i -> lower_bounds[i] > upper_bounds[i] ? (min(lower_bounds[i], grid.numCells[i]):upper_bounds[i]) : lower_bounds[i]:min(upper_bounds[i], grid.numCells[i]), grid.dimension))
+            for idx in CartesianIndices(ntuple(i -> lower_bounds[i]:1:upper_bounds[i], grid.dimension))
+                #of::Vector{Float64} = (car2vec(idx) .- 1) .* granularity
+                #copyto!(hbox.center, (Tuple(idx) .- tup1) .* grid.granularity .+ of)
+                #tof = grid.lower .+ (car2vec(idx) .- 0.5) .* grid.granularity
+                #LazySets.API.translate!(hbox, of)
+                #if !isdisjoint(convexSet, hbox, false; solver=model)
+                if LinProg(grid.lower .+ (car2vec(idx) .- 0.5) .* granularity, convexSet.center, model, con_ref)
+
+                    #if LazySets.ZonotopeModule.in(grid.lower .+ (car2vec(idx) .- 0.5) .* granularity, convexSet)
+                    push!(touching_cell_idxs, idx)
+                end
+                #LazySets.API.translate!(hbox, -of)
+            end
+
+        end
     end
     return touching_cell_idxs
 end
@@ -692,95 +705,112 @@ function get_touching_cell_idxs_lz(grid::Grid, convexSet::Zonotope{Float64,Vecto
     #upper_bounds = Int.(ceil.(abs.(upper_bounds .- grid.lower) ./ grid.granularity)) #floor.(min.(upper_bounds, grid.upper) .- grid.lower) ./ grid.granularity
 
     sweeping_dim::Int64 = argmax(upper_bounds[i]-lower_bounds[i] for i in 1:grid.dimension)
+    next_sweep = argmax(i == sweeping_dim ? 0 : upper_bounds[i]-lower_bounds[i] for i in 1:grid.dimension)
+
     #hbox::LazySets.HyperrectangleModule.Hyperrectangle{Float64,Vector{Float64},Vector{Float64}} = Hyperrectangle(grid.lower .+ (granularity/2), fill(granularity/2, grid.dimension))
     #hbox = Hyperrectangle(grid.lower .+ (granularity/2), fill(granularity/2, grid.dimension))
     hbox = Zonotope(grid.lower .+ (grid.granularity/2), diagm(fill(grid.granularity/2, grid.dimension)))
     #convexSet = minkowski_sum(convexSet, Zonotope(zeros(grid.dimension), diagm(fill(granularity/2, grid.dimension))))
     of::Vector{Float64} = grid.lower .+ (grid.granularity/2)
-    if upper_bounds[sweeping_dim] - lower_bounds[sweeping_dim] > 1
-        #println("f'ing hope so")
-        #upper_bounds[splitting_dim] = lower_bounds[splitting_dim] + cld(upper_bounds[splitting_dim] - lower_bounds[splitting_dim], 2) #cld(upper_bounds[splitting_dim], 2)
-
-
-        cartesian_offset::CartesianIndex{grid.dimension} = CartesianIndex(ntuple(i -> i == sweeping_dim ? 1 : 0, grid.dimension))
-
-        sweeping_range::StepRange{Int64,Int64} = lower_bounds[sweeping_dim]:1:upper_bounds[sweeping_dim]
-        rev_sweeping_range::StepRange{Int64,Int64} = upper_bounds[sweeping_dim]:-1:lower_bounds[sweeping_dim]
-        for idx in CartesianIndices(ntuple(i -> i == sweeping_dim ? (0:0) : (lower_bounds[i]:max(upper_bounds[i], lower_bounds[i])), grid.dimension))
-
-            #for idx in CartesianIndices(ntuple(i -> i == sweeping_dim ? (0:0) : (lower_bounds[i]:max(upper_bounds[i], lower_bounds[i])), grid.dimension))
-            lower_idx::Int64 = 0
-            upper_idx::Int64 = 0
-            for off in sweeping_range
-                copyto!(hbox.center, (car2vecFloat((idx + (cartesian_offset * off))) .- 1.0) .* grid.granularity + of)
-                #copyto!(hbox.center, (Tuple(idx + (cartesian_offset * off)) .- 1) .* granularity .+ of)
-                #tof = (car2vec((idx + (cartesian_offset * off))) .- 1) .* granularity
-                #tof = grid.lower .+ (car2vec((idx + (cartesian_offset * off))) .- 0.5) .* granularity
-                #LazySets.API.translate!(hbox, of)
-                #@show eltype(convexSet), eltype(hbox), promote_type(eltype(convexSet), eltype(hbox))
-                #throw(error("shshshs"))
-                #if !isdisjoint(convexSet, hbox)
-                if !isdisjoint(convexSet, hbox, false)
-                    #if in(tof, convexSet)
-                    #if LazySets.ZonotopeModule.in(grid.lower .+ (car2vec((idx + (cartesian_offset * off))) .- 0.5) .* granularity, convexSet)
-                    #LazySets.API.translate!(hbox, -of)
-                    #@show typeof(tof), typeof(convexSet)
-                    #throw(error("shshshs"))
-
-                    lower_idx = off
-                    break
-
-                end
-                #LazySets.API.translate!(hbox, -of)
-            end
-            if lower_idx == 0
-                continue
-            end
-            for off in rev_sweeping_range
-
-                copyto!(hbox.center, (car2vecFloat(idx + (cartesian_offset * off)) .- 1.0) .* grid.granularity + of)
-                #tof = grid.lower .+ (car2vec(idx + (cartesian_offset * off)) .- 0.5) .* granularity
-                #tof = grid.lower .+ (car2vec(idx) .- 0.5) .* granularity
-
-                #LazySets.API.translate!(hbox, of)
-                if !isdisjoint(convexSet, hbox, false)
-                    #if LazySets.ZonotopeModule.in(grid.lower .+ (car2vec(idx + (cartesian_offset * off)) .- 0.5) .* granularity, convexSet)
-
-                    #LazySets.API.translate!(hbox, -of)
-
-                    upper_idx = off
-                    break
-
-                end
-                #LazySets.API.translate!(hbox, -of)
-            end
-            if upper_idx == 0
-                continue
-            end
-
-            for elem in lower_idx:upper_idx
-
-                push!(touching_cell_idxs, idx + (cartesian_offset * elem))
-            end
-
-        end
-    else
-        #idxs = CartesianIndices(ntuple(i -> lower_bounds[i]:max(upper_bounds[i], 1), grid.dimension))
-
-
-        #for idx in CartesianIndices(ntuple(i -> lower_bounds[i] > upper_bounds[i] ? (min(lower_bounds[i], grid.numCells[i]):upper_bounds[i]) : lower_bounds[i]:min(upper_bounds[i], grid.numCells[i]), grid.dimension))
+    if upper_bounds[next_sweep] == lower_bounds[next_sweep]
+        #throw(error("shouyld not happen!"))
         for idx in CartesianIndices(ntuple(i -> lower_bounds[i]:1:upper_bounds[i], grid.dimension))
-            #of::Vector{Float64} = (car2vec(idx) .- 1) .* granularity
-            copyto!(hbox.center, (car2vecFloat(idx) .- 1.0) .* grid.granularity + of)
-            #tof = grid.lower .+ (car2vec(idx) .- 0.5) .* granularity
-            #LazySets.API.translate!(hbox, of)
-            if !isdisjoint(convexSet, hbox, false)
-                #if LazySets.ZonotopeModule.in(grid.lower .+ (car2vec(idx) .- 0.5) .* granularity, convexSet)
-                push!(touching_cell_idxs, idx)
-            end
+
+            push!(touching_cell_idxs, idx)
+
+
             #LazySets.API.translate!(hbox, -of)
         end
+    else
+        if upper_bounds[sweeping_dim] - lower_bounds[sweeping_dim] > 1
+            #println("f'ing hope so")
+            #upper_bounds[splitting_dim] = lower_bounds[splitting_dim] + cld(upper_bounds[splitting_dim] - lower_bounds[splitting_dim], 2) #cld(upper_bounds[splitting_dim], 2)
 
+
+            cartesian_offset::CartesianIndex{grid.dimension} = CartesianIndex(ntuple(i -> i == sweeping_dim ? 1 : 0, grid.dimension))
+
+            sweeping_range::StepRange{Int64,Int64} = lower_bounds[sweeping_dim]:1:upper_bounds[sweeping_dim]
+            rev_sweeping_range::StepRange{Int64,Int64} = upper_bounds[sweeping_dim]:-1:lower_bounds[sweeping_dim]
+            for idx in CartesianIndices(ntuple(i -> i == sweeping_dim ? (0:0) : (lower_bounds[i]:max(upper_bounds[i], lower_bounds[i])), grid.dimension))
+
+                #for idx in CartesianIndices(ntuple(i -> i == sweeping_dim ? (0:0) : (lower_bounds[i]:max(upper_bounds[i], lower_bounds[i])), grid.dimension))
+                lower_idx::Int64 = 0
+                upper_idx::Int64 = 0
+                for off in sweeping_range
+                    copyto!(hbox.center, (car2vecFloat((idx + (cartesian_offset * off))) .- 1.0) .* grid.granularity + of)
+                    #copyto!(hbox.center, (Tuple(idx + (cartesian_offset * off)) .- 1) .* granularity .+ of)
+                    #tof = (car2vec((idx + (cartesian_offset * off))) .- 1) .* granularity
+                    #tof = grid.lower .+ (car2vec((idx + (cartesian_offset * off))) .- 0.5) .* granularity
+                    #LazySets.API.translate!(hbox, of)
+                    #@show eltype(convexSet), eltype(hbox), promote_type(eltype(convexSet), eltype(hbox))
+                    #throw(error("shshshs"))
+                    #if !isdisjoint(convexSet, hbox)
+                    if !isdisjoint(convexSet, hbox, false)
+                        #if in(tof, convexSet)
+                        #if LazySets.ZonotopeModule.in(grid.lower .+ (car2vec((idx + (cartesian_offset * off))) .- 0.5) .* granularity, convexSet)
+                        #LazySets.API.translate!(hbox, -of)
+                        #@show typeof(tof), typeof(convexSet)
+                        #throw(error("shshshs"))
+
+                        lower_idx = off
+                        break
+
+                    end
+                    #LazySets.API.translate!(hbox, -of)
+                end
+                if lower_idx == 0
+                    continue
+                end
+                for off in rev_sweeping_range
+
+                    copyto!(hbox.center, (car2vecFloat(idx + (cartesian_offset * off)) .- 1.0) .* grid.granularity + of)
+                    #tof = grid.lower .+ (car2vec(idx + (cartesian_offset * off)) .- 0.5) .* granularity
+                    #tof = grid.lower .+ (car2vec(idx) .- 0.5) .* granularity
+
+                    #LazySets.API.translate!(hbox, of)
+                    if !isdisjoint(convexSet, hbox, false)
+                        #if LazySets.ZonotopeModule.in(grid.lower .+ (car2vec(idx + (cartesian_offset * off)) .- 0.5) .* granularity, convexSet)
+
+                        #LazySets.API.translate!(hbox, -of)
+
+                        upper_idx = off
+                        break
+
+                    end
+                    #LazySets.API.translate!(hbox, -of)
+                end
+                if upper_idx == 0
+                    continue
+                end
+
+                for elem in lower_idx:upper_idx
+
+                    push!(touching_cell_idxs, idx + (cartesian_offset * elem))
+                end
+
+            end
+
+        else
+            next_sweep = argmax(i == sweeping_dim ? 0 : upper_bounds[i]-lower_bounds[i] for i in 1:grid.dimension)
+            #idxs = CartesianIndices(ntuple(i -> lower_bounds[i]:max(upper_bounds[i], 1), grid.dimension))
+
+
+            #for idx in CartesianIndices(ntuple(i -> lower_bounds[i] > upper_bounds[i] ? (min(lower_bounds[i], grid.numCells[i]):upper_bounds[i]) : lower_bounds[i]:min(upper_bounds[i], grid.numCells[i]), grid.dimension))
+            for idx in CartesianIndices(ntuple(i -> lower_bounds[i]:1:upper_bounds[i], grid.dimension))
+                #of::Vector{Float64} = (car2vec(idx) .- 1) .* granularity
+                copyto!(hbox.center, (car2vecFloat(idx) .- 1.0) .* grid.granularity + of)
+                #tof = grid.lower .+ (car2vec(idx) .- 0.5) .* granularity
+                #LazySets.API.translate!(hbox, of)
+                if !isdisjoint(convexSet, hbox, false)
+                    #if LazySets.ZonotopeModule.in(grid.lower .+ (car2vec(idx) .- 0.5) .* granularity, convexSet)
+                    push!(touching_cell_idxs, idx)
+
+                end
+                #LazySets.API.translate!(hbox, -of)
+            end
+
+
+        end
     end
     return touching_cell_idxs
 end

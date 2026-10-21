@@ -10,7 +10,7 @@ include("ReACTedShielding.jl")
 
 fresh_grid = false
 make_plot = true
-granularity::Float64 = 0.1  # Example granularity
+granularity::Float64 = 0.02  # Example granularity
 grid_name = "ball" * string(granularity)
 savefile = grid_name * ".jld2"
 
@@ -46,14 +46,18 @@ close(f)
 =#
 
 #@allocations ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-#_, _, _ = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-@time grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell_t(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-ProfileView.@profview _, _, _ = ReACTed_reachable_cell_t(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+#VSCodeServer.@profview _, _, _ = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+@time grid, act_set, no_act_set, no_act_bad_matrix = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+#@show grid.deadCells# == trues(grid.numCells...)
+shield = grid
+#@time grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell_t(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+#ProfileView.@profview _, _, _ = ReACTed_reachable_cell_t(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 #ProfileView.@profview _, _, _ = ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 #@show grid.deadCells
 #ProfileView.@profview _, _, _, _ = make_shield(grid, reach_by_Act, reach_by_no_Act, 70, euclideanHybridSystem.Act)
 #@show typeof(reach_by_Act)
-shield, iters, act_set, no_act_set = make_shield(grid, reach_by_Act, reach_by_no_Act, 2, euclideanHybridSystem.Act)
+
+#shield, iters, act_set, no_act_set = make_shield(grid, reach_by_Act, reach_by_no_Act, 2, euclideanHybridSystem.Act)
 
 #shield = grid
 #act_set = reach_by_Act
@@ -81,7 +85,7 @@ if make_plot
 
     #zonotopeArray3d = initialize_zonotope_array(shield)  # Initialize the zonotope array for the grid
     invalid_cells = []
-    heatmap_matrix = zeros(Int64, shield.numCells...)
+    heatmap_matrix = ones(Int64, shield.numCells...)
     #@show keys(act_set)
     for idx in CartesianIndices(shield.deadCells)
         #@show cell.pCells
@@ -89,6 +93,8 @@ if make_plot
 
         #@show any(x -> haskey(reach_by_Act, (x, cell.id)), euclideanHybridSystem.Act)
         if any(x -> haskey(act_set, (x.id, idx)), euclideanHybridSystem.Act)
+            heatmap_matrix[idx] = 2
+            #=
             possible_acts = []
             for act in euclideanHybridSystem.Act
 
@@ -103,15 +109,14 @@ if make_plot
             for actid in possible_acts
                 heatmap_matrix[idx] = 2 #+= act_translation[actid]
             end
+            =#
         end
 
         #push!(noAct, zonotopeArray3d[idx])
-        if !haskey(no_act_set, idx)
-            push!(invalid_cells, idx)
+        if no_act_bad_matrix[idx]
+            #push!(invalid_cells, idx)
+            heatmap_matrix[idx] = 2
             #push!(unsafe, zonotopeArray3d[idx])
-        else
-            heatmap_matrix[idx] = 1
-
         end
         if shield.deadCells[idx]
             heatmap_matrix[idx] = 0
@@ -120,7 +125,7 @@ if make_plot
             #heatmap_matrix[idx] = 1
         end
     end
-
+    #heatmap_matrix[findall(p -> !isempty(p.second), act_set)] .= 2
     #colors = cgrad(cscheme, length(euclideanHybridSystem.Act) + 1, categorical=true)
     #=
     plt = plot(dpi=1200, thickness_scaling=1, guidefontsize=35, minorgrid=true, ε=granularity,
@@ -202,7 +207,7 @@ if make_plot
 
     fig = Plots.plot(heatmap(transpose(heatmap_matrix), c=cgrad([:black, :white, :purple, :yellow, :red], 5, categorical=true), clim=(0, 4), colorbar=true, xlabel="v", ylabel="p", xticks=([0.0, shield.numCells[1]/2, shield.numCells[1]], [string(shield.lower[1]), "0", string(shield.upper[1])]), yticks=([0.0, shield.numCells[2]/2, shield.numCells[2]], [string(shield.lower[2]), string((shield.lower[2]+shield.upper[2])/2), string(shield.upper[2])])); colorbar_ticks=([0.0, 1.0, 2.0, 3.0, 4.0], ["dead", "no action", "act1", "act2", "act1 + act2"]))
     display(fig)
-    #savefig(fig, "plots/shield.pdf")
+    savefig(fig, "plots/shield.pdf")
 end
 
 

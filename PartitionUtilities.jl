@@ -1165,7 +1165,7 @@ function grow_indices(grid::Grid, idxs)
     offset = offsets(grid)
     res = []
     for idx in idxs
-        @show idx, offset
+        #@show idx, offset
         union!(res, collect(idx + CartesianIndex(of) for of in offset))
     end
 
@@ -1182,8 +1182,21 @@ function grow_indices(grid::Grid, idxs, offset)
 
     intersect!(res, union(idx for idx in CartesianIndices(grid.deadCells)))
     setdiff!(res, collect(CartesianIndex(id) for id in idxs))
-    @show res
+    #@show res
     return res
+end
+
+function grow_indices_t(grid::Grid, idxs::AbstractVector{<:CartesianIndex{N}}, offsets) where N
+    R = CartesianIndices(grid.deadCells)
+    src = Set(CartesianIndex.(idxs))          # fast membership test
+    res = Set{eltype(R)}()
+    for idx in src, off in offsets
+        nb = idx + CartesianIndex(off)
+        if nb in R && !(nb in src)
+            push!(res, nb)
+        end
+    end
+    return collect(res)                # drop sort! if order doesn't matter
 end
 
 # https://github.com/AstridHornBrorholt/Shielded-Learning-for-Hybrid-Systems/blob/22c9fc220ef40d55877ff1360be7286a7a506620/Shared%20Code/ShieldSynthesis.jl#L88
@@ -1269,6 +1282,101 @@ function shield_step!(deadCells::BitArray, can_act_matrix, no_action_bad_matrix,
     no_act_pop_keys = CartesianIndex{N}[]
     new_dead_cells = CartesianIndex{N}[]
     for idx in CartesianIndices(deadCells)
+        if !deadCells[idx]
+            #no_action_bad = any(i -> i == 0, collect(grid.array[nc].sidx[1] for nc in cell.pCells))
+            #no_action_bad = any(grid.deadCells[idx] for idx in cell.pCells)
+            no_action_bad = no_action_bad_matrix[idx]
+            if !no_action_bad && haskey(no_action_set, idx)
+                #@show collect(deadCells[idxx] for idxx in no_action_set[idx])
+                #if any(deadCells[idxx] for idxx in no_action_set[idx])
+                if any(deadCells[no_action_set[idx]])# for idxx in no_action_set[idx])
+                    #println("has key")
+                    no_action_bad = true
+                    no_action_bad_matrix[idx] = true
+                    push!(no_act_pop_keys, idx)
+                end
+            end
+
+            #can_act = can_act_matrix[idx]
+            approved_action_count = 0
+            if can_act_matrix[idx]
+                #should_act = false
+                for act in Act
+                    # maybe we should check if the action is even in the action_set first, but this is probably faster than checking for every action. 
+                    if haskey(action_set, (act.id, idx))
+                        approved_action_count += 1
+                        should_act = true
+                        #if isempty(collect(deadCells[idxx] for idxx in action_set[(act.id, idx)]))
+                        if isempty(collect(deadCells[action_set[(act.id, idx)]]))# for idxx in action_set[(act.id, idx)]))
+                            #@show action_set[(act.id, cell.id)]
+                            push!(act_pop_keys, (act.id, idx))
+                            approved_action_count -= 1
+                            #end
+
+                            #elseif any(deadCells[idxx] for idxx in action_set[(act.id, idx)])
+                        elseif any(deadCells[action_set[(act.id, idx)]])# for idxx in action_set[(act.id, idx)])
+                            push!(act_pop_keys, (act.id, idx))
+                            approved_action_count -= 1
+                            #elseif any(no_action_bad_matrix[idxx] for idxx in action_set[(act.id, idx)])
+                        elseif any(no_action_bad_matrix[action_set[(act.id, idx)]])# for idxx in action_set[(act.id, idx)])
+                            push!(act_pop_keys, (act.id, idx))
+                            approved_action_count -= 1
+                        end
+                    end
+                end
+                #if !should_act
+                #can_act_matrix[idx] = false
+                #push!(act_pop_keys, (0, idx))
+                #end
+            end
+            #@show can_act
+            #@show can_act, isempty(cell.pCells)
+            if approved_action_count <= 0 && no_action_bad #isempty(cell.pCells) && cell.sidx[1] == 1 #no_action_bad && can_act == 0
+                #grid´.array[cell.id].sidx[1] = 1
+                #deadCells´[idx] = true
+                #push!(no_act_pop_keys, cell.id)
+                #@show grid´.deadCells[cell.id] == grid.deadCells[cell.id]
+                no_action_bad_matrix[idx] = true
+                can_act_matrix[idx] = false
+                push!(new_dead_cells, idx)
+            end
+            #=else
+            for act in Act
+                if haskey(action_set, (act, cell.id))
+
+                    push!(act_pop_keys, (act, cell.id))
+
+                end
+                if haskey(no_action_set, cell.id)
+
+                    push!(no_act_pop_keys, cell.id)
+
+                end
+            end=#
+        end
+    end
+    #grid´.deadCells[new_dead_cells...] = true
+    #@show grid.deadCells == grid´.deadCells
+    #@show length(act_pop_keys)
+    #@show length(no_act_pop_keys)
+    filter!(k -> !in(k.first, act_pop_keys), action_set)
+    filter!(k -> !in(k.first, no_act_pop_keys), no_action_set)
+    if !isempty(new_dead_cells)
+        deadCells[new_dead_cells] .= true
+    end
+    #@show length(action_set)
+
+    #return deadCells, length(act_pop_keys), length(no_act_pop_keys), length(new_dead_cells), action_set, no_action_set #, action_set
+    return deadCells, length(act_pop_keys), length(no_act_pop_keys), length(new_dead_cells) #, action_set
+end
+
+# TODO - Why is this so extremely slow?
+function shield_step!(deadCells::BitArray, indices, can_act_matrix, no_action_bad_matrix, action_set::Dict{Tuple{Int64,CartesianIndex{N}},AbstractArray{CartesianIndex{N}}}, no_action_set::Dict{CartesianIndex{N},AbstractArray{CartesianIndex{N}}}, Act::Vector{Action}, dims::Int64) where N
+    #deadCells´ = copy(deadCells)
+    act_pop_keys = Tuple{Int64,CartesianIndex{N}}[]
+    no_act_pop_keys = CartesianIndex{N}[]
+    new_dead_cells = CartesianIndex{N}[]
+    for idx in indices
         if !deadCells[idx]
             #no_action_bad = any(i -> i == 0, collect(grid.array[nc].sidx[1] for nc in cell.pCells))
             #no_action_bad = any(grid.deadCells[idx] for idx in cell.pCells)

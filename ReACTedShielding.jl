@@ -426,6 +426,7 @@ function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity,
     mdl, c_ref = setup_model_constant_zonotope(max_zonotope)
 
 
+
     for global_constraint in system.globalConstraints
         #guard_invariant_intersection = intersection(guard_invariant_intersection, global_constraint)
         for didx in get_touching_cell_idxs_l(grid, global_constraint)
@@ -450,7 +451,20 @@ function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity,
 
             ReACT_discretize_combine_with_offset_vector!(preallocated_center, preallocated_genmat, preallocated_inter_genmat, discretizationDict, of, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict)
             #z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
-
+            #=
+            discdisc = newReACTDiscretizePlus(Z, δ⁻, δ⁺, system.flowMatrix, P2A_abs, phiDict, inputDict, alg, maxOrder, reduceOrder)
+            for k in keys(discdisc)
+                dumdum = Zonotope(discretizationDict[k].center, hcat(generatorDict[k], (Z.center - (phiDict[k]*Z.center))/2))
+                @show discretizationDict[k].generators
+                @show dumdum.generators
+                @show (Z.center - (phiDict[k]*Z.center))/2, phiDict[k]
+                @show low(discdisc[k]), low(discretizationDict[k]), low(dumdum)
+                @show high(discdisc[k]), high(discretizationDict[k]), high(dumdum)
+                @show discdisc[k].center, discretizationDict[k].center, size(genmat(discretizationDict[k])), size(generatorDict[k]), k
+            end
+            @show generatorDict[0]
+            =#
+            #throw(error("ASHJDAJSHDA"))
             z, f = propagate_set_t(Z, [0.0, p], δ⁻, δ⁺, system, system.edges, identity_matrix, attempt_recorder, grid.dimension, P2A_abs, guardProjVectors, guardProjBounds, discretizationDict, phiDict, tPhiDict, inputDict, max_input, max_flow, guard_invariant_intersection, alg, maxOrder, reduceOrder)
 
             if f != 1 #&& f != 3
@@ -1016,8 +1030,13 @@ function propagate_set_t(X0, interval, δ⁻::Float64, δ⁺::Float64, system, l
             end
         elseif flag == 2
             # Move this outside the function
-            #return (minkowski_sum(newSet, inputSet), 2)
-
+            if LazySets.API.isdisjoint(minkowski_sum(newSet, inputSet), system.statespace) && LazySets.API.isdisjoint(minkowski_sum(newSet, inputSet), guard_intersection)
+                #if !LazySets.API.isdisjoint(minkowski_sum(newSet, inputSet), edge.guard) && LazySets.API.isdisjoint(minkowski_sum(newSet, inputSet), system.statespace)
+                #testSet = minkowski_sum(newSet, inputSet)
+                #@show reachtime, X0, low(testSet), high(testSet)
+                #@show LazySets.API.isdisjoint(testSet, edge.guard)
+                return (nothing, 1)
+            end
             intersectingSetsList = ReACT_touches_set_constant_input(newSet, inputSet, guard_intersection, δ⁻, [reachtime, endtime], PhiDict, inputDict)
 
 
@@ -1499,9 +1518,10 @@ function ReACT_guards_t(δ⁻::Float64, δ⁺::Float64, interval, identity_matri
     Φ::Matrix{Float64} = copy(identity_matrix)
 
     tempM = copy(identity_matrix)
-
+    lastM = copy(identity_matrix)
     i = 1
     input = copy(zero_input)
+    last_input = copy(input)
     while time < endtime
 
         attempts = 1
@@ -1516,11 +1536,13 @@ function ReACT_guards_t(δ⁻::Float64, δ⁺::Float64, interval, identity_matri
                     if currentTimeStep + time < endtime
                         #input = input + linear_map(Φ, inputDiscretizationDict[currentTimeStep])
                         #input = linear_map(Φ, input) + inputDiscretizationDict[currentTimeStep]
+                        last_input = copy(input)
                         input = linear_map(PhiDict[currentTimeStep], input) + inputDiscretizationDict[currentTimeStep]
 
                         map!(x -> permutedphiDict[currentTimeStep] * x, guardProjVectors)
 
                         mul!(tempM, Φ, PhiDict[currentTimeStep])
+                        copy!(lastM, Φ)
                         copy!(Φ, tempM)
 
                     else
@@ -1548,6 +1570,7 @@ function ReACT_guards_t(δ⁻::Float64, δ⁺::Float64, interval, identity_matri
 
             else
                 return (time, linear_map(Φ, discritezationDict[δ⁻]), input, 2)
+                #return (time, linear_map(lastM, discritezationDict[δ⁻]), input, 2)
 
             end
 
@@ -1712,7 +1735,8 @@ function fast_guards_check_b(newR::Zonotope, input, constraintProjVectors, const
 end
 function fast_guards_check_t(newR::Zonotope, input, guardProjVectors, guardProjBounds) #; solver=model
     #return all((input + ρ(x, newR)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) && any((input + -ρ(-x, newR)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) && all((input - ρ(-x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
-    return !someinside(newR, input, guardProjVectors, guardProjBounds)
+    #return !someinside(newR, input, guardProjVectors, guardProjBounds)
+    return !someinside(minkowski_sum(newR, input), guardProjVectors, guardProjBounds)
 
 end
 function touchesCheck(newR::Zonotope, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, invarientProjVectors, invarientProjBounds) #; solver=model

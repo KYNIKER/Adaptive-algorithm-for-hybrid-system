@@ -1206,7 +1206,7 @@ function make_shield(grid::Grid, action_set::Dict{Tuple{Int64,CartesianIndex{N}}
         #@show findall(p -> isempty(p), no_action_set)
         #grid.deadCells[findall(p -> isempty(p), no_action_set)] .= true
 
-        return (grid, max_steps, action_set, no_action_set)
+        return (grid, max_steps, action_set, no_action_set, falses(grid.numCells...))
     end
 
     i = max_steps
@@ -1273,7 +1273,7 @@ function make_shield(grid::Grid, action_set::Dict{Tuple{Int64,CartesianIndex{N}}
     #@show can_act_matrix == trues(grid.numCells...)
     #@show no_action_bad_matrix == falses(grid.numCells...)
 
-    return (grid, max_steps - i, action_set, no_action_set)
+    return (grid, max_steps - i, action_set, no_action_set, no_action_bad_matrix)
 end
 
 function shield_step!(deadCells::BitArray, can_act_matrix, no_action_bad_matrix, action_set::Dict{Tuple{Int64,CartesianIndex{N}},AbstractArray{CartesianIndex{N}}}, no_action_set::Dict{CartesianIndex{N},AbstractArray{CartesianIndex{N}}}, Act::Vector{Action}, dims::Int64) where N

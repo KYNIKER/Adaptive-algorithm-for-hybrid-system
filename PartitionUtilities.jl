@@ -1186,7 +1186,7 @@ function grow_indices(grid::Grid, idxs, offset)
     return res
 end
 
-function grow_indices_t(grid::Grid, idxs::AbstractVector{<:CartesianIndex{N}}, offsets) where N
+function grow_indices_t(grid::Grid, idxs::Vector{<:CartesianIndex{N}}, offsets::Set{<:CartesianIndex{N}}) where N
     R = CartesianIndices(grid.deadCells)
     src = Set(CartesianIndex.(idxs))          # fast membership test
     res = Set{eltype(R)}()
@@ -1199,28 +1199,51 @@ function grow_indices_t(grid::Grid, idxs::AbstractVector{<:CartesianIndex{N}}, o
     return collect(res)                # drop sort! if order doesn't matter
 end
 
+function grow_indices_b(grid::Grid, idxs::AbstractVector{<:CartesianIndex{N}}, offsets::Set{<:CartesianIndex{N}}) where N
+    mask = falses(size(grid.deadCells))
+    src = CartesianIndex.(idxs)
+    offs = CartesianIndex.(offsets)
+    for idx in src, off in offs
+        nb = idx + off
+        checkbounds(Bool, mask, nb) && (mask[nb] = true)
+    end
+    mask[src] .= false                         # remove the originals
+    return findall(mask)                       # sorted, Vector{CartesianIndex{N}}
+end
+
 # https://github.com/AstridHornBrorholt/Shielded-Learning-for-Hybrid-Systems/blob/22c9fc220ef40d55877ff1360be7286a7a506620/Shared%20Code/ShieldSynthesis.jl#L88
 # Looks to terminate early..
 function make_shield(grid::Grid, action_set::Dict{Tuple{Int64,CartesianIndex{N}},AbstractArray{CartesianIndex{N}}}, no_action_set::Dict{CartesianIndex{N},AbstractArray{CartesianIndex{N}}}, max_steps::Int, Act::Vector{Action}) where N
     if max_steps == 0
         #@show findall(p -> isempty(p), no_action_set)
-        #grid.deadCells[findall(p -> isempty(p), no_action_set)] .= true
+        grid.deadCells[findall(p -> isempty(p), no_action_set)] .= true
 
         return (grid, max_steps, action_set, no_action_set, falses(grid.numCells...))
     end
 
     i = max_steps
+    println("$(max_steps - i) : $(Dates.format(now(), "HH:MM:SS"))")
     dims = grid.dimension
     dead = grid.deadCells
     can_act_matrix = trues(grid.numCells...)
-    no_action_bad_matrix = falses(grid.numCells...)
+    no_action_bad_matrix = trues(grid.numCells...)
     dead´ = nothing
     action_set´ = nothing
     no_action_set´ = nothing
     a_tombstones = 0
     n_tombstones = 0
-    dead[findall(p -> isempty(p), no_action_set)] .= true
-    #filter!(p -> !isempty(p.second), action_set)
+
+    grid.deadCells[findall(p -> isempty(p), no_action_set)] .= true
+    no_action_bad_matrix[findall(p -> !isempty(p), no_action_set)] .= false
+    #=no_action_bad_matrix[findall(p -> isempty(p), no_action_set)] .= true
+    for i in 290:300
+        for j in 148:150
+            tidx = CartesianIndex(i, j)
+            @show grid.deadCells[tidx], no_action_bad_matrix[tidx]
+        end
+    end=#
+    filter!(p -> !isempty(p.second), no_action_set)
+    filter!(p -> !isempty(p.second), action_set)
     action_set::Dict{Tuple{Int64,CartesianIndex{N}},AbstractArray{CartesianIndex{N}}} = Dict{Tuple{Int64,CartesianIndex{N}},AbstractArray{CartesianIndex{N}}}(action_set)
     no_action_set::Dict{CartesianIndex{N},AbstractArray{CartesianIndex{N}}} = Dict{CartesianIndex{N},AbstractArray{CartesianIndex{N}}}(no_action_set)
 
@@ -1291,6 +1314,10 @@ function shield_step!(deadCells::BitArray, can_act_matrix, no_action_bad_matrix,
                 #if any(deadCells[idxx] for idxx in no_action_set[idx])
                 if any(deadCells[no_action_set[idx]])# for idxx in no_action_set[idx])
                     #println("has key")
+                    no_action_bad = true
+                    no_action_bad_matrix[idx] = true
+                    push!(no_act_pop_keys, idx)
+                elseif isempty(no_action_set[idx])
                     no_action_bad = true
                     no_action_bad_matrix[idx] = true
                     push!(no_act_pop_keys, idx)
@@ -1374,6 +1401,8 @@ end
 function shield_step!(deadCells::BitArray, indices, can_act_matrix, no_action_bad_matrix, action_set::Dict{Tuple{Int64,CartesianIndex{N}},AbstractArray{CartesianIndex{N}}}, no_action_set::Dict{CartesianIndex{N},AbstractArray{CartesianIndex{N}}}, Act::Vector{Action}, dims::Int64) where N
     #deadCells´ = copy(deadCells)
     act_pop_keys = Tuple{Int64,CartesianIndex{N}}[]
+    act_idx_pop_keys = CartesianIndex{N}[]
+
     no_act_pop_keys = CartesianIndex{N}[]
     new_dead_cells = CartesianIndex{N}[]
     for idx in indices
@@ -1405,20 +1434,29 @@ function shield_step!(deadCells::BitArray, indices, can_act_matrix, no_action_ba
                         if isempty(collect(deadCells[action_set[(act.id, idx)]]))# for idxx in action_set[(act.id, idx)]))
                             #@show action_set[(act.id, cell.id)]
                             push!(act_pop_keys, (act.id, idx))
+                            push!(act_idx_pop_keys, idx)
                             approved_action_count -= 1
                             #end
 
                             #elseif any(deadCells[idxx] for idxx in action_set[(act.id, idx)])
                         elseif any(deadCells[action_set[(act.id, idx)]])# for idxx in action_set[(act.id, idx)])
                             push!(act_pop_keys, (act.id, idx))
+                            push!(act_idx_pop_keys, idx)
+
                             approved_action_count -= 1
                             #elseif any(no_action_bad_matrix[idxx] for idxx in action_set[(act.id, idx)])
                         elseif any(no_action_bad_matrix[action_set[(act.id, idx)]])# for idxx in action_set[(act.id, idx)])
                             push!(act_pop_keys, (act.id, idx))
+                            push!(act_idx_pop_keys, idx)
+
                             approved_action_count -= 1
                         end
                     end
                 end
+                if approved_action_count <= 0
+                    can_act_matrix[idx] = false
+                end
+
                 #if !should_act
                 #can_act_matrix[idx] = false
                 #push!(act_pop_keys, (0, idx))
@@ -1462,5 +1500,5 @@ function shield_step!(deadCells::BitArray, indices, can_act_matrix, no_action_ba
     #@show length(action_set)
 
     #return deadCells, length(act_pop_keys), length(no_act_pop_keys), length(new_dead_cells), action_set, no_action_set #, action_set
-    return deadCells, length(act_pop_keys), length(no_act_pop_keys), length(new_dead_cells) #, action_set
+    return deadCells, act_idx_pop_keys, no_act_pop_keys, new_dead_cells #, action_set
 end

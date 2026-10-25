@@ -258,6 +258,7 @@ function newReACTDiscretizePlus(X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Floa
     #disc = overapproximate(CH(X0, f), Zonotope) # overapproximate(CH(X0, minkowski_sum(f, PZ)), Zonotope) #
     #@show disc
     while d < δ⁺
+        #@show disc.center
         discritezationDictp[d] = copy(disc)
         #=
         if maxOrder > 0
@@ -378,16 +379,19 @@ function ReACT_discretize_combine_with_offset_vector(X0c::Vector{N}, δ⁻::Floa
     return discritezationDict
 end
 
-function ReACT_discretize_combine_with_offset_vector!(preallocated_center, preallocated_genmat, preallocated_inter_genmat, discritezationDict, X0c::Vector{N}, δ⁻::Float64, δ⁺::Float64, A, P2A_abs, phiDict, U, inputDiscritezationDict, generatorDiscretizationDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}
+function ReACT_discretize_combine_with_offset_vector!(preallocated_center::Vector{N}, preallocated_genmat::Matrix{N}, preallocated_inter_genmat::Matrix{N}, discritezationDict, X0c::Vector{N}, δ⁻::Float64, δ⁺::Float64, A, P2A_abs, phiDict, U, inputDiscritezationDict, generatorDiscretizationDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}
     d = copy(δ⁻)
     #discritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
 
     Xc = X0c
-    Uc = inputDiscritezationDict[0].center # dU + Psi
+    Uc = inputDiscritezationDict[-2].center # dU + Psi
 
-    eAXc = (phiDict[d] * Xc)
+    eAXc = (phiDict[d] * X0c)
     #newC = (Xc .+ eAXc .+ Uc) .* 0.5
-    copy!(preallocated_center, (Xc .+ eAXc .+ Uc) .* 0.5)
+    #@show preallocated_center
+    #@show X0c + eAXc, Uc
+    copy!(view(preallocated_center, :, :), view((X0c + eAXc + Uc) .* 0.5, :, :))
+    #@show preallocated_center
     #copy!(preallocated_center, (Xc .+ eAXc) .* 0.5)
     dim = length(X0c)
     ng = dim + 1
@@ -440,8 +444,13 @@ function ReACT_discretize_combine_with_offset_vector!(preallocated_center, preal
     end
     #@show generatorDiscretizationDict[d]
     copy!(discritezationDict[d].center, preallocated_center)
+    copy!(view(discritezationDict[d].generators, :, 1:(ng)), view(preallocated_genmat, :, 1:ng))
+    copyto!(view(discritezationDict[d].generators, :, (ng+1):(size(discritezationDict[d].generators, 2))), generatorDiscretizationDict[d])
+    #=
+    copy!(discritezationDict[d].center, preallocated_center)
     copyto!(discritezationDict[d].generators, 1, preallocated_genmat, 1, ng)
     copyto!(discritezationDict[d].generators, ng+1, generatorDiscretizationDict[d], 1, size(generatorDiscretizationDict[d], 2))
+    =#
     #copy!(discritezationDict[δ⁺].center, newC)
     #copy!(discritezationDict[δ⁺].generators, hcat(c_bloat, generatorDiscretizationDict[d]))
 
@@ -672,6 +681,7 @@ function phi_input_dict(A, U, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityA
     E_ψ = symmetric_interval_hull(linear_map(P2A_abs, symmetric_interval_hull(LazySets.linear_map(A, U))))
     inputDiscritezationDict[0] = minkowski_sum(dU, E_ψ)
     inputDiscritezationDict[-1] = E_ψ
+    inputDiscritezationDict[-2] = dU
     #E_ψ = SymmetricIntervalHull(LinearMap(P2A_abs, SymmetricIntervalHull(A * U)))
     #P = overapproximate(minkowski_sum(dU, E_ψ), Zonotope) #
 

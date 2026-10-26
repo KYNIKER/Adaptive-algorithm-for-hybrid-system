@@ -1523,7 +1523,7 @@ function predecessor_graph(action_set::Dict{Tuple{Int64,CartesianIndex{N}},Abstr
 
     for (k, avx) in pairs(action_set)
         if !isempty(avx)
-            act_bad_matrix[k[2]] = false
+            act_bad_matrix[k[2]] = false # act_bad_matrix is false for all cells that had an enabled action
             for v in avx
                 if haskey(new_action_set, (k[1], v))
                     push!(new_action_set[(k[1], v)], k[2])
@@ -1547,12 +1547,12 @@ function shield_from_predecessor_graph(grid, act_list, action_set::Dict{Tuple{In
     end
     act_idxs = collect(a.id for a in act_list)
     #may_act_matrices = Dict(collect((x, copy(act_bad_matrix)) for x in act_idxs))
-    may_act_matrices = [copy(act_bad_matrix) for _ in act_idxs]
+    may_act_matrices = [copy(.!act_bad_matrix) for _ in act_idxs]
     #@show size(may_act_matrices)
     #@show size(act_bad_matrix)
     #return act_bad_matrix, no_act_bad_matrix
     count = 0
-    while !isempty(waitlist) && count < 100000
+    while !isempty(waitlist) && count < 200000
         count += 1
         cidx = pop!(waitlist)
         if cidx in donelist
@@ -1571,7 +1571,7 @@ function shield_from_predecessor_graph(grid, act_list, action_set::Dict{Tuple{In
 
         if propagate
             if haskey(no_action_set, cidx)
-
+                #@show no_action_set[cidx]
                 push!(waitlist, no_action_set[cidx]...)
             end
             for aidx in act_idxs
@@ -1586,6 +1586,6 @@ function shield_from_predecessor_graph(grid, act_list, action_set::Dict{Tuple{In
 
         push!(donelist, cidx)
     end
-    no_act_bad_matrix = (|).(no_act_bad_matrix, .!reduce((x, y)->(|).(x, y), may_act_matrices))
+    #no_act_bad_matrix = (|).(no_act_bad_matrix, .!reduce((x, y)->(|).(x, y), may_act_matrices))
     return act_bad_matrix, no_act_bad_matrix
 end

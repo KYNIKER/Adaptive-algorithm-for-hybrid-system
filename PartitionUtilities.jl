@@ -1502,3 +1502,90 @@ function shield_step!(deadCells::BitArray, indices, can_act_matrix, no_action_ba
     #return deadCells, length(act_pop_keys), length(no_act_pop_keys), length(new_dead_cells), action_set, no_action_set #, action_set
     return deadCells, act_idx_pop_keys, no_act_pop_keys, new_dead_cells #, action_set
 end
+
+function predecessor_graph(action_set::Dict{Tuple{Int64,CartesianIndex{N}},AbstractArray{CartesianIndex{N}}}, no_action_set::Dict{CartesianIndex{N},AbstractArray{CartesianIndex{N}}}, no_act_bad_matrix::BitArray, act_bad_matrix::BitArray) where N
+    new_action_set::Dict{Tuple{Int64,CartesianIndex{N}},AbstractArray{CartesianIndex{N}}} = Dict()
+    new_no_action_set::Dict{CartesianIndex{N},AbstractArray{CartesianIndex{N}}} = Dict()
+
+    for (k, vx) in pairs(no_action_set)
+        if isempty(vx)
+            no_act_bad_matrix[k] = true
+        else
+            for v in vx
+                if haskey(new_no_action_set, v)
+                    push!(new_no_action_set[v], k)
+                else
+                    new_no_action_set[v] = CartesianIndex{N}[k]
+                end
+            end
+        end
+    end
+
+    for (k, avx) in pairs(action_set)
+        if !isempty(avx)
+            act_bad_matrix[k[2]] = false
+            for v in avx
+                if haskey(new_action_set, (k[1], v))
+                    push!(new_action_set[(k[1], v)], k[2])
+                else
+                    new_action_set[(k[1], v)] = CartesianIndex{N}[k[2]]
+                end
+            end
+        end
+    end
+    return new_action_set, new_no_action_set, act_bad_matrix, no_act_bad_matrix
+end
+
+
+# TODO - Does not work because the predecessor graph computes the cells reached from an action in the stored other cell. Because of this we wrongly check whether we still are able to perform an action such that we dont become unsafe. 
+function shield_from_predecessor_graph(grid, act_list, action_set::Dict{Tuple{Int64,CartesianIndex{N}},AbstractArray{CartesianIndex{N}}}, no_action_set::Dict{CartesianIndex{N},AbstractArray{CartesianIndex{N}}}, no_act_bad_matrix::BitArray, act_bad_matrix::BitArray) where N
+    waitlist = Set{CartesianIndex{N}}()
+    donelist = Set{CartesianIndex{N}}()
+    dead::BitMatrix = grid.deadCells
+    for idx in findall((|).(dead, (&).(act_bad_matrix, no_act_bad_matrix)))
+        push!(waitlist, idx)
+    end
+    act_idxs = collect(a.id for a in act_list)
+    #may_act_matrices = Dict(collect((x, copy(act_bad_matrix)) for x in act_idxs))
+    may_act_matrices = [copy(act_bad_matrix) for _ in act_idxs]
+    #@show size(may_act_matrices)
+    #@show size(act_bad_matrix)
+    #return act_bad_matrix, no_act_bad_matrix
+    count = 0
+    while !isempty(waitlist) && count < 100000
+        count += 1
+        cidx = pop!(waitlist)
+        if cidx in donelist
+            continue
+        end
+
+        no_act_bad_matrix[cidx] = true
+        propagate = false
+        if act_bad_matrix[cidx]
+            dead[cidx] = true
+            propagate = true
+        elseif !(any(map(i -> i[cidx], may_act_matrices)))
+            dead[cidx] = true
+            propagate = true
+        end
+
+        if propagate
+            if haskey(no_action_set, cidx)
+
+                push!(waitlist, no_action_set[cidx]...)
+            end
+            for aidx in act_idxs
+                may_act_matrices[aidx][cidx] = false
+
+                if haskey(action_set, (aidx, cidx))
+                    may_act_matrices[aidx][action_set[(aidx, cidx)]] .= false
+                    # should these get added to waitlist?
+                end
+            end
+        end
+
+        push!(donelist, cidx)
+    end
+    no_act_bad_matrix = (|).(no_act_bad_matrix, .!reduce((x, y)->(|).(x, y), may_act_matrices))
+    return act_bad_matrix, no_act_bad_matrix
+end

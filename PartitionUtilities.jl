@@ -1503,7 +1503,7 @@ function shield_step!(deadCells::BitArray, indices, can_act_matrix, no_action_ba
     return deadCells, act_idx_pop_keys, no_act_pop_keys, new_dead_cells #, action_set
 end
 
-function predecessor_graph(action_set::Dict{Tuple{Int64,CartesianIndex{N}},AbstractArray{CartesianIndex{N}}}, no_action_set::Dict{CartesianIndex{N},AbstractArray{CartesianIndex{N}}}, no_act_bad_matrix::BitArray, act_bad_matrix::BitArray) where N
+function predecessor_graph!(action_set::Dict{Tuple{Int64,CartesianIndex{N}},AbstractArray{CartesianIndex{N}}}, no_action_set::Dict{CartesianIndex{N},AbstractArray{CartesianIndex{N}}}, no_act_bad_matrix::BitArray, act_bad_matrix::BitArray) where N
     new_action_set::Dict{Tuple{Int64,CartesianIndex{N}},AbstractArray{CartesianIndex{N}}} = Dict()
     new_no_action_set::Dict{CartesianIndex{N},AbstractArray{CartesianIndex{N}}} = Dict()
 
@@ -1533,12 +1533,12 @@ function predecessor_graph(action_set::Dict{Tuple{Int64,CartesianIndex{N}},Abstr
             end
         end
     end
-    return new_action_set, new_no_action_set, act_bad_matrix, no_act_bad_matrix
+    return new_action_set, new_no_action_set#, act_bad_matrix, no_act_bad_matrix
 end
 
 
 # TODO - Does not work because the predecessor graph computes the cells reached from an action in the stored other cell. Because of this we wrongly check whether we still are able to perform an action such that we dont become unsafe. 
-function shield_from_predecessor_graph(grid, act_list, action_set::Dict{Tuple{Int64,CartesianIndex{N}},AbstractArray{CartesianIndex{N}}}, no_action_set::Dict{CartesianIndex{N},AbstractArray{CartesianIndex{N}}}, no_act_bad_matrix::BitArray, act_bad_matrix::BitArray) where N
+function shield_from_predecessor_graph!(grid, act_list, action_set::Dict{Tuple{Int64,CartesianIndex{N}},AbstractArray{CartesianIndex{N}}}, no_action_set::Dict{CartesianIndex{N},AbstractArray{CartesianIndex{N}}}, no_act_bad_matrix::BitArray, act_bad_matrix::BitArray) where N
     waitlist = Set{CartesianIndex{N}}()
     donelist = Set{CartesianIndex{N}}()
     dead::BitMatrix = grid.deadCells
@@ -1552,7 +1552,7 @@ function shield_from_predecessor_graph(grid, act_list, action_set::Dict{Tuple{In
     #@show size(act_bad_matrix)
     #return act_bad_matrix, no_act_bad_matrix
     count = 0
-    while !isempty(waitlist) && count < 200000
+    while !isempty(waitlist) && count < 15000000
         count += 1
         cidx = pop!(waitlist)
         if cidx in donelist
@@ -1570,6 +1570,7 @@ function shield_from_predecessor_graph(grid, act_list, action_set::Dict{Tuple{In
         end
 
         if propagate
+            push!(donelist, cidx)
             if haskey(no_action_set, cidx)
                 #@show no_action_set[cidx]
                 push!(waitlist, no_action_set[cidx]...)
@@ -1579,13 +1580,15 @@ function shield_from_predecessor_graph(grid, act_list, action_set::Dict{Tuple{In
 
                 if haskey(action_set, (aidx, cidx))
                     may_act_matrices[aidx][action_set[(aidx, cidx)]] .= false
+                    act_bad_matrix[action_set[(aidx, cidx)]] .= true
+                    push!(waitlist, action_set[(aidx, cidx)]...)
                     # should these get added to waitlist?
                 end
             end
         end
 
-        push!(donelist, cidx)
     end
+    println(count)
     #no_act_bad_matrix = (|).(no_act_bad_matrix, .!reduce((x, y)->(|).(x, y), may_act_matrices))
-    return act_bad_matrix, no_act_bad_matrix
+    #return act_bad_matrix, no_act_bad_matrix
 end

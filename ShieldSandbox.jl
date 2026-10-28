@@ -46,18 +46,30 @@ close(f)
 =#
 
 #@allocations ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+
+#grid, act_set, no_act_set, no_act_bad_matrix = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+#@time grid, act_set, no_act_set, no_act_bad_matrix = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 #VSCodeServer.@profview _, _, _ = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-@time grid, act_set, no_act_set, no_act_bad_matrix = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+#shield = grid
 #@show grid.deadCells# == trues(grid.numCells...)
+
+
+@time grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell_t(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+no_act_bad_matrix = copy(grid.deadCells)
+act_bad_matrix = trues(grid.numCells...)
+@time act_set, no_act_set = predecessor_graph!(reach_by_Act, reach_by_no_Act, no_act_bad_matrix, act_bad_matrix)
+@time shield_from_predecessor_graph!(grid, euclideanHybridSystem.Act, act_set, no_act_set, no_act_bad_matrix, act_bad_matrix)
 shield = grid
-#@time grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell_t(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+
 #ProfileView.@profview _, _, _ = ReACTed_reachable_cell_t(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 #ProfileView.@profview _, _, _ = ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+#shield, iters, act_set, no_act_set, no_act_bad_matrix = make_shield(grid, reach_by_Act, reach_by_no_Act, 350, euclideanHybridSystem.Act)
+
+
 #@show grid.deadCells
 #ProfileView.@profview _, _, _, _ = make_shield(grid, reach_by_Act, reach_by_no_Act, 70, euclideanHybridSystem.Act)
 #@show typeof(reach_by_Act)
 
-#shield, iters, act_set, no_act_set = make_shield(grid, reach_by_Act, reach_by_no_Act, 2, euclideanHybridSystem.Act)
 
 #shield = grid
 #act_set = reach_by_Act
@@ -85,7 +97,7 @@ if make_plot
 
     #zonotopeArray3d = initialize_zonotope_array(shield)  # Initialize the zonotope array for the grid
     invalid_cells = []
-    heatmap_matrix = ones(Int64, shield.numCells...)
+    heatmap_matrix = zeros(Int64, shield.numCells...)
     #@show keys(act_set)
     for idx in CartesianIndices(shield.deadCells)
         #@show cell.pCells
@@ -93,7 +105,7 @@ if make_plot
 
         #@show any(x -> haskey(reach_by_Act, (x, cell.id)), euclideanHybridSystem.Act)
         if any(x -> haskey(act_set, (x.id, idx)), euclideanHybridSystem.Act)
-            heatmap_matrix[idx] = 2
+            #heatmap_matrix[idx] = 2
             #=
             possible_acts = []
             for act in euclideanHybridSystem.Act
@@ -113,12 +125,16 @@ if make_plot
         end
 
         #push!(noAct, zonotopeArray3d[idx])
-        if no_act_bad_matrix[idx]
+        if !no_act_bad_matrix[idx] # || !haskey(no_act_set, idx)
             #push!(invalid_cells, idx)
-            heatmap_matrix[idx] = 2
+            heatmap_matrix[idx] = 1
             #push!(unsafe, zonotopeArray3d[idx])
+        elseif act_bad_matrix[idx]
+            heatmap_matrix[idx] = 3
+        else
+            heatmap_matrix[idx] = 2
         end
-        if shield.deadCells[idx]
+        if shield.deadCells[idx] || (no_act_bad_matrix[idx] && act_bad_matrix[idx])
             heatmap_matrix[idx] = 0
             #push!(unsafe, zonotopeArray3d[cell.id])
         else
@@ -142,16 +158,7 @@ if make_plot
         xlabel="v", ylabel="p")
     =#
     #plot(hm)
-    color_labels = ["Dead", "No action", "Act1", "Act2", "Act1 + Act2"]
-    if length(color_labels) > 0
-        if length(color_labels) != length(cscheme)
-            throw(ArgumentError("Length of argument color_labels does not match  number of colors."))
-        end
-        for (color, label) in zip(cscheme, color_labels)
-            # Apparently shapes are added to the legend even if the list is empty
-            #plot!(plt, Float64[], Float64[], seriestype=:shape, label=label, color=color)
-        end
-    end
+
     #plot!(plt, heatmap(transpose(heatmap_matrix), c=cscheme, colorbar=nothing))
 
     #for i in 270:280
@@ -164,12 +171,12 @@ if make_plot
     aexp = exp(timePeriod * euclideanHybridSystem.flowMatrix)
     Z = remove_zero_generators(Zonotope(degenerate_dimensions, diagm(map(x -> x == 1 ? 0. : granularity/2, grid.numCells))))
     #=
-    for i in 319:320
-        for j in 2:2
+    for i in 298:300
+        for j in 128:140
             tidx = CartesianIndex(i, j)
             of = lower_offset + ((car2vec(tidx) .- 1) .* granularity)
             LazySets.API.translate!(Z, of)
-            @show tidx, get_touching_cell_idxs_lz(grid, minkowski_sum(linear_map(aexp, Z), max_input))
+            @show tidx, get_touching_cell_idxs_lz(grid, minkowski_sum(linear_map(aexp, Z), max_input)), haskey(no_act_set, tidx), no_act_bad_matrix[tidx], shield.deadCells[tidx], grid.deadCells[tidx]
             #tidx = CartesianIndex(91, 1)
             heatmap_matrix[tidx] = 4
             #@show haskey(no_act_set, tidx)
@@ -185,7 +192,7 @@ if make_plot
 
                 end
 
-                #@show no_act_set[tidx]
+                @show no_act_set[tidx]
             end
             for key in euclideanHybridSystem.Act
                 if haskey(act_set, (key.id, tidx))
@@ -194,8 +201,8 @@ if make_plot
                             heatmap_matrix[v] = 3
                         else
                             heatmap_matrix[v] = 2
-                            #@show v
                         end
+                        @show v
                     end
                 end
             end
@@ -204,10 +211,19 @@ if make_plot
         end
     end
     =#
+    println("amount of dead cells: $(length(findall(==(0), heatmap_matrix))/foldl(*, grid.numCells))")
+    println("amount of blocked cells: $(length(findall(==(2), heatmap_matrix))/foldl(*, grid.numCells))")
 
-    fig = Plots.plot(heatmap(transpose(heatmap_matrix), c=cgrad([:black, :white, :purple, :yellow, :red], 5, categorical=true), clim=(0, 4), colorbar=true, xlabel="v", ylabel="p", xticks=([0.0, shield.numCells[1]/2, shield.numCells[1]], [string(shield.lower[1]), "0", string(shield.upper[1])]), yticks=([0.0, shield.numCells[2]/2, shield.numCells[2]], [string(shield.lower[2]), string((shield.lower[2]+shield.upper[2])/2), string(shield.upper[2])])); colorbar_ticks=([0.0, 1.0, 2.0, 3.0, 4.0], ["dead", "no action", "act1", "act2", "act1 + act2"]))
+    fig = Plots.plot(heatmap(transpose(heatmap_matrix), c=cgrad([:black, :white, :purple, :yellow, :red], 5, categorical=true), clim=(0, 4), colorbar=false, xlabel="v", ylabel="p", xticks=([0.0, shield.numCells[1]/2, shield.numCells[1]], [string(shield.lower[1]), "0", string(shield.upper[1])]), yticks=([0.0, shield.numCells[2]/2, shield.numCells[2]], [string(shield.lower[2]), string((shield.lower[2]+shield.upper[2])/2), string(shield.upper[2])])); colorbar_ticks=([0.0, 1.0, 2.0, 3.0, 4.0], ["dead", "no action", "act1", "act2", "act1 + act2"]))
+    color_labels = ["{}", "{hit, nohit}", "{hit}"]
+    for (color, label) in zip(cgrad([:black, :white, :purple]), color_labels)
+        Plots.plot!(Float64[], Float64[], seriestype=:shape,   # The Float typing has been added to avoid a weird warning
+            label=label, color=color)
+    end
+    Plots.xlims!(0.0, shield.numCells[1])
+    Plots.ylims!(1.0, shield.numCells[2])
     display(fig)
-    savefig(fig, "plots/shield.pdf")
+    #savefig(fig, "plots/shield.pdf")
 end
 
 

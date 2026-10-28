@@ -1407,8 +1407,7 @@ function shield_step!(deadCells::BitArray, indices, can_act_matrix, no_action_ba
     new_dead_cells = CartesianIndex{N}[]
     for idx in indices
         if !deadCells[idx]
-            #no_action_bad = any(i -> i == 0, collect(grid.array[nc].sidx[1] for nc in cell.pCells))
-            #no_action_bad = any(grid.deadCells[idx] for idx in cell.pCells)
+            #=
             no_action_bad = no_action_bad_matrix[idx]
             if !no_action_bad && haskey(no_action_set, idx)
                 #@show collect(deadCells[idxx] for idxx in no_action_set[idx])
@@ -1419,6 +1418,25 @@ function shield_step!(deadCells::BitArray, indices, can_act_matrix, no_action_ba
                     no_action_bad_matrix[idx] = true
                     push!(no_act_pop_keys, idx)
                 end
+            end
+            =#
+            no_action_bad = no_action_bad_matrix[idx]
+            if !no_action_bad && haskey(no_action_set, idx)
+
+                if any(deadCells[no_action_set[idx]])
+                    no_action_bad = true
+                    no_action_bad_matrix[idx] = true
+                    push!(no_act_pop_keys, idx)
+                end
+                if isempty(no_action_set[idx])
+                    no_action_bad = true
+                    no_action_bad_matrix[idx] = true
+                    push!(no_act_pop_keys, idx)
+                end
+            else
+                no_action_bad = true
+                no_action_bad_matrix[idx] = true
+                push!(no_act_pop_keys, idx)
             end
 
             #can_act = can_act_matrix[idx]
@@ -1456,6 +1474,9 @@ function shield_step!(deadCells::BitArray, indices, can_act_matrix, no_action_ba
                 if approved_action_count <= 0
                     can_act_matrix[idx] = false
                 end
+
+
+
 
                 #if !should_act
                 #can_act_matrix[idx] = false
@@ -1503,15 +1524,20 @@ function shield_step!(deadCells::BitArray, indices, can_act_matrix, no_action_ba
     return deadCells, act_idx_pop_keys, no_act_pop_keys, new_dead_cells #, action_set
 end
 
+# action_set: (act, idx) -> idxs. Maps action id and cell idx to the idxs of all cells that overlap the final reachset of performing the action and then propagation.
+# no_action_set: (idx) -> idxs. Maps cell idx to idxs of all cells that overlap the final reachset of propagation.
+# no_act_bad_matrix: bitmatrix where true denotes that not performing the action results in not being a subset of the invariant set witin the control period. 
+# act_bad_matrix: bitmatrix where true denotes that performing the action and then propagating results in not being a subset of the invariant set within the control period. 
 function predecessor_graph!(action_set::Dict{Tuple{Int64,CartesianIndex{N}},AbstractArray{CartesianIndex{N}}}, no_action_set::Dict{CartesianIndex{N},AbstractArray{CartesianIndex{N}}}, no_act_bad_matrix::BitArray, act_bad_matrix::BitArray) where N
+    # New dictionaries to store the predecessor relation. Now keys map to arrays of all idxs that reach said key.
     new_action_set::Dict{Tuple{Int64,CartesianIndex{N}},AbstractArray{CartesianIndex{N}}} = Dict()
     new_no_action_set::Dict{CartesianIndex{N},AbstractArray{CartesianIndex{N}}} = Dict()
-
+    no_act_bad_matrix[findall(x -> !haskey(no_action_set, x), CartesianIndices(no_act_bad_matrix))] .= true
     for (k, vx) in pairs(no_action_set)
-        if isempty(vx)
+        if isempty(vx) # If vx is empty then the final reachset didnt map to any idxs implying that it is disjoint from the invariant set.
             no_act_bad_matrix[k] = true
         else
-            for v in vx
+            for v in vx # Two cases: 1) some cell has already mapped to this idx in the original successor relation, hence we append the key. 2) it hasn't happened before and we must create a new array to store the key.
                 if haskey(new_no_action_set, v)
                     push!(new_no_action_set[v], k)
                 else
@@ -1531,6 +1557,8 @@ function predecessor_graph!(action_set::Dict{Tuple{Int64,CartesianIndex{N}},Abst
                     new_action_set[(k[1], v)] = CartesianIndex{N}[k[2]]
                 end
             end
+        else
+            act_bad_matrix[k[2]] = true
         end
     end
     return new_action_set, new_no_action_set#, act_bad_matrix, no_act_bad_matrix
@@ -1543,6 +1571,7 @@ function shield_from_predecessor_graph!(grid, act_list, action_set::Dict{Tuple{I
     donelist = Set{CartesianIndex{N}}()
     dead::BitMatrix = grid.deadCells
     for idx in findall((|).(dead, (&).(act_bad_matrix, no_act_bad_matrix)))
+        dead[idx] = true
         push!(waitlist, idx)
     end
     act_idxs = collect(a.id for a in act_list)
@@ -1559,20 +1588,21 @@ function shield_from_predecessor_graph!(grid, act_list, action_set::Dict{Tuple{I
             continue
         end
 
-        no_act_bad_matrix[cidx] = true
+        #no_act_bad_matrix[cidx] = true
         propagate = false
         if act_bad_matrix[cidx]
-            dead[cidx] = true
             propagate = true
         elseif !(any(map(i -> i[cidx], may_act_matrices)))
-            dead[cidx] = true
+            #dead[cidx] = true
             propagate = true
         end
 
-        if propagate
+        if propagate && no_act_bad_matrix[cidx]
+            dead[cidx] = true
             push!(donelist, cidx)
             if haskey(no_action_set, cidx)
                 #@show no_action_set[cidx]
+                no_act_bad_matrix[no_action_set[cidx]] .= true
                 push!(waitlist, no_action_set[cidx]...)
             end
             for aidx in act_idxs

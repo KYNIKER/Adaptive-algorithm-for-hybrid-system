@@ -278,9 +278,9 @@ function ReACTed_reachable_cell_online(system::EuclideanHybridSystem, p, granula
     grid = Grid(system.statespace, granularity)
     @show foldl(*, grid.numCells), grid.numCells
     #max_steps = 300
-    shield_count = 980
+    shield_count::Int64 = 980
     sweep_factor = 20
-    include_border_cells = true
+    include_border_cells = false
     TIME_FUNCS = true
 
     recorderTimeStart = time_ns()
@@ -444,6 +444,8 @@ function ReACTed_reachable_cell_online(system::EuclideanHybridSystem, p, granula
     reachability_time = 0.0
     shield_time = 0.0
 
+    shield_count_cover = zeros(Int64, grid.numCells...)
+
     while shield_count < max_steps
         if TIME_FUNCS
             aux_time_recoder = time_ns()
@@ -537,6 +539,9 @@ function ReACTed_reachable_cell_online(system::EuclideanHybridSystem, p, granula
             println("$(max_steps - shield_count) : $(Dates.format(now(), "HH:MM:SS"))")
         end
         #@show can_act_matrix == trues(grid.numCells...)
+        if !isempty(ld)
+            shield_count_cover[ld] .= shield_count
+        end
         if length(la) == 0 && length(ln) == 0 && length(ld) == 0
 
             println("Fixed point found at $(max_steps-shield_count) steps!")

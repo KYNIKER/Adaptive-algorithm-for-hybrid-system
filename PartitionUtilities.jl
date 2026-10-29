@@ -1622,3 +1622,11 @@ function shield_from_predecessor_graph!(grid, act_list, action_set::Dict{Tuple{I
     #no_act_bad_matrix = (|).(no_act_bad_matrix, .!reduce((x, y)->(|).(x, y), may_act_matrices))
     #return act_bad_matrix, no_act_bad_matrix
 end
+
+function split_offsets(split_factor::Int64, dim::Int64)
+    return (CartesianIndex).(Iterators.product(ntuple(i -> 0:-1:(-(split_factor-1)), dim)...))
+end
+
+function split_cell_idx(split_factor::Int64, car::CartesianIndex{N}, split_offsets) where N
+    return split_offsets .+ (car .* split_factor)
+end

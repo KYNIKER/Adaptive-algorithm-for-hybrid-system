@@ -362,3 +362,21 @@ end
 end
 @show t1, t2, t1 == t2
 HiGHS.Highs_destroy(highs_model)
+
+# Mistral idea for generic sampling method. 
+function min_support(t)
+    expAt = exp(A * t)
+    M = A \ (expAt - I)
+    center = expAt * x0 + M * c_b
+    G_t = M * G_b
+    return dot(c, center) - norm(c' * G_t, 1)
+end
+
+# Solve for smallest t using Ipopt
+model = Model(Ipopt.Optimizer)
+@variable(model, t ≥ 0)
+@constraint(model, t ≤ T)
+@NLconstraint(model, min_support(t) ≤ d_val)
+@objective(model, Min, t)
+
+optimize!(model)

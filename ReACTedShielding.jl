@@ -909,6 +909,17 @@ function propagate_set_check_hybrid_jump(X0, interval, δ⁻::Float64, δ⁺::Fl
     end
     return 0
 end
+
+function propagate_state(s::Vector{Float64}, interval, system, grid, fast_cell_matrix, listOfEdges, identity_matrix, dims, Φ₂, guardProjVectors, guardProjBounds, invariantProjVectors, invariantProjBounds, PhiDict, TPhiDict, max_flow, max_input, guard_intersection, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp)
+    sidx = fastbox(grid, s)
+    if fast_cell_matrix[sidx]
+        return LazySets.API.translate(max_input, max_flow * s)
+    else
+        # Sketch
+        # 1) determine whether state is subject to hybrid jump or not...
+        # 2) if true then determine when
+    end
+end
 #
 #   Given we have must semantics for guards we could probably
 #

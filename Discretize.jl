@@ -303,7 +303,7 @@ function ReACT_discretize_decomposed_generators(X0G::Zonotope{N,Vector{N},Matrix
     #@show UG
     newG = hcat((XG .+ (phiDict[d] * XG)) .* 0.5, (XG .- (phiDict[d] * XG)) .* 0.5, UG)
     discritezationDict[0] = copy(U_bloat + G_bloat)
-
+    discritezationDict[-1] = copy(U_bloat)
     # Some mistake in here
     while d < δ⁺
         discritezationDict[d] = copy(newG)
@@ -446,6 +446,99 @@ function ReACT_discretize_combine_with_offset_vector!(preallocated_center::Vecto
     copy!(discritezationDict[d].center, preallocated_center)
     copy!(view(discritezationDict[d].generators, :, 1:(ng)), view(preallocated_genmat, :, 1:ng))
     copyto!(view(discritezationDict[d].generators, :, (ng+1):(size(discritezationDict[d].generators, 2))), generatorDiscretizationDict[d])
+    #=
+    copy!(discritezationDict[d].center, preallocated_center)
+    copyto!(discritezationDict[d].generators, 1, preallocated_genmat, 1, ng)
+    copyto!(discritezationDict[d].generators, ng+1, generatorDiscretizationDict[d], 1, size(generatorDiscretizationDict[d], 2))
+    =#
+    #copy!(discritezationDict[δ⁺].center, newC)
+    #copy!(discritezationDict[δ⁺].generators, hcat(c_bloat, generatorDiscretizationDict[d]))
+
+    #discritezationDict[δ⁺] = copy(Zonotope(newC, hcat(c_bloat, generatorDiscretizationDict[δ⁺])))
+
+    #return discritezationDict
+end
+
+function ReACT_discretize_state!(preallocated_center::Vector{N}, preallocated_genmat::Matrix{N}, preallocated_inter_genmat::Matrix{N}, discritezationStateDict, X0c::Vector{N}, δ⁻::Float64, δ⁺::Float64, A, P2A_abs, phiDict, U, inputDiscritezationDict, generatorDiscretizationDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}
+    d = copy(δ⁻)
+    #discritezationDict = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
+
+    Xc = X0c
+    Uc = inputDiscritezationDict[-2].center # dU + Psi
+
+    eAXc = (phiDict[d] * X0c)
+
+    copy!(view(preallocated_center, :, :), view((X0c + eAXc + Uc) .* 0.5, :, :))
+
+    dim = length(X0c)
+    gnum_input = size(genmat(U), 1)
+    ng = dim + 1
+
+    copy!(view(preallocated_genmat, :, 1:(ng-1)), view(diagm(sum(P2A_abs * diagm(abs.(A * A * Xc)), dims=2)[:, 1]) + generatorDiscretizationDict[-1], :, :)) #calculate new generators from symmetric_interval_hull
+
+    copy!(view(preallocated_genmat, :, ng), (Xc - (eAXc .+ Uc)) .* 0.5) # store generator for halfway point between state and zonotope
+
+    # Overview:
+    # Copy center and generators from preallocated matrices to Dict
+    # Update the preallocated matrices like before and remember to account for the added difference of centers and the impact of input.
+    if gnum_input > 0
+        while d < δ⁺
+
+            copy!(discritezationStateDict[d].center, preallocated_center)
+
+
+            copy!(view(discritezationStateDict[d].generators, :, 1:(ng)), view(preallocated_genmat, :, 1:ng)) # Update generators with bloating factors and halfway point. 
+
+            copyto!(view(preallocated_inter_genmat, :, 1:ng), (view(preallocated_genmat, :, 1:ng) + phiDict[d] * view(preallocated_genmat, :, 1:ng)) .* 0.5) # Store first set of new generators in intermediate matrix
+
+            copyto!(view(preallocated_genmat, :, (ng+1):(2*ng+1)), (view(preallocated_genmat, :, 1:ng) - phiDict[d] * view(preallocated_genmat, :, 1:ng)) .* 0.5) # Store second set of new generators
+
+            #copyto!(preallocated_genmat, 1, preallocated_inter_genmat, 1, ng)
+            copyto!(view(preallocated_genmat, :, 1:ng), view(preallocated_inter_genmat, :, 1:ng)) # copy from intermediate matrix 
+
+            ng = 2 * ng + 1 + gnum_input
+            copy!(view(preallocated_genmat, :, ng), (preallocated_center .- ((phiDict[d] * preallocated_center) + inputDiscritezationDict[d].center)) .* 0.5)
+            copy!(view(preallocated_genmat, :, (ng-gnum_input+1):ng), genmat(inputDiscritezationDict[d]))
+
+            copy!(preallocated_center, (preallocated_center .+ (phiDict[d] * preallocated_center) .+ inputDiscritezationDict[d].center) .* 0.5)
+            #eA_c_bloat = phiDict[d] * c_bloat
+            #c_bloat = hcat(c_bloat .+ eA_c_bloat, c_bloat .- eA_c_bloat, (newC .- (phiDict[d] * newC) .- inputDiscritezationDict[d].center)) .* 0.5
+            #newC = (newC .+ (phiDict[d] * newC) .+ inputDiscritezationDict[d].center) .* 0.5
+            #c_bloat = vcat(c_bloat, newC .- (phiDict[d] * newC) .* 0.5)
+
+            d = d * 2
+        end
+        #@show generatorDiscretizationDict[d]
+        #copy!(discritezationDict[d].center, preallocated_center)
+        #copy!(view(discritezationDict[d].generators, :, 1:(ng)), view(preallocated_genmat, :, 1:ng))
+        #copyto!(view(discritezationDict[d].generators, :, (ng+1):(size(discritezationDict[d].generators, 2))), generatorDiscretizationDict[d])
+    else
+        while d < δ⁺
+
+            copy!(discritezationStateDict[d].center, preallocated_center)
+
+
+            copy!(view(discritezationStateDict[d].generators, :, 1:(ng)), view(preallocated_genmat, :, 1:ng)) # Update generators with bloating factors and halfway point. 
+
+            copyto!(view(preallocated_inter_genmat, :, 1:ng), (view(preallocated_genmat, :, 1:ng) + phiDict[d] * view(preallocated_genmat, :, 1:ng)) .* 0.5) # Store first set of new generators in intermediate matrix
+
+            copyto!(view(preallocated_genmat, :, (ng+1):(2*ng+1)), (view(preallocated_genmat, :, 1:ng) - phiDict[d] * view(preallocated_genmat, :, 1:ng)) .* 0.5) # Store second set of new generators
+
+            #copyto!(preallocated_genmat, 1, preallocated_inter_genmat, 1, ng)
+            copyto!(view(preallocated_genmat, :, 1:ng), view(preallocated_inter_genmat, :, 1:ng)) # copy from intermediate matrix 
+
+            ng = 2 * ng + 1
+            copy!(view(preallocated_genmat, :, ng), (preallocated_center .- ((phiDict[d] * preallocated_center) + inputDiscritezationDict[d].center)) .* 0.5)
+
+
+            copy!(preallocated_center, (preallocated_center .+ (phiDict[d] * preallocated_center) .+ inputDiscritezationDict[d].center) .* 0.5)
+            d = d * 2
+        end
+
+    end
+    copy!(discritezationDict[d].center, preallocated_center)
+    copy!(view(discritezationDict[d].generators, :, 1:(ng)), view(preallocated_genmat, :, 1:ng))
+
     #=
     copy!(discritezationDict[d].center, preallocated_center)
     copyto!(discritezationDict[d].generators, 1, preallocated_genmat, 1, ng)

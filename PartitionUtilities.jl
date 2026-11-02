@@ -716,7 +716,177 @@ function get_touching_cell_idxs_test(grid::Grid{N}, convexSet::Zonotope{Float64,
     return touching_cell_idxs
 end
 
+# A zonotope whose generators never change, only its center (e.g. the reach set of a fast cell bloated by half a
+# cell, max_zonotope). Its H-representation is computed once, so testing whether a point lies in a translated copy is
+# a few dot products instead of an LP.
+struct ConstantZonotopeCover{N}
+    normals::Matrix{Float64} # N x n_facets, one facet normal per column, for the zonotope centred at the origin
+    offsets::Vector{Float64} # facet i is normals[:, i]' * y <= offsets[i]
+    radius::NTuple{N,Float64} # half-widths of the interval hull
+    tol::Float64
+end
+
+function ConstantZonotopeCover(Z::Zonotope, ::Val{N}; tol::Float64=1e-7) where N
+    G = genmat(Z)
+    facets = constraints_list(Zonotope(zeros(N), G))
+    normals = Matrix{Float64}(undef, N, length(facets))
+    offsets = Vector{Float64}(undef, length(facets))
+    for (i, h) in enumerate(facets)
+        normals[:, i] .= h.a
+        offsets[i] = h.b
+    end
+    radius = ntuple(j -> sum(abs, view(G, j, :)), N)
+    return ConstantZonotopeCover{N}(normals, offsets, radius, tol)
+end
+
+# Cover for the zonotope with generator matrix G (N x m, full row rank), centred at the origin, with the given
+# interval-hull radius (used only to bound the candidate cells). The facets are enumerated directly instead of through
+# LazySets: every set of N-1 generators spanning a hyperplane gives a normal n (generalised cross product), and the
+# pair of facets +-n' y <= sum_j |n' g_j|. Parallel generators give duplicate facets, which are harmless.
+function ConstantZonotopeCover(G::AbstractMatrix{Float64}, radius::NTuple{N,Float64}, ::Val{N}; tol::Float64=1e-7) where N
+    m = size(G, 2)
+    normals = Vector{Float64}()
+    offsets = Vector{Float64}()
+    n = zeros(N)
+    minor = zeros(N - 1, N - 1)
+    subset = collect(1:N-1)
+    while true
+        if N == 2
+            n[1] = G[2, subset[1]]
+            n[2] = -G[1, subset[1]]
+        else
+            # n_k = (-1)^(k+1) det(G[rows != k, subset])
+            for k in 1:N
+                for (r, row) in enumerate(Iterators.filter(!=(k), 1:N)), (c, col) in enumerate(subset)
+                    minor[r, c] = G[row, col]
+                end
+                n[k] = (isodd(k) ? 1.0 : -1.0) * det(minor)
+            end
+        end
+        len = norm(n)
+        if len > 1e-12
+            n ./= len
+            b = 0.0
+            for j in 1:m
+                b += abs(dot(n, view(G, :, j)))
+            end
+            append!(normals, n)
+            push!(offsets, b)
+            append!(normals, -n)
+            push!(offsets, b)
+        end
+        # Next (N-1)-combination of 1:m in lexicographic order.
+        i = N - 1
+        while i >= 1 && subset[i] == m - (N - 1) + i
+            i -= 1
+        end
+        if i < 1
+            break
+        end
+        subset[i] += 1
+        for k in i+1:N-1
+            subset[k] = subset[k-1] + 1
+        end
+    end
+    return ConstantZonotopeCover{N}(reshape(normals, N, :), offsets, radius, tol)
+end
+
+# Number of facet pairs ConstantZonotopeCover(G, ...) enumerates for m generators in N dimensions.
+cover_facet_pairs(m::Int, N::Int) = binomial(m, N - 1)
+const MAX_COVER_FACET_PAIRS = 5000
+
+# True if the point (centre of cell idx) lies in the cover zonotope translated to center c.
+@inline function cell_center_in_cover(cov::ConstantZonotopeCover{N}, grid::Grid{N}, idx::CartesianIndex{N}, c::AbstractVector{Float64}) where N
+    for i in eachindex(cov.offsets)
+        s = 0.0
+        for j in 1:N
+            s += cov.normals[j, i] * ((grid.lower[j] + grid.granularity/2) + (idx[j] - 1) * grid.granularity - c[j])
+        end
+        if s > cov.offsets[i] + cov.tol * max(1.0, abs(cov.offsets[i]))
+            return false
+        end
+    end
+    return true
+end
+
+# Centre of the reach set of fast cell idx, max_flow * (cell centre) + offset, written into out without allocating.
+function fast_cell_center!(out::Vector{Float64}, max_flow::AbstractMatrix{Float64}, offset::AbstractVector{Float64}, grid::Grid{N}, idx::CartesianIndex{N}) where N
+    for i in 1:N
+        s = offset[i]
+        for j in 1:N
+            s += max_flow[i, j] * ((grid.lower[j] + grid.granularity/2) + (idx[j] - 1) * grid.granularity)
+        end
+        out[i] = s
+    end
+    return out
+end
+
+# Same cells as get_touching_cell_idxs_test(grid, Z, model, con_ref) for the translated zonotope Z with center c, using
+# the precomputed H-representation instead of an LP per candidate cell. A cell touches the reach set iff its centre
+# lies in the reach set bloated by half a cell, which is what cov represents.
+function get_touching_cell_idxs_cover(grid::Grid{N}, cov::ConstantZonotopeCover{N}, c::AbstractVector{Float64}) where N
+    touching_cell_idxs = CartesianIndex{N}[]
+    lower_bounds = ntuple(i -> max(floor(Int, abs(clamp(c[i] - cov.radius[i], grid.lower[i], grid.upper[i]) - grid.lower[i]) / grid.granularity), 1), N)
+    upper_bounds = ntuple(i -> min(grid.numCells[i], ceil(Int, abs(clamp(c[i] + cov.radius[i], grid.lower[i], grid.upper[i]) - grid.lower[i]) / grid.granularity)), N)
+
+    sweeping_dim = argmax(upper_bounds[i] - lower_bounds[i] for i in 1:N)
+    next_sweep = argmax(i == sweeping_dim ? 0 : upper_bounds[i] - lower_bounds[i] for i in 1:N)
+
+    if upper_bounds[next_sweep] == lower_bounds[next_sweep]
+        append!(touching_cell_idxs, CartesianIndices(ntuple(i -> lower_bounds[i]:upper_bounds[i], N)))
+    elseif upper_bounds[sweeping_dim] - lower_bounds[sweeping_dim] > 1
+        # The cover is convex, so along each line in the sweeping dimension the touched cells form one interval:
+        # find its first and last cell and fill in between.
+        cartesian_offset = CartesianIndex(ntuple(i -> i == sweeping_dim ? 1 : 0, N))
+        for idx in CartesianIndices(ntuple(i -> i == sweeping_dim ? (0:0) : (lower_bounds[i]:max(upper_bounds[i], lower_bounds[i])), N))
+            lower_idx = 0
+            for off in lower_bounds[sweeping_dim]:upper_bounds[sweeping_dim]
+                if cell_center_in_cover(cov, grid, idx + cartesian_offset * off, c)
+                    lower_idx = off
+                    break
+                end
+            end
+            if lower_idx == 0
+                continue
+            end
+            upper_idx = 0
+            for off in upper_bounds[sweeping_dim]:-1:lower_bounds[sweeping_dim]
+                if cell_center_in_cover(cov, grid, idx + cartesian_offset * off, c)
+                    upper_idx = off
+                    break
+                end
+            end
+            for elem in lower_idx:upper_idx
+                push!(touching_cell_idxs, idx + cartesian_offset * elem)
+            end
+        end
+    else
+        for idx in CartesianIndices(ntuple(i -> lower_bounds[i]:upper_bounds[i], N))
+            if cell_center_in_cover(cov, grid, idx, c)
+                push!(touching_cell_idxs, idx)
+            end
+        end
+    end
+    return touching_cell_idxs
+end
+
+# Cells touching the zonotope convexSet, without LPs: a cell touches it iff the cell centre lies in convexSet bloated by
+# half a cell, which is tested against the facets of that bloated zonotope (see ConstantZonotopeCover). Gives the same
+# cells as get_touching_cell_idxs_lz_lp. Falls back to it when the facet count explodes (many generators in high
+# dimensions). Without LPs this is also safe to call from several threads (GLPK is not).
 function get_touching_cell_idxs_lz(grid::Grid{N}, convexSet::Zonotope{Float64,Vector{Float64},Matrix{Float64}}) where N
+    G = genmat(convexSet)
+    nonzero = [j for j in axes(G, 2) if any(!iszero, view(G, :, j))]
+    if cover_facet_pairs(length(nonzero) + N, N) > MAX_COVER_FACET_PAIRS
+        return get_touching_cell_idxs_lz_lp(grid, convexSet)
+    end
+    # Bound the candidate cells by the set itself (as the LP version does); test membership against the bloated set.
+    radius = ntuple(i -> sum(abs, view(G, i, :)), N)
+    bloated = hcat(G[:, nonzero], Matrix((grid.granularity / 2) * I, N, N))
+    return get_touching_cell_idxs_cover(grid, ConstantZonotopeCover(bloated, radius, Val(N)), convexSet.center)
+end
+
+function get_touching_cell_idxs_lz_lp(grid::Grid{N}, convexSet::Zonotope{Float64,Vector{Float64},Matrix{Float64}}) where N
     touching_cell_idxs::Vector{CartesianIndex{N}} = CartesianIndex{N}[]
 
     #lower_bounds = clamp.(LazySets.low(convexSet), grid.lower, grid.upper)

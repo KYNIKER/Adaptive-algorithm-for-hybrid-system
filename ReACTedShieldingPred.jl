@@ -218,7 +218,9 @@ function _ReACTed_reachable_cell_online_pred(grid::Grid{N}, system::EuclideanHyb
 
     max_zonotope::Zonotope{Float64,Vector{Float64},Matrix{Float64}} = Zonotope(max_input.center, genmat(linear_map(max_flow, Z)))
     max_zonotope = minkowski_sum(max_zonotope, Zonotope(zeros(grid.dimension), diagm(fill(granularity/2, grid.dimension))))
-    mdl, c_ref = setup_model_constant_zonotope(max_zonotope)
+    # Fast cells all share max_zonotope's generators, so their cover test uses its precomputed H-representation.
+    fast_cover = ConstantZonotopeCover(max_zonotope, Val(N))
+    fast_center = zeros(N)
 
     dims = grid.dimension
     offset_list = offsets(grid)
@@ -287,11 +289,9 @@ function _ReACTed_reachable_cell_online_pred(grid::Grid{N}, system::EuclideanHyb
                 end
                 LazySets.API.translate!(Z, -of)
             else
-                of = max_flow * (lower_offset + ((car2vec(idx) .- 1) .* granularity))
-                LazySets.API.translate!(max_zonotope, of)
-                flow_succ = get_touching_cell_idxs_test(grid, max_zonotope, mdl, c_ref)
+                fast_cell_center!(fast_center, max_flow, max_zonotope.center, grid, idx)
+                flow_succ = get_touching_cell_idxs_cover(grid, fast_cover, fast_center)
                 reachable_by_flow[idx] = flow_succ
-                LazySets.API.translate!(max_zonotope, -of)
             end
             if count % 1000 == 0
                 println(count)

@@ -7,10 +7,11 @@ include("plotFuncs/plotFuncHelper.jl")
 include("Utilities.jl")
 include("models/bouncingBall.jl")
 include("ReACTedShielding.jl")
+include("ReACTedShieldingPred.jl")
 
 fresh_grid = false
 make_plot = true
-granularity::Float64 = 0.02  # Example granularity
+granularity::Float64 = 0.005  # Example granularity
 grid_name = "ball" * string(granularity)
 savefile = grid_name * ".jld2"
 
@@ -48,18 +49,25 @@ close(f)
 #@allocations ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 
 #grid, act_set, no_act_set, no_act_bad_matrix = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-#@time grid, act_set, no_act_set, no_act_bad_matrix = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+#@time grid, act_set, no_act_set, no_act_bad_matrix, shield_cover_matrix = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+# Event-driven predecessor version, compared against the shield_step! version above.
+@time grid_p, act_set_p, no_act_set_p, no_act_bad_matrix_p, shield_cover_matrix_p = ReACTed_reachable_cell_online_pred(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+#@show count(grid.deadCells), count(grid_p.deadCells), count(grid.deadCells .⊻ grid_p.deadCells)
 #VSCodeServer.@profview _, _, _ = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-#shield = grid
+shield = grid_p
+grid = grid_p
+#display(plot(heatmap(transpose(shield_cover_matrix_p))))
+#throw(error("womop"))
 #@show grid.deadCells# == trues(grid.numCells...)
 
-
+#=
 @time grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell_t(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 no_act_bad_matrix = copy(grid.deadCells)
 act_bad_matrix = trues(grid.numCells...)
 @time act_set, no_act_set = predecessor_graph!(reach_by_Act, reach_by_no_Act, no_act_bad_matrix, act_bad_matrix)
 @time shield_from_predecessor_graph!(grid, euclideanHybridSystem.Act, act_set, no_act_set, no_act_bad_matrix, act_bad_matrix)
 shield = grid
+=#
 
 #ProfileView.@profview _, _, _ = ReACTed_reachable_cell_t(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 #ProfileView.@profview _, _, _ = ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
@@ -104,9 +112,9 @@ if make_plot
 
 
         #@show any(x -> haskey(reach_by_Act, (x, cell.id)), euclideanHybridSystem.Act)
-        if any(x -> haskey(act_set, (x.id, idx)), euclideanHybridSystem.Act)
-            #heatmap_matrix[idx] = 2
-            #=
+        #if any(x -> haskey(act_set, (x.id, idx)), euclideanHybridSystem.Act)
+        #heatmap_matrix[idx] = 2
+        #=
             possible_acts = []
             for act in euclideanHybridSystem.Act
 
@@ -122,19 +130,19 @@ if make_plot
                 heatmap_matrix[idx] = 2 #+= act_translation[actid]
             end
             =#
-        end
+        # end
 
         #push!(noAct, zonotopeArray3d[idx])
-        if !no_act_bad_matrix[idx] # || !haskey(no_act_set, idx)
+        if !no_act_bad_matrix_p[idx] # || !haskey(no_act_set, idx)
             #push!(invalid_cells, idx)
             heatmap_matrix[idx] = 1
             #push!(unsafe, zonotopeArray3d[idx])
-        elseif act_bad_matrix[idx]
-            heatmap_matrix[idx] = 3
+            #elseif act_bad_matrix[idx]
+            #    heatmap_matrix[idx] = 3
         else
             heatmap_matrix[idx] = 2
         end
-        if shield.deadCells[idx] || (no_act_bad_matrix[idx] && act_bad_matrix[idx])
+        if shield.deadCells[idx] #|| (no_act_bad_matrix[idx] && act_bad_matrix[idx])
             heatmap_matrix[idx] = 0
             #push!(unsafe, zonotopeArray3d[cell.id])
         else

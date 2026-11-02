@@ -497,7 +497,7 @@ function ReACT_discretize_state!(preallocated_center::Vector{N}, preallocated_ge
             copyto!(view(preallocated_genmat, :, 1:ng), view(preallocated_inter_genmat, :, 1:ng)) # copy from intermediate matrix 
 
             ng = 2 * ng + 1 + gnum_input
-            copy!(view(preallocated_genmat, :, ng), (preallocated_center .- ((phiDict[d] * preallocated_center) + inputDiscritezationDict[d].center)) .* 0.5)
+            copy!(view(preallocated_genmat, :, ng-gnum_input), (preallocated_center .- ((phiDict[d] * preallocated_center) + inputDiscritezationDict[d].center)) .* 0.5)
             copy!(view(preallocated_genmat, :, (ng-gnum_input+1):ng), genmat(inputDiscritezationDict[d]))
 
             copy!(preallocated_center, (preallocated_center .+ (phiDict[d] * preallocated_center) .+ inputDiscritezationDict[d].center) .* 0.5)
@@ -536,9 +536,9 @@ function ReACT_discretize_state!(preallocated_center::Vector{N}, preallocated_ge
         end
 
     end
-    copy!(discritezationDict[d].center, preallocated_center)
-    copy!(view(discritezationDict[d].generators, :, 1:(ng)), view(preallocated_genmat, :, 1:ng))
-
+    copy!(discritezationStateDict[d].center, preallocated_center)
+    copy!(view(discritezationStateDict[d].generators, :, 1:(ng)), view(preallocated_genmat, :, 1:ng))
+    @show ng
     #=
     copy!(discritezationDict[d].center, preallocated_center)
     copyto!(discritezationDict[d].generators, 1, preallocated_genmat, 1, ng)

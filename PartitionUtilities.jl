@@ -1632,3 +1632,7 @@ end
 function split_cell_idx(split_factor::Int64, car::CartesianIndex{N}, split_offsets) where N
     return split_offsets .+ (car .* split_factor)
 end
+
+function join_cell_idx(split_factor::Int64, car::CartesianIndex{N}) where N
+    return CartesianIndex(ntuple(i -> fld((car[i] - 1), split_factor) + 1, N))
+end

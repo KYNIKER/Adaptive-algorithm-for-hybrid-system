@@ -5,7 +5,11 @@ include("Utilities.jl")
 export ReACTedShieldingK
 
 function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true)
-    grid = Grid(system.statespace, granularity)
+    return _ReACTed_reachable_cell_t(Grid(system.statespace, granularity), system, p, granularity, δ⁻, δ⁺, alg, maxOrder, reduceOrder, clustering)
+end
+
+# Function barrier: the body is compiled for the concrete Grid{N} and system type, so N can be used in type positions.
+function _ReACTed_reachable_cell_t(grid::Grid{N}, system::EuclideanHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg, maxOrder::Int, reduceOrder::Int, clustering) where N
     @show foldl(*, grid.numCells), grid.numCells
     sweep_factor = 25
     TIME_FUNCS = true
@@ -33,9 +37,9 @@ function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity,
     #   2: Hit guard
     #   3: Hit invariant surface
     #
-    reachable_by_action::Dict{Tuple{Int64,CartesianIndex{grid.dimension}},AbstractArray{CartesianIndex{grid.dimension}}} = Dict{Tuple{Int64,CartesianIndex{grid.dimension}},AbstractArray{CartesianIndex{grid.dimension}}}()
-    reachable_by_flow::Dict{CartesianIndex{grid.dimension},AbstractArray{CartesianIndex{grid.dimension}}} = Dict{CartesianIndex{grid.dimension},AbstractArray{CartesianIndex{grid.dimension}}}()
-    degenerate_dimensions = collect(u - l == l ? l - (granularity / 2) : 0. for (l, u) in zip(grid.lower, grid.upper))
+    reachable_by_action::ActionRelation{N} = ActionRelation{N}()
+    reachable_by_flow::FlowRelation{N} = FlowRelation{N}()
+    degenerate_dimensions = zeros(N) # Grid centres zero-width dimensions on their value, so cells need no extra offset
     invariant = hyperrectangle_to_HPolyhedron(system.statespace)
     U = system.input
     max_input = linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, p, alg, false, nothing), U)
@@ -44,26 +48,27 @@ function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity,
     guardProjVectors, guardProjBounds = getHalfSpaceProjections(system.edges[1].guard)
     invariantProjVectors, invariantProjBounds = getHalfSpaceProjections(invariant)
 
-    hbox = Hyperrectangle(grid.lower .+ (granularity/2), fill(granularity/2, grid.dimension))
+    hbox = Hyperrectangle(grid.lower .+ (granularity/2), fill(granularity/2, N))
     guard_invariant_intersection = intersection(system.edges[1].guard, invariant)
 
     attempt_recorder = zeros(4)
     identity_matrix = diagm(ones(grid.dimension))
 
-    fast_cells = falses(grid.numCells...)
-    Z_big = remove_zero_generators(Zonotope(degenerate_dimensions, diagm(map(x -> x == 1 ? 0. : granularity * (sweep_factor/2), grid.numCells))))
-    lower_offset_big = grid.lower .+ (granularity*(sweep_factor/2))
+    fast_cells = falses(cellshape(grid))
+    sweep = [min(sweep_factor, n) for n in grid.numCells] # cells per sweep block in each dimension (dimensions smaller than a block use one block)
+    Z_big = remove_zero_generators(Zonotope(degenerate_dimensions, diagm(map((n, s) -> n == 1 ? 0. : granularity * (s/2), grid.numCells, sweep))))
+    lower_offset_big = grid.lower .+ granularity .* (sweep ./ 2)
     generatorDict_big = ReACT_discretize_decomposed_generators(Z_big, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict)
     discretizationDict_big, finaldims_big = ReACT_discretize_combine_with_offsets(Z_big, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict_big)
     preallocated_center_big = zeros(grid.dimension)
     preallocated_genmat_big = zeros(grid.dimension, finaldims_big)
     preallocated_inter_genmat_big = zeros(grid.dimension, finaldims_big)
-    ranges = [1:floor(Int64, grid.numCells[i]/sweep_factor) for i in 1:grid.dimension]
+    ranges = ntuple(i -> 1:fld(grid.numCells[i], sweep[i]), N)
     #@show CartesianIndices((ranges...,))
     #solvr = LazySets.default_lp_solver(Float64)
-    for bidx in CartesianIndices((ranges...,))
+    for bidx in CartesianIndices(ranges)
 
-        of = lower_offset_big + ((car2vec(bidx) .- 1) .* (granularity*sweep_factor))
+        of = lower_offset_big + ((car2vec(bidx) .- 1) .* granularity .* sweep)
         LazySets.API.translate!(Z_big, of)
 
 
@@ -75,7 +80,7 @@ function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity,
 
         if f == 0
             #@show collect(((b-1)*sweep_factor):(b*sweep_factor) for b in car2vec(bidx))
-            fast_cells[collect((1+(b-1)*sweep_factor):(b*sweep_factor) for b in car2vec(bidx))...] .= true
+            fast_cells[ntuple(i -> (1+(bidx[i]-1)*sweep[i]):(bidx[i]*sweep[i]), N)...] .= true
             #grid.deadCells[collect((1+(b-1)*sweep_factor):(b*sweep_factor) for b in car2vec(bidx))...] .= true
 
         end
@@ -105,7 +110,7 @@ function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity,
     #max_zonotope = Zonotope(MArray{Tuple{grid.dimension}}(max_input.center), SMatrix{grid.dimension,grid.dimension}(genmat(linear_map(max_flow, Z))))
     max_zonotope::Zonotope{Float64,Vector{Float64},Matrix{Float64}} = Zonotope(max_input.center, genmat(linear_map(max_flow, Z)))
 
-    max_zonotope = minkowski_sum(max_zonotope, Zonotope(zeros(grid.dimension), diagm(fill(granularity/2, grid.dimension))))
+    max_zonotope = minkowski_sum(max_zonotope, Zonotope(zeros(grid.dimension), diagm(fill(granularity/2, N))))
     mdl, c_ref = setup_model_constant_zonotope(max_zonotope)
 
 
@@ -149,7 +154,7 @@ function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity,
 
             ReACT_discretize_combine_with_offset_vector!(preallocated_center, preallocated_genmat, preallocated_inter_genmat, discretizationDict, of, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict)
             #z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
-            discdisc = newReACTDiscretizePlus(Z, δ⁻, δ⁺, system.flowMatrix, P2A_abs, phiDict, inputDict, alg, maxOrder, reduceOrder)
+            #discdisc = newReACTDiscretizePlus(Z, δ⁻, δ⁺, system.flowMatrix, P2A_abs, phiDict, inputDict, alg, maxOrder, reduceOrder)
             #=
             @show Z.center, of, typeof(Z.center), typeof(of), inputDict[-2].center
             @show δ⁻, (phiDict[δ⁻] * Z.center), (phiDict[δ⁻] * of), (Z.center + phiDict[δ⁻] * Z.center), (of + phiDict[δ⁻] * of), (Z.center + inputDict[-2].center + phiDict[δ⁻] * Z.center) .* 0.5, (of + inputDict[-2].center + phiDict[δ⁻] * of) .* 0.5
@@ -171,7 +176,7 @@ function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity,
                 reachability_discretization_time += time_ns() - aux_time_recoder
             end
 
-            z, f = propagate_set_t(Z, [0.0, p], δ⁻, δ⁺, system, grid, fast_cells, system.edges, identity_matrix, attempt_recorder, grid.dimension, P2A_abs, guardProjVectors, guardProjBounds, invariantProjVectors, invariantProjBounds, discdisc, phiDict, tPhiDict, inputDict, max_input, max_flow, guard_invariant_intersection, alg, maxOrder, reduceOrder)
+            z, f = propagate_set_t(Z, [0.0, p], δ⁻, δ⁺, system, grid, fast_cells, system.edges, identity_matrix, attempt_recorder, grid.dimension, P2A_abs, guardProjVectors, guardProjBounds, invariantProjVectors, invariantProjBounds, discretizationDict, phiDict, tPhiDict, inputDict, max_input, max_flow, guard_invariant_intersection, alg, maxOrder, reduceOrder)
 
             if f != 1 #&& f != 3
 
@@ -274,13 +279,16 @@ function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity,
 
 end
 
-function ReACTed_reachable_cell_online(system::EuclideanHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true, max_steps::Int64=1000)
-    grid = Grid(system.statespace, granularity)
+function ReACTed_reachable_cell_online(system::EuclideanHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true, max_steps::Int64=1000; include_border_cells::Bool=false)
+    return _ReACTed_reachable_cell_online(Grid(system.statespace, granularity), system, p, granularity, δ⁻, δ⁺, alg, maxOrder, reduceOrder, clustering, max_steps, include_border_cells)
+end
+
+# Function barrier: the body is compiled for the concrete Grid{N} and system type, so N can be used in type positions.
+function _ReACTed_reachable_cell_online(grid::Grid{N}, system::EuclideanHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg, maxOrder::Int, reduceOrder::Int, clustering, max_steps::Int64, include_border_cells::Bool) where N
     @show foldl(*, grid.numCells), grid.numCells
     #max_steps = 300
     shield_count::Int64 = 0
     sweep_factor = 20
-    include_border_cells = false
     TIME_FUNCS = true
 
     recorderTimeStart = time_ns()
@@ -307,9 +315,9 @@ function ReACTed_reachable_cell_online(system::EuclideanHybridSystem, p, granula
     #   3: Hit invariant surface
     #
 
-    reachable_by_action::Dict{Tuple{Int64,CartesianIndex{grid.dimension}},AbstractArray{CartesianIndex{grid.dimension}}} = Dict{Tuple{Int64,CartesianIndex{grid.dimension}},AbstractArray{CartesianIndex{grid.dimension}}}()
-    reachable_by_flow::Dict{CartesianIndex{grid.dimension},AbstractArray{CartesianIndex{grid.dimension}}} = Dict{CartesianIndex{grid.dimension},AbstractArray{CartesianIndex{grid.dimension}}}()
-    degenerate_dimensions = collect(u - l == l ? l - (granularity / 2) : 0. for (l, u) in zip(grid.lower, grid.upper))
+    reachable_by_action::ActionRelation{N} = ActionRelation{N}()
+    reachable_by_flow::FlowRelation{N} = FlowRelation{N}()
+    degenerate_dimensions = zeros(N) # Grid centres zero-width dimensions on their value, so cells need no extra offset
 
     invariant = hyperrectangle_to_HPolyhedron(system.statespace)
     U = system.input
@@ -323,23 +331,24 @@ function ReACTed_reachable_cell_online(system::EuclideanHybridSystem, p, granula
     guard_invariant_intersection = intersection(system.edges[1].guard, invariant)
 
 
-    fast_cells = falses(grid.numCells...)
-    Z_big = remove_zero_generators(Zonotope(degenerate_dimensions, diagm(map(x -> x == 1 ? 0. : granularity * (sweep_factor/2), grid.numCells))))
-    lower_offset_big = grid.lower .+ (granularity*(sweep_factor/2))
+    fast_cells = falses(cellshape(grid))
+    sweep = [min(sweep_factor, n) for n in grid.numCells] # cells per sweep block in each dimension (dimensions smaller than a block use one block)
+    Z_big = remove_zero_generators(Zonotope(degenerate_dimensions, diagm(map((n, s) -> n == 1 ? 0. : granularity * (s/2), grid.numCells, sweep))))
+    lower_offset_big = grid.lower .+ granularity .* (sweep ./ 2)
     generatorDict_big = ReACT_discretize_decomposed_generators(Z_big, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict)
     discretizationDict_big, finaldims_big = ReACT_discretize_combine_with_offsets(Z_big, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict_big)
     preallocated_center_big = zeros(grid.dimension)
     preallocated_genmat_big = zeros(grid.dimension, finaldims_big)
     preallocated_inter_genmat_big = zeros(grid.dimension, finaldims_big)
-    ranges = [1:floor(Int64, grid.numCells[i]/sweep_factor) for i in 1:grid.dimension]
+    ranges = ntuple(i -> 1:fld(grid.numCells[i], sweep[i]), N)
     #@show CartesianIndices((ranges...,))
     #solvr = LazySets.default_lp_solver(Float64)
 
     attempt_recorder = zeros(4)
     identity_matrix = diagm(ones(grid.dimension))
-    for bidx in CartesianIndices((ranges...,))
+    for bidx in CartesianIndices(ranges)
 
-        of = lower_offset_big + ((car2vec(bidx) .- 1) .* (granularity*sweep_factor))
+        of = lower_offset_big + ((car2vec(bidx) .- 1) .* granularity .* sweep)
         LazySets.API.translate!(Z_big, of)
 
 
@@ -351,7 +360,7 @@ function ReACTed_reachable_cell_online(system::EuclideanHybridSystem, p, granula
 
         if f == 0
             #@show collect(((b-1)*sweep_factor):(b*sweep_factor) for b in car2vec(bidx))
-            fast_cells[collect((1+(b-1)*sweep_factor):(b*sweep_factor) for b in car2vec(bidx))...] .= true
+            fast_cells[ntuple(i -> (1+(bidx[i]-1)*sweep[i]):(bidx[i]*sweep[i]), N)...] .= true
             #grid.deadCells[collect((1+(b-1)*sweep_factor):(b*sweep_factor) for b in car2vec(bidx))...] .= true
 
         end
@@ -375,7 +384,7 @@ function ReACTed_reachable_cell_online(system::EuclideanHybridSystem, p, granula
 
     max_zonotope::Zonotope{Float64,Vector{Float64},Matrix{Float64}} = Zonotope(max_input.center, genmat(linear_map(max_flow, Z)))
 
-    max_zonotope = minkowski_sum(max_zonotope, Zonotope(zeros(grid.dimension), diagm(fill(granularity/2, grid.dimension))))
+    max_zonotope = minkowski_sum(max_zonotope, Zonotope(zeros(grid.dimension), diagm(fill(granularity/2, N))))
     mdl, c_ref = setup_model_constant_zonotope(max_zonotope)
 
 
@@ -383,27 +392,27 @@ function ReACTed_reachable_cell_online(system::EuclideanHybridSystem, p, granula
     guardProjVectors, guardProjBounds = getHalfSpaceProjections(system.edges[1].guard)
     invariantProjVectors, invariantProjBounds = getHalfSpaceProjections(invariant)
 
-    hbox = Hyperrectangle(grid.lower .+ (granularity/2), fill(granularity/2, grid.dimension))
+    hbox = Hyperrectangle(grid.lower .+ (granularity/2), fill(granularity/2, N))
 
 
 
-    #done_list::Set{CartesianIndex{grid.dimension}} = Set()#CartesianIndex{grid.dimension}[]
-    done_list::Vector{CartesianIndex{grid.dimension}} = CartesianIndex{grid.dimension}[]
-    #frontier_list::Set{CartesianIndex{grid.dimension}} = Set{CartesianIndex{grid.dimension}}[]
-    frontier_list::Vector{CartesianIndex{grid.dimension}} = CartesianIndex{grid.dimension}[]
+    #done_list::Set{CartesianIndex{N}} = Set()#CartesianIndex{N}[]
+    done_list::Vector{CartesianIndex{N}} = CartesianIndex{N}[]
+    #frontier_list::Set{CartesianIndex{N}} = Set{CartesianIndex{N}}[]
+    frontier_list::Vector{CartesianIndex{N}} = CartesianIndex{N}[]
     ln = 0
     la = 0
     ld = 0
     dims = grid.dimension
     #dead = grid.deadCells
-    can_act_matrix = trues(grid.numCells...)
-    no_action_bad_matrix = falses(grid.numCells...)
+    can_act_matrix = trues(cellshape(grid))
+    no_action_bad_matrix = falses(cellshape(grid))
 
     offset_list = offsets(grid)
 
-    may_act_dict::Dict{Int64,AbstractArray{CartesianIndex{grid.dimension}}} = Dict{Int64,AbstractArray{CartesianIndex{grid.dimension}}}()
+    may_act_dict::Dict{Int64,CellIdxs{N}} = Dict{Int64,CellIdxs{N}}()
     #may_act_dict::Dict{Int64,BitMatrix} = Dict{Int64,BitMatrix}()
-    may_act_matrix = falses(grid.numCells...)
+    may_act_matrix = falses(cellshape(grid))
     for act in system.Act
         may_act_dict[act.id] = get_touching_cell_idxs_l(grid, act.guard) #falses(grid.numCells...)
         #may_act_dict[act.id][get_touching_cell_idxs_l(grid, act.guard)...] .= true
@@ -428,11 +437,9 @@ function ReACTed_reachable_cell_online(system::EuclideanHybridSystem, p, granula
     end
 
     if include_border_cells
-        for i in 1:grid.dimension
-            foreach(x -> push!(frontier_list, x), CartesianIndices(ntuple(j -> j == i ? (1:1) : (1:grid.numCells[j]), grid.dimension)))
-            foreach(x -> push!(frontier_list, x), CartesianIndices(ntuple(j -> j == i ? (grid.numCells[j]:grid.numCells[j]) : (1:grid.numCells[j]), grid.dimension)))
-        end
-        push!(frontier_list, grow_indices_t(grid, frontier_list, offset_list)...)
+        border = border_cells(grid)
+        append!(frontier_list, border)
+        append!(frontier_list, grow_indices_t(grid, border, offset_list))
     end
 
     push!(frontier_list, grow_indices_t(grid, done_list, offset_list)...)
@@ -445,8 +452,10 @@ function ReACTed_reachable_cell_online(system::EuclideanHybridSystem, p, granula
     shield_time = 0.0
 
     #shield_count_cover = zeros(Int64, grid.numCells...)
-    shield_count_cover = zeros(Float64, grid.numCells...)
+    shield_count_cover = zeros(Float64, cellshape(grid))
 
+    popped_actions = Set{Tuple{Int64,CartesianIndex{N}}}()
+    reach_dead = CartesianIndex{N}[] # cells found dead in the reachability loop (flow hits a constraint); grow the frontier from them when include_border_cells
     while shield_count < max_steps
         if TIME_FUNCS
             aux_time_recoder = time_ns()
@@ -479,6 +488,7 @@ function ReACTed_reachable_cell_online(system::EuclideanHybridSystem, p, granula
 
                 else
                     grid.deadCells[idx] = true
+                    include_border_cells && push!(reach_dead, idx)
                 end
 
                 LazySets.API.translate!(Z, -of)
@@ -535,7 +545,7 @@ function ReACTed_reachable_cell_online(system::EuclideanHybridSystem, p, granula
             aux_time_recoder = time_ns()
         end
         # TODO - Maybe this should be frontier_list with done_list subset difference with deadCells
-        _, la, ln, ld = shield_step!(grid.deadCells, done_list, can_act_matrix, no_action_bad_matrix, reachable_by_action, reachable_by_flow, system.Act, dims)
+        _, la, ln, ld = shield_step!(grid.deadCells, done_list, can_act_matrix, no_action_bad_matrix, reachable_by_action, reachable_by_flow, system.Act, dims; popped_actions)
         if shield_count % 5 == 0
             println("$(max_steps - shield_count) : $(Dates.format(now(), "HH:MM:SS"))")
         end
@@ -549,9 +559,9 @@ function ReACTed_reachable_cell_online(system::EuclideanHybridSystem, p, granula
                 end
             end
         end
-        if length(la) == 0 && length(ln) == 0 && length(ld) == 0
+        if length(la) == 0 && length(ln) == 0 && length(ld) == 0 && isempty(reach_dead)
 
-            println("Fixed point found at $(max_steps-shield_count) steps!")
+            println("Fixed point found after $(shield_count) shield steps!")
             #grid.deadCells = dead´
             if TIME_FUNCS
                 shield_time += (time_ns() - aux_time_recoder)
@@ -562,7 +572,8 @@ function ReACTed_reachable_cell_online(system::EuclideanHybridSystem, p, granula
         empty!(frontier_list)
         # TODO - This is missing the cells where no_act_bad_matrix is true
         #push!(frontier_list, grow_indices_t(grid, findall(grid.deadCells), offset_list)...)
-        removed_list::Vector{CartesianIndex{grid.dimension}} = vcat(ln, ld, la)
+        removed_list::Vector{CartesianIndex{N}} = vcat(ln, ld, la, reach_dead)
+        empty!(reach_dead)
         #@show removed_list
         push!(frontier_list, grow_indices_t(grid, removed_list, offset_list)...)
         #filter!(t -> !in(t, done_list), frontier_list)
@@ -587,16 +598,19 @@ function ReACTed_reachable_cell_online(system::EuclideanHybridSystem, p, granula
 
 end
 
-function ReACTed_reachable_cell_online_adaptive(system::EuclideanHybridSystem, p, max_granularity, granularity_steps::Int64, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true, max_steps::Int64=1000)
+function ReACTed_reachable_cell_online_adaptive(system::EuclideanHybridSystem, p, max_granularity, granularity_steps::Int64, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true, max_steps::Int64=1000; include_border_cells::Bool=false)
+    return _ReACTed_reachable_cell_online_adaptive(Grid(system.statespace, max_granularity / 2^granularity_steps), system, p, max_granularity, granularity_steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder, clustering, max_steps, include_border_cells)
+end
+
+# Function barrier: the body is compiled for the concrete Grid{N} and system type, so N can be used in type positions.
+function _ReACTed_reachable_cell_online_adaptive(grid::Grid{N}, system::EuclideanHybridSystem, p, max_granularity, granularity_steps::Int64, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg, maxOrder::Int, reduceOrder::Int, clustering, max_steps::Int64, include_border_cells::Bool) where N
     recorderTimeStart = time_ns()
     granularity_scale = 2^granularity_steps
     granularity = max_granularity / granularity_scale
-    grid = Grid(system.statespace, granularity)
     @show foldl(*, grid.numCells), grid.numCells, granularity
     #max_steps = 300
     shield_count::Int64 = 0
     sweep_factor = 5
-    include_border_cells = false
     TIME_FUNCS = true
 
 
@@ -618,9 +632,9 @@ function ReACTed_reachable_cell_online_adaptive(system::EuclideanHybridSystem, p
     #   3: Hit invariant surface
     #
 
-    reachable_by_action::Dict{Tuple{Int64,CartesianIndex{grid.dimension}},AbstractArray{CartesianIndex{grid.dimension}}} = Dict{Tuple{Int64,CartesianIndex{grid.dimension}},AbstractArray{CartesianIndex{grid.dimension}}}()
-    reachable_by_flow::Dict{CartesianIndex{grid.dimension},AbstractArray{CartesianIndex{grid.dimension}}} = Dict{CartesianIndex{grid.dimension},AbstractArray{CartesianIndex{grid.dimension}}}()
-    degenerate_dimensions = collect(u - l == l ? l - (granularity / 2) : 0. for (l, u) in zip(grid.lower, grid.upper))
+    reachable_by_action::ActionRelation{N} = ActionRelation{N}()
+    reachable_by_flow::FlowRelation{N} = FlowRelation{N}()
+    degenerate_dimensions = zeros(N) # Grid centres zero-width dimensions on their value, so cells need no extra offset
     @show degenerate_dimensions
     invariant = hyperrectangle_to_HPolyhedron(system.statespace)
     U = system.input
@@ -634,23 +648,24 @@ function ReACTed_reachable_cell_online_adaptive(system::EuclideanHybridSystem, p
     guard_invariant_intersection = intersection(system.edges[1].guard, invariant)
 
 
-    fast_cells = falses(grid.numCells...)
-    Z_big = remove_zero_generators(Zonotope(degenerate_dimensions, diagm(map(x -> x == 1 ? 0. : granularity * (granularity_scale*sweep_factor/2), grid.numCells))))
-    lower_offset_big = grid.lower .+ (granularity*(granularity_scale*sweep_factor/2))
+    fast_cells = falses(cellshape(grid))
+    sweep = [min(granularity_scale*sweep_factor, n) for n in grid.numCells] # cells per sweep block in each dimension (dimensions smaller than a block use one block)
+    Z_big = remove_zero_generators(Zonotope(degenerate_dimensions, diagm(map((n, s) -> n == 1 ? 0. : granularity * (s/2), grid.numCells, sweep))))
+    lower_offset_big = grid.lower .+ granularity .* (sweep ./ 2)
     generatorDict_big = ReACT_discretize_decomposed_generators(Z_big, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict)
     discretizationDict_big, finaldims_big = ReACT_discretize_combine_with_offsets(Z_big, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict_big)
     preallocated_center_big = zeros(grid.dimension)
     preallocated_genmat_big = zeros(grid.dimension, finaldims_big)
     preallocated_inter_genmat_big = zeros(grid.dimension, finaldims_big)
-    ranges = [1:floor(Int64, grid.numCells[i]/(granularity_scale*sweep_factor)) for i in 1:grid.dimension]
+    ranges = ntuple(i -> 1:fld(grid.numCells[i], sweep[i]), N)
     #@show CartesianIndices((ranges...,))
     #solvr = LazySets.default_lp_solver(Float64)
 
     attempt_recorder = zeros(4)
     identity_matrix = diagm(ones(grid.dimension))
-    for bidx in CartesianIndices((ranges...,))
+    for bidx in CartesianIndices(ranges)
 
-        of = lower_offset_big + ((car2vec(bidx) .- 1) .* (granularity * granularity_scale * sweep_factor))
+        of = lower_offset_big + ((car2vec(bidx) .- 1) .* granularity .* sweep)
         LazySets.API.translate!(Z_big, of)
 
 
@@ -662,7 +677,7 @@ function ReACTed_reachable_cell_online_adaptive(system::EuclideanHybridSystem, p
 
         if f == 0
             #@show collect(((b-1)*sweep_factor):(b*sweep_factor) for b in car2vec(bidx))
-            fast_cells[collect((1+(b-1)*sweep_factor*granularity_scale):(b*sweep_factor*granularity_scale) for b in car2vec(bidx))...] .= true
+            fast_cells[ntuple(i -> (1+(bidx[i]-1)*sweep[i]):(bidx[i]*sweep[i]), N)...] .= true
             #grid.deadCells[collect((1+(b-1)*sweep_factor):(b*sweep_factor) for b in car2vec(bidx))...] .= true
 
         end
@@ -686,7 +701,7 @@ function ReACTed_reachable_cell_online_adaptive(system::EuclideanHybridSystem, p
 
     max_zonotope::Zonotope{Float64,Vector{Float64},Matrix{Float64}} = Zonotope(max_input.center, genmat(linear_map(max_flow, Z)))
 
-    max_zonotope = minkowski_sum(max_zonotope, Zonotope(zeros(grid.dimension), diagm(fill(granularity/2, grid.dimension))))
+    max_zonotope = minkowski_sum(max_zonotope, Zonotope(zeros(grid.dimension), diagm(fill(granularity/2, N))))
     mdl, c_ref = setup_model_constant_zonotope(max_zonotope)
 
 
@@ -694,27 +709,27 @@ function ReACTed_reachable_cell_online_adaptive(system::EuclideanHybridSystem, p
     guardProjVectors, guardProjBounds = getHalfSpaceProjections(system.edges[1].guard)
     invariantProjVectors, invariantProjBounds = getHalfSpaceProjections(invariant)
 
-    #hbox = Hyperrectangle(grid.lower .+ (granularity/2), fill(granularity/2, grid.dimension))
+    #hbox = Hyperrectangle(grid.lower .+ (granularity/2), fill(granularity/2, N))
 
 
 
-    #done_list::Set{CartesianIndex{grid.dimension}} = Set()#CartesianIndex{grid.dimension}[]
-    done_list::Vector{CartesianIndex{grid.dimension}} = CartesianIndex{grid.dimension}[]
-    #frontier_list::Set{CartesianIndex{grid.dimension}} = Set{CartesianIndex{grid.dimension}}[]
-    frontier_list::Vector{CartesianIndex{grid.dimension}} = CartesianIndex{grid.dimension}[]
+    #done_list::Set{CartesianIndex{N}} = Set()#CartesianIndex{N}[]
+    done_list::Vector{CartesianIndex{N}} = CartesianIndex{N}[]
+    #frontier_list::Set{CartesianIndex{N}} = Set{CartesianIndex{N}}[]
+    frontier_list::Vector{CartesianIndex{N}} = CartesianIndex{N}[]
     ln = 0
     la = 0
     ld = 0
     dims = grid.dimension
     #dead = grid.deadCells
-    can_act_matrix = trues(grid.numCells...)
-    no_action_bad_matrix = falses(grid.numCells...)
+    can_act_matrix = trues(cellshape(grid))
+    no_action_bad_matrix = falses(cellshape(grid))
 
     offset_list = offsets(grid)
 
-    may_act_dict::Dict{Int64,AbstractArray{CartesianIndex{grid.dimension}}} = Dict{Int64,AbstractArray{CartesianIndex{grid.dimension}}}()
+    may_act_dict::Dict{Int64,CellIdxs{N}} = Dict{Int64,CellIdxs{N}}()
     #may_act_dict::Dict{Int64,BitMatrix} = Dict{Int64,BitMatrix}()
-    may_act_matrix = falses(grid.numCells...)
+    may_act_matrix = falses(cellshape(grid))
     for act in system.Act
         may_act_dict[act.id] = get_touching_cell_idxs_l(grid, act.guard) #falses(grid.numCells...)
         #may_act_dict[act.id][get_touching_cell_idxs_l(grid, act.guard)...] .= true
@@ -743,11 +758,9 @@ function ReACTed_reachable_cell_online_adaptive(system::EuclideanHybridSystem, p
     end
 
     if include_border_cells
-        for i in 1:grid.dimension
-            foreach(x -> push!(frontier_list, x), CartesianIndices(ntuple(j -> j == i ? (1:1) : (1:grid.numCells[j]), grid.dimension)))
-            foreach(x -> push!(frontier_list, x), CartesianIndices(ntuple(j -> j == i ? (grid.numCells[j]:grid.numCells[j]) : (1:grid.numCells[j]), grid.dimension)))
-        end
-        push!(frontier_list, grow_indices_t(grid, frontier_list, offset_list)...)
+        border = border_cells(grid)
+        append!(frontier_list, border)
+        append!(frontier_list, grow_indices_t(grid, border, offset_list))
     end
 
     push!(frontier_list, grow_indices_t(grid, done_list, offset_list)...)
@@ -761,8 +774,10 @@ function ReACTed_reachable_cell_online_adaptive(system::EuclideanHybridSystem, p
     shield_time = 0.0
 
     #shield_count_cover = zeros(Int64, grid.numCells...)
-    shield_count_cover = zeros(Float64, grid.numCells...)
+    shield_count_cover = zeros(Float64, cellshape(grid))
 
+    popped_actions = Set{Tuple{Int64,CartesianIndex{N}}}()
+    reach_dead = CartesianIndex{N}[] # cells found dead in the reachability loop (flow hits a constraint); grow the frontier from them when include_border_cells
     while shield_count < max_steps
         if TIME_FUNCS
             aux_time_recoder = time_ns()
@@ -795,6 +810,7 @@ function ReACTed_reachable_cell_online_adaptive(system::EuclideanHybridSystem, p
 
                 else
                     grid.deadCells[idx] = true
+                    include_border_cells && push!(reach_dead, idx)
                 end
 
                 LazySets.API.translate!(Z, -of)
@@ -851,7 +867,7 @@ function ReACTed_reachable_cell_online_adaptive(system::EuclideanHybridSystem, p
             aux_time_recoder = time_ns()
         end
         # TODO - Maybe this should be frontier_list with done_list subset difference with deadCells
-        _, la, ln, ld = shield_step!(grid.deadCells, done_list, can_act_matrix, no_action_bad_matrix, reachable_by_action, reachable_by_flow, system.Act, dims)
+        _, la, ln, ld = shield_step!(grid.deadCells, done_list, can_act_matrix, no_action_bad_matrix, reachable_by_action, reachable_by_flow, system.Act, dims; popped_actions)
         if shield_count % 5 == 0
             println("$(max_steps - shield_count) : $(Dates.format(now(), "HH:MM:SS"))")
         end
@@ -865,9 +881,9 @@ function ReACTed_reachable_cell_online_adaptive(system::EuclideanHybridSystem, p
                 end
             end
         end
-        if length(la) == 0 && length(ln) == 0 && length(ld) == 0
+        if length(la) == 0 && length(ln) == 0 && length(ld) == 0 && isempty(reach_dead)
 
-            println("Fixed point found at $(max_steps-shield_count) steps!")
+            println("Fixed point found after $(shield_count) shield steps!")
             #grid.deadCells = dead´
             if TIME_FUNCS
                 shield_time += (time_ns() - aux_time_recoder)
@@ -878,7 +894,8 @@ function ReACTed_reachable_cell_online_adaptive(system::EuclideanHybridSystem, p
         empty!(frontier_list)
         # TODO - This is missing the cells where no_act_bad_matrix is true
         #push!(frontier_list, grow_indices_t(grid, findall(grid.deadCells), offset_list)...)
-        removed_list::Vector{CartesianIndex{grid.dimension}} = vcat(ln, ld, la)
+        removed_list::Vector{CartesianIndex{N}} = vcat(ln, ld, la, reach_dead)
+        empty!(reach_dead)
         #@show removed_list
         push!(frontier_list, grow_indices_t(grid, removed_list, offset_list)...)
         #filter!(t -> !in(t, done_list), frontier_list)
@@ -2489,7 +2506,7 @@ function ReACTed_reachable_cell_b(system::EuclideanHybridSystem, p, granularity,
 
     reachable_by_action = Dict{Tuple{Int64,CartesianIndex},AbstractArray{CartesianIndex}}()
     reachable_by_flow = Dict{CartesianIndex,AbstractArray{CartesianIndex}}()
-    degenerate_dimensions = collect(u - l == l ? l - (granularity / 2) : 0. for (l, u) in zip(grid.lower, grid.upper))
+    degenerate_dimensions = zeros(grid.dimension) # Grid centres zero-width dimensions on their value, so cells need no extra offset
     #@show degenerate_dimensions
     Z = remove_zero_generators(Zonotope(degenerate_dimensions, diagm(map(x -> x == 1 ? 0. : granularity/2, grid.numCells))))
     #dc = 0
@@ -2696,7 +2713,7 @@ function ReACTed_reachable_cell(system::EuclideanHybridSystem, p, granularity, �
 
     reachable_by_action = Dict()
     reachable_by_flow = Dict()
-    degenerate_dimensions = collect(u - l == l ? l - (granularity / 2) : 0. for (l, u) in zip(grid.lower, grid.upper))
+    degenerate_dimensions = zeros(grid.dimension) # Grid centres zero-width dimensions on their value, so cells need no extra offset
     #@show degenerate_dimensions
     Z = remove_zero_generators(Zonotope(degenerate_dimensions, diagm(map(x -> x == 1 ? 0. : granularity/2, grid.numCells))))
     #dc = 0

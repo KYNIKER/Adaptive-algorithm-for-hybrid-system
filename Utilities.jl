@@ -55,11 +55,13 @@ struct HybridSystem
     Init
 end
 
-struct EuclideanHybridSystem
-    statespace::LazySet
-    input::LazySet
-    globalConstraints::Vector{LazySet}
-    flowMatrix
+# Parametric so that system.statespace, system.input, system.globalConstraints and system.flowMatrix have concrete
+# types inside functions that take the system as an argument (abstract or untyped fields make every access dynamic).
+struct EuclideanHybridSystem{S<:LazySet,U<:LazySet,C<:LazySet,M<:AbstractMatrix}
+    statespace::S
+    input::U
+    globalConstraints::Vector{C}
+    flowMatrix::M
     edges::Vector{Edge}
     Act::Vector{Action}
 end

@@ -278,7 +278,7 @@ function ReACTed_reachable_cell_online(system::EuclideanHybridSystem, p, granula
     grid = Grid(system.statespace, granularity)
     @show foldl(*, grid.numCells), grid.numCells
     #max_steps = 300
-    shield_count::Int64 = 980
+    shield_count::Int64 = 0
     sweep_factor = 20
     include_border_cells = false
     TIME_FUNCS = true
@@ -444,7 +444,8 @@ function ReACTed_reachable_cell_online(system::EuclideanHybridSystem, p, granula
     reachability_time = 0.0
     shield_time = 0.0
 
-    shield_count_cover = zeros(Int64, grid.numCells...)
+    #shield_count_cover = zeros(Int64, grid.numCells...)
+    shield_count_cover = zeros(Float64, grid.numCells...)
 
     while shield_count < max_steps
         if TIME_FUNCS
@@ -540,7 +541,13 @@ function ReACTed_reachable_cell_online(system::EuclideanHybridSystem, p, granula
         end
         #@show can_act_matrix == trues(grid.numCells...)
         if !isempty(ld)
-            shield_count_cover[ld] .= shield_count
+            for jdx in ld
+                if haskey(reachable_by_flow, jdx)
+                    #grid.deadCells[idx] = true 
+                    ndead = findall(grid.deadCells[reachable_by_flow[jdx]])
+                    shield_count_cover[jdx] = length(reachable_by_flow[jdx]) / length(ndead)#length(reachable_by_flow[idx]) / length(findall(grid.deadCells))
+                end
+            end
         end
         if length(la) == 0 && length(ln) == 0 && length(ld) == 0
 
@@ -576,7 +583,324 @@ function ReACTed_reachable_cell_online(system::EuclideanHybridSystem, p, granula
         println("Shied steps: $shield_count")
     end
 
-    return grid, reachable_by_action, reachable_by_flow, no_action_bad_matrix
+    return grid, reachable_by_action, reachable_by_flow, no_action_bad_matrix, shield_count_cover
+
+end
+
+function ReACTed_reachable_cell_online_adaptive(system::EuclideanHybridSystem, p, max_granularity, granularity_steps::Int64, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true, max_steps::Int64=1000)
+    recorderTimeStart = time_ns()
+    granularity_scale = 2^granularity_steps
+    granularity = max_granularity / granularity_scale
+    grid = Grid(system.statespace, granularity)
+    @show foldl(*, grid.numCells), grid.numCells, granularity
+    #max_steps = 300
+    shield_count::Int64 = 0
+    sweep_factor = 5
+    include_border_cells = false
+    TIME_FUNCS = true
+
+
+
+    phiDict, tPhiDict, inputDict = phi_input_dict(system.flowMatrix, system.input, δ⁻, δ⁺, alg, maxOrder, reduceOrder)
+    d = δ⁻
+    isInvA = isinvertible(system.flowMatrix)
+    A = system.flowMatrix
+    A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(system.flowMatrix)
+    Φcache = system.flowMatrix == A_abs ? phiDict[d] : nothing
+    P2A_abs = ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, isInvA, Φcache)
+
+
+
+    #
+    #   0: Didnt hit either constraint, guard or invariant
+    #   1: Hit constraint
+    #   2: Hit guard
+    #   3: Hit invariant surface
+    #
+
+    reachable_by_action::Dict{Tuple{Int64,CartesianIndex{grid.dimension}},AbstractArray{CartesianIndex{grid.dimension}}} = Dict{Tuple{Int64,CartesianIndex{grid.dimension}},AbstractArray{CartesianIndex{grid.dimension}}}()
+    reachable_by_flow::Dict{CartesianIndex{grid.dimension},AbstractArray{CartesianIndex{grid.dimension}}} = Dict{CartesianIndex{grid.dimension},AbstractArray{CartesianIndex{grid.dimension}}}()
+    degenerate_dimensions = collect(u - l == l ? l - (granularity / 2) : 0. for (l, u) in zip(grid.lower, grid.upper))
+    @show degenerate_dimensions
+    invariant = hyperrectangle_to_HPolyhedron(system.statespace)
+    U = system.input
+    max_input = linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, p, alg, false, nothing), U)
+    max_flow = exp(p .* system.flowMatrix)
+    #@show degenerate_dimensions
+
+    guardProjVectors, guardProjBounds = getHalfSpaceProjections(system.edges[1].guard)
+    invariantProjVectors, invariantProjBounds = getHalfSpaceProjections(invariant)
+
+    guard_invariant_intersection = intersection(system.edges[1].guard, invariant)
+
+
+    fast_cells = falses(grid.numCells...)
+    Z_big = remove_zero_generators(Zonotope(degenerate_dimensions, diagm(map(x -> x == 1 ? 0. : granularity * (granularity_scale*sweep_factor/2), grid.numCells))))
+    lower_offset_big = grid.lower .+ (granularity*(granularity_scale*sweep_factor/2))
+    generatorDict_big = ReACT_discretize_decomposed_generators(Z_big, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict)
+    discretizationDict_big, finaldims_big = ReACT_discretize_combine_with_offsets(Z_big, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict_big)
+    preallocated_center_big = zeros(grid.dimension)
+    preallocated_genmat_big = zeros(grid.dimension, finaldims_big)
+    preallocated_inter_genmat_big = zeros(grid.dimension, finaldims_big)
+    ranges = [1:floor(Int64, grid.numCells[i]/(granularity_scale*sweep_factor)) for i in 1:grid.dimension]
+    #@show CartesianIndices((ranges...,))
+    #solvr = LazySets.default_lp_solver(Float64)
+
+    attempt_recorder = zeros(4)
+    identity_matrix = diagm(ones(grid.dimension))
+    for bidx in CartesianIndices((ranges...,))
+
+        of = lower_offset_big + ((car2vec(bidx) .- 1) .* (granularity * granularity_scale * sweep_factor))
+        LazySets.API.translate!(Z_big, of)
+
+
+
+        ReACT_discretize_combine_with_offset_vector!(preallocated_center_big, preallocated_genmat_big, preallocated_inter_genmat_big, discretizationDict_big, of, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict_big)
+        #z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
+
+        f = propagate_set_check_hybrid_jump(Z_big, [0.0, p], δ⁻, δ⁺, system, system.edges, identity_matrix, attempt_recorder, grid.dimension, P2A_abs, guardProjVectors, guardProjBounds, invariantProjVectors, invariantProjBounds, discretizationDict_big, phiDict, tPhiDict, inputDict, max_input, max_flow, guard_invariant_intersection, alg, maxOrder, reduceOrder)
+
+        if f == 0
+            #@show collect(((b-1)*sweep_factor):(b*sweep_factor) for b in car2vec(bidx))
+            fast_cells[collect((1+(b-1)*sweep_factor*granularity_scale):(b*sweep_factor*granularity_scale) for b in car2vec(bidx))...] .= true
+            #grid.deadCells[collect((1+(b-1)*sweep_factor):(b*sweep_factor) for b in car2vec(bidx))...] .= true
+
+        end
+
+
+        #grid.array[idx].sidx[1] = copy(f)
+        LazySets.API.translate!(Z_big, -of)
+    end
+    #granularity = granularity * granularity_scale
+    Z = remove_zero_generators(Zonotope(degenerate_dimensions, diagm(map(x -> x == 1 ? 0. : granularity/2, grid.numCells))))
+    #dc = 0
+    count = 0
+    #@show grid.lower
+    lower_offset = grid.lower .+ (granularity/2)
+    generatorDict = ReACT_discretize_decomposed_generators(Z, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict)
+    #discretizationDict = Dict()
+    discretizationDict, finaldims = ReACT_discretize_combine_with_offsets(Z, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict)
+    preallocated_center = zeros(grid.dimension)
+    preallocated_genmat = zeros(grid.dimension, finaldims)
+    preallocated_inter_genmat = zeros(grid.dimension, finaldims)
+
+    max_zonotope::Zonotope{Float64,Vector{Float64},Matrix{Float64}} = Zonotope(max_input.center, genmat(linear_map(max_flow, Z)))
+
+    max_zonotope = minkowski_sum(max_zonotope, Zonotope(zeros(grid.dimension), diagm(fill(granularity/2, grid.dimension))))
+    mdl, c_ref = setup_model_constant_zonotope(max_zonotope)
+
+
+    constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(system.globalConstraints[1])
+    guardProjVectors, guardProjBounds = getHalfSpaceProjections(system.edges[1].guard)
+    invariantProjVectors, invariantProjBounds = getHalfSpaceProjections(invariant)
+
+    #hbox = Hyperrectangle(grid.lower .+ (granularity/2), fill(granularity/2, grid.dimension))
+
+
+
+    #done_list::Set{CartesianIndex{grid.dimension}} = Set()#CartesianIndex{grid.dimension}[]
+    done_list::Vector{CartesianIndex{grid.dimension}} = CartesianIndex{grid.dimension}[]
+    #frontier_list::Set{CartesianIndex{grid.dimension}} = Set{CartesianIndex{grid.dimension}}[]
+    frontier_list::Vector{CartesianIndex{grid.dimension}} = CartesianIndex{grid.dimension}[]
+    ln = 0
+    la = 0
+    ld = 0
+    dims = grid.dimension
+    #dead = grid.deadCells
+    can_act_matrix = trues(grid.numCells...)
+    no_action_bad_matrix = falses(grid.numCells...)
+
+    offset_list = offsets(grid)
+
+    may_act_dict::Dict{Int64,AbstractArray{CartesianIndex{grid.dimension}}} = Dict{Int64,AbstractArray{CartesianIndex{grid.dimension}}}()
+    #may_act_dict::Dict{Int64,BitMatrix} = Dict{Int64,BitMatrix}()
+    may_act_matrix = falses(grid.numCells...)
+    for act in system.Act
+        may_act_dict[act.id] = get_touching_cell_idxs_l(grid, act.guard) #falses(grid.numCells...)
+        #may_act_dict[act.id][get_touching_cell_idxs_l(grid, act.guard)...] .= true
+        may_act_matrix[may_act_dict[act.id]] .= true
+    end
+
+    for edge in system.edges
+        for didx in get_touching_cell_idxs_l(grid, edge.guard)
+            #@show didx
+            push!(frontier_list, didx)
+        end
+    end
+    #grid2 = Grid(system.statespace, max_granularity)
+    #@show grid
+    #@show grid2
+    for global_constraint in system.globalConstraints
+        #guard_invariant_intersection = intersection(guard_invariant_intersection, global_constraint)
+        #@show get_touching_cell_idxs_l(grid, global_constraint)
+        #@show get_touching_cell_idxs_l(grid2, global_constraint)
+        for didx in get_touching_cell_idxs_l(grid, global_constraint)
+            #@show didx
+            grid.deadCells[didx] = true
+            no_action_bad_matrix[didx] = true
+            push!(done_list, didx)
+        end
+    end
+
+    if include_border_cells
+        for i in 1:grid.dimension
+            foreach(x -> push!(frontier_list, x), CartesianIndices(ntuple(j -> j == i ? (1:1) : (1:grid.numCells[j]), grid.dimension)))
+            foreach(x -> push!(frontier_list, x), CartesianIndices(ntuple(j -> j == i ? (grid.numCells[j]:grid.numCells[j]) : (1:grid.numCells[j]), grid.dimension)))
+        end
+        push!(frontier_list, grow_indices_t(grid, frontier_list, offset_list)...)
+    end
+
+    push!(frontier_list, grow_indices_t(grid, done_list, offset_list)...)
+    @show frontier_list#, offset_list
+    #@show done_list, grid
+    #return grid, reachable_by_action, reachable_by_flow
+
+    setup_time = time_ns()
+    aux_time_recoder = time_ns()
+    reachability_time = 0.0
+    shield_time = 0.0
+
+    #shield_count_cover = zeros(Int64, grid.numCells...)
+    shield_count_cover = zeros(Float64, grid.numCells...)
+
+    while shield_count < max_steps
+        if TIME_FUNCS
+            aux_time_recoder = time_ns()
+        end
+        for idx in frontier_list
+            if grid.deadCells[idx]
+                #println("Skipping dead cell: ", idx)
+                continue
+
+                #else
+                #@show "Processing cell: ", idx
+            end
+            if !fast_cells[idx]
+                count += 1
+                of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
+                LazySets.API.translate!(Z, of)
+                #@show Z, idx, of
+
+
+                ReACT_discretize_combine_with_offset_vector!(preallocated_center, preallocated_genmat, preallocated_inter_genmat, discretizationDict, of, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict)
+                #z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
+
+                z, f = propagate_set_t(Z, [0.0, p], δ⁻, δ⁺, system, grid, fast_cells, system.edges, identity_matrix, attempt_recorder, grid.dimension, P2A_abs, guardProjVectors, guardProjBounds, invariantProjVectors, invariantProjBounds, discretizationDict, phiDict, tPhiDict, inputDict, max_input, max_flow, guard_invariant_intersection, alg, maxOrder, reduceOrder)
+
+                if f != 1 #&& f != 3
+
+
+                    reachable_by_flow[idx] = get_touching_cell_idxs_lz(grid, z)
+
+
+                else
+                    grid.deadCells[idx] = true
+                end
+
+                LazySets.API.translate!(Z, -of)
+                if count % 1000 == 0
+                    println(count)
+                    #GC.gc()
+                end
+            else
+                count += 1
+                of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
+                of = max_flow * of
+                LazySets.API.translate!(max_zonotope, of)
+
+                #reachable_by_flow[idx] = get_touching_cell_idxs_lz(grid, max_zonotope)
+                reachable_by_flow[idx] = get_touching_cell_idxs_test(grid, max_zonotope, mdl, c_ref)
+
+                LazySets.API.translate!(max_zonotope, -of)
+                if count % 1000 == 0
+                    println(count)
+                    #GC.gc()
+                end
+            end
+
+            #can_act = false
+            if may_act_matrix[idx]
+                for act in system.Act
+                    #@show size(get_touching_cell_idxs_l(grid, act.guard))
+                    if idx in may_act_dict[act.id]
+                        of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
+                        LazySets.API.translate!(Z, of)
+                        #touches_list = get_touching_cell_idxs(grid, z)
+                        #touches_list = get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
+                        #if !isempty(touches_list)
+                        #    reachable_by_action[(act, idx)] = copy(touches_list)
+                        #reachable_by_flow[idx] = get_touching_cell_idxs(grid, z)
+                        #end
+                        reachable_by_action[(act.id, idx)] = get_touching_cell_idxs_lz(grid, minkowski_sum(linear_map(max_flow, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector)), max_input))
+
+                        #if act.id == 1
+                        #@show get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector)), LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector)
+                        #reachable_by_action[(act.id, idx)] = get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
+                        #end
+                        if grid.deadCells[idx]
+                            grid.deadCells[idx] = false
+                        end
+                        LazySets.API.translate!(Z, -of)
+                    end
+                end
+            end
+            push!(done_list, idx)
+        end
+        if TIME_FUNCS
+            reachability_time += (time_ns()-aux_time_recoder)
+            aux_time_recoder = time_ns()
+        end
+        # TODO - Maybe this should be frontier_list with done_list subset difference with deadCells
+        _, la, ln, ld = shield_step!(grid.deadCells, done_list, can_act_matrix, no_action_bad_matrix, reachable_by_action, reachable_by_flow, system.Act, dims)
+        if shield_count % 5 == 0
+            println("$(max_steps - shield_count) : $(Dates.format(now(), "HH:MM:SS"))")
+        end
+        #@show can_act_matrix == trues(grid.numCells...)
+        if !isempty(ld)
+            for jdx in ld
+                if haskey(reachable_by_flow, jdx)
+                    #grid.deadCells[idx] = true 
+                    ndead = findall(grid.deadCells[reachable_by_flow[jdx]])
+                    shield_count_cover[jdx] = length(reachable_by_flow[jdx]) / length(ndead)#length(reachable_by_flow[idx]) / length(findall(grid.deadCells))
+                end
+            end
+        end
+        if length(la) == 0 && length(ln) == 0 && length(ld) == 0
+
+            println("Fixed point found at $(max_steps-shield_count) steps!")
+            #grid.deadCells = dead´
+            if TIME_FUNCS
+                shield_time += (time_ns() - aux_time_recoder)
+            end
+            break
+        end
+        shield_count += 1
+        empty!(frontier_list)
+        # TODO - This is missing the cells where no_act_bad_matrix is true
+        #push!(frontier_list, grow_indices_t(grid, findall(grid.deadCells), offset_list)...)
+        removed_list::Vector{CartesianIndex{grid.dimension}} = vcat(ln, ld, la)
+        #@show removed_list
+        push!(frontier_list, grow_indices_t(grid, removed_list, offset_list)...)
+        #filter!(t -> !in(t, done_list), frontier_list)
+        setdiff!(frontier_list, done_list)
+        if TIME_FUNCS
+            shield_time += (time_ns() - aux_time_recoder)
+        end
+    end
+
+
+    #@show frontier_list
+    if TIME_FUNCS
+        println("Total times: 
+        Total: $((time_ns() - recorderTimeStart)/10^9)
+        Setup: $(setup_time / 10^9)
+        Reachability: $(reachability_time / 10^9) 
+        Shield: $(shield_time / 10^9)")
+        println("Shied steps: $shield_count")
+    end
+
+    #return grid, reachable_by_action, reachable_by_flow, fast_cells, shield_count_cover
+    return grid, reachable_by_action, reachable_by_flow, no_action_bad_matrix, shield_count_cover
 
 end
 

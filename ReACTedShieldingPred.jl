@@ -147,6 +147,8 @@ function propagate_bad!(s::OnlinePredShieldState)
     end
 end
 
+# Everything above seems sound.
+
 # Same reachability as ReACTed_reachable_cell_online, but the shield is computed with the event-driven predecessor
 # relation above instead of repeated shield_step! sweeps. Returns the same tuple so it can be swapped in ShieldSandbox.jl.
 function ReACTed_reachable_cell_online_pred(system::EuclideanHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true, max_steps::Int64=100000; act_needs_safe_flow::Bool=true, include_border_cells::Bool=false)
@@ -202,7 +204,7 @@ function _ReACTed_reachable_cell_online_pred(grid::Grid{N}, system::EuclideanHyb
         ReACT_discretize_combine_with_offset_vector!(preallocated_center_big, preallocated_genmat_big, preallocated_inter_genmat_big, discretizationDict_big, of, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict_big)
         f = propagate_set_check_hybrid_jump(Z_big, [0.0, p], δ⁻, δ⁺, system, system.edges, identity_matrix, attempt_recorder, grid.dimension, P2A_abs, guardProjVectors, guardProjBounds, invariantProjVectors, invariantProjBounds, discretizationDict_big, phiDict, tPhiDict, inputDict, max_input, max_flow, guard_invariant_intersection, alg, maxOrder, reduceOrder)
         if f == 0
-            fast_cells[ntuple(i -> (1+(bidx[i]-1)*sweep[i]):(bidx[i]*sweep[i]), N)...] .= true
+            fast_cells[ntuple(i->(1+(bidx[i]-1)*sweep[i]):(bidx[i]*sweep[i]), N)...] .= true
         end
         LazySets.API.translate!(Z_big, -of)
     end
@@ -216,8 +218,8 @@ function _ReACTed_reachable_cell_online_pred(grid::Grid{N}, system::EuclideanHyb
     preallocated_genmat = zeros(grid.dimension, finaldims)
     preallocated_inter_genmat = zeros(grid.dimension, finaldims)
 
-    max_zonotope::Zonotope{Float64,Vector{Float64},Matrix{Float64}} = Zonotope(max_input.center, genmat(linear_map(max_flow, Z)))
-    max_zonotope = minkowski_sum(max_zonotope, Zonotope(zeros(grid.dimension), diagm(fill(granularity/2, grid.dimension))))
+    max_zonotope::Zonotope{Float64,Vector{Float64},Matrix{Float64}} = Zonotope(max_input.center, hcat(genmat(max_input), genmat(linear_map(max_flow, Z)), diagm(fill(granularity/2, grid.dimension))))
+    #max_zonotope = minkowski_sum(max_zonotope, Zonotope(zeros(grid.dimension), diagm(fill(granularity/2, grid.dimension))))
     # Fast cells all share max_zonotope's generators, so their cover test uses its precomputed H-representation.
     fast_cover = ConstantZonotopeCover(max_zonotope, Val(N))
     fast_center = zeros(N)
@@ -302,6 +304,7 @@ function _ReACTed_reachable_cell_online_pred(grid::Grid{N}, system::EuclideanHyb
                 if may_act[ai][idx]
                     of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
                     LazySets.API.translate!(Z, of)
+                    # This should propably check if the cells are fast_cells and use a precomputed max_ai_zonotope in the case that it is and actually propagate the set otherwise.
                     succ = get_touching_cell_idxs_lz(grid, minkowski_sum(linear_map(max_flow, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector)), max_input))
                     reachable_by_action[(act.id, idx)] = succ
                     act_succs[ai] = succ

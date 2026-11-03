@@ -11,7 +11,7 @@ include("ReACTedShieldingPred.jl")
 
 fresh_grid = false
 make_plot = true
-granularity::Float64 = 0.005  # Example granularity
+granularity::Float64 = 0.02  # Example granularity
 grid_name = "ball" * string(granularity)
 savefile = grid_name * ".jld2"
 
@@ -20,6 +20,8 @@ euclideanHybridSystem, timePeriod = loadBouncingBallShieldedWithInput()
 cscheme = palette(:matter, 2^length(euclideanHybridSystem.Act)+1; rev=true)
 
 δ⁻ = 0.001
+
+
 
 #GC.gc(true)
 # TODO - Looking at the serialized reach by act dict it looks like it maps to cells that only have a idx but no other information.
@@ -49,13 +51,13 @@ close(f)
 #@allocations ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 
 #grid, act_set, no_act_set, no_act_bad_matrix = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-#@time grid, act_set, no_act_set, no_act_bad_matrix, shield_cover_matrix = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+@time grid, act_set, no_act_set, no_act_bad_matrix, shield_cover_matrix = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 # Event-driven predecessor version, compared against the shield_step! version above.
-@time grid_p, act_set_p, no_act_set_p, no_act_bad_matrix_p, shield_cover_matrix_p = ReACTed_reachable_cell_online_pred(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+#@time grid_p, act_set_p, no_act_set_p, no_act_bad_matrix_p, shield_cover_matrix_p = ReACTed_reachable_cell_online_pred(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 #@show count(grid.deadCells), count(grid_p.deadCells), count(grid.deadCells .⊻ grid_p.deadCells)
 #VSCodeServer.@profview _, _, _ = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-shield = grid_p
-grid = grid_p
+shield = grid
+#grid = grid_p
 #display(plot(heatmap(transpose(shield_cover_matrix_p))))
 #throw(error("womop"))
 #@show grid.deadCells# == trues(grid.numCells...)
@@ -133,7 +135,7 @@ if make_plot
         # end
 
         #push!(noAct, zonotopeArray3d[idx])
-        if !no_act_bad_matrix_p[idx] # || !haskey(no_act_set, idx)
+        if !no_act_bad_matrix[idx] # || !haskey(no_act_set, idx)
             #push!(invalid_cells, idx)
             heatmap_matrix[idx] = 1
             #push!(unsafe, zonotopeArray3d[idx])
@@ -222,7 +224,15 @@ if make_plot
     println("amount of dead cells: $(length(findall(==(0), heatmap_matrix))/foldl(*, grid.numCells))")
     println("amount of blocked cells: $(length(findall(==(2), heatmap_matrix))/foldl(*, grid.numCells))")
 
-    fig = Plots.plot(heatmap(transpose(heatmap_matrix), c=cgrad([:black, :white, :purple, :yellow, :red], 5, categorical=true), clim=(0, 4), colorbar=false, xlabel="v", ylabel="p", xticks=([0.0, shield.numCells[1]/2, shield.numCells[1]], [string(shield.lower[1]), "0", string(shield.upper[1])]), yticks=([0.0, shield.numCells[2]/2, shield.numCells[2]], [string(shield.lower[2]), string((shield.lower[2]+shield.upper[2])/2), string(shield.upper[2])])); colorbar_ticks=([0.0, 1.0, 2.0, 3.0, 4.0], ["dead", "no action", "act1", "act2", "act1 + act2"]))
+    y_n = floor(abs(shield.lower[2]) + abs(shield.upper[2]))
+    y_nt = collect(fld(shield.numCells[2], y_n) * i for i in 1:y_n)
+    y_st = collect(string(shield.lower[2] + (i * (abs(shield.lower[2]) + abs(shield.upper[2])) / y_n)) for i in 1:y_n)
+    x_n = floor(abs(shield.lower[1]) + abs(shield.upper[1]))
+    x_nt = collect(fld(shield.numCells[1], x_n) * i for i in 1:2:x_n)
+    x_st = collect(string(shield.lower[1] + (i * (abs(shield.lower[1]) + abs(shield.upper[1])) / x_n)) for i in 1:2:x_n)
+    hm = heatmap(transpose(heatmap_matrix), c=cgrad([:black, :white, :purple, :yellow, :red], 5, categorical=true), clim=(0, 4), colorbar=false, xlabel="v", ylabel="p", xticks=(x_nt, x_st), yticks=(y_nt, y_st))
+    #Plots.translate!(hm.shape(), 0, 0, -15)
+    fig = Plots.plot(hm; colorbar_ticks=([0.0, 1.0, 2.0, 3.0, 4.0], ["dead", "no action", "act1", "act2", "act1 + act2"]))
     color_labels = ["{}", "{hit, nohit}", "{hit}"]
     for (color, label) in zip(cgrad([:black, :white, :purple]), color_labels)
         Plots.plot!(Float64[], Float64[], seriestype=:shape,   # The Float typing has been added to avoid a weird warning

@@ -7,6 +7,7 @@ using LazySets
 # It looks like this should be modelled as switched dynamics...
 # Looks like CoSHY was able to model this with a 4 dimensional state. Thus they only track time, volume of oil in the tank, state of the pump and a latency timer.
 # They compute the volume of oil in the tank simply by the flow rate times the time spent in that rate. The act of turning the pump on is simply modelled subtracting the outgoing flow until next time step.
+# I think this needs to be modelled as act -> translates set in pump_rate dimension. Then the reachability relation should be computed for each decision period in the time interval.
 function loadOilPump()
     V_max = 25.1
     V_min = 4.9

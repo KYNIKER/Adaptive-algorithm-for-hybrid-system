@@ -656,8 +656,7 @@ function _ReACTed_reachable_cell_online_adaptive(grid::Grid{N}, system::Euclidea
     preallocated_genmat_big = zeros(grid.dimension, finaldims_big)
     preallocated_inter_genmat_big = zeros(grid.dimension, finaldims_big)
     ranges = ntuple(i -> 1:fld(grid.numCells[i], sweep[i]), N)
-    #@show CartesianIndices((ranges...,))
-    #solvr = LazySets.default_lp_solver(Float64)
+
 
     attempt_recorder = zeros(4)
     identity_matrix = diagm(ones(grid.dimension))
@@ -778,6 +777,8 @@ function _ReACTed_reachable_cell_online_adaptive(grid::Grid{N}, system::Euclidea
 
     popped_actions = Set{Tuple{Int64,CartesianIndex{N}}}()
     reach_dead = CartesianIndex{N}[] # cells found dead in the reachability loop (flow hits a constraint); grow the frontier from them when include_border_cells
+    # Maybe the way to determine when to switch granularity is by checking each cells shield_count_cover value
+    # This could atleast make sense for not fast_cells.
     while shield_count < max_steps
         if TIME_FUNCS
             aux_time_recoder = time_ns()

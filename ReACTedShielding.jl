@@ -696,9 +696,9 @@ function _ReACTed_reachable_cell_online_adaptive(grid::Grid{N}, system::Euclidea
     preallocated_genmat = zeros(grid.dimension, finaldims)
     preallocated_inter_genmat = zeros(grid.dimension, finaldims)
 
-    max_zonotope::Zonotope{Float64,Vector{Float64},Matrix{Float64}} = Zonotope(max_input.center, genmat(linear_map(max_flow, Z)))
+    max_zonotope::Zonotope{Float64,Vector{Float64},Matrix{Float64}} = Zonotope(max_input.center, hcat(genmat(linear_map(max_flow, Z)), diagm(fill(granularity/2, N)), genmat(max_input)))
 
-    max_zonotope = minkowski_sum(max_zonotope, Zonotope(zeros(grid.dimension), diagm(fill(granularity/2, N))))
+    #max_zonotope = minkowski_sum(max_zonotope, Zonotope(zeros(grid.dimension), diagm(fill(granularity/2, N))))
     # Fast cells all share max_zonotope's generators, so their cover test uses its precomputed H-representation.
     fast_cover = ConstantZonotopeCover(max_zonotope, Val(N))
     fast_center = zeros(N)

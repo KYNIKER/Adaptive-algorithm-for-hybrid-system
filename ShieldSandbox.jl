@@ -8,6 +8,7 @@ include("Utilities.jl")
 include("models/bouncingBall.jl")
 include("ReACTedShielding.jl")
 include("ReACTedShieldingPred.jl")
+include("ReACTedShieldingAdaptive.jl")
 
 fresh_grid = false
 make_plot = true
@@ -53,9 +54,10 @@ close(f)
 #grid, act_set, no_act_set, no_act_bad_matrix = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 @time grid, act_set, no_act_set, no_act_bad_matrix, shield_cover_matrix = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 # Event-driven predecessor version, compared against the shield_step! version above.
-#@time grid_p, act_set_p, no_act_set_p, no_act_bad_matrix_p, shield_cover_matrix_p = ReACTed_reachable_cell_online_pred(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+@time grid, act_set, no_act_set, no_act_bad_matrix, shield_cover_matrix = ReACTed_reachable_cell_online_pred(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 #@show count(grid.deadCells), count(grid_p.deadCells), count(grid.deadCells .⊻ grid_p.deadCells)
 #VSCodeServer.@profview _, _, _ = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+#@time grid, act_set, no_act_set, no_act_bad_matrix, shield_cover_matrix, ctx = ReACTed_reachable_cell_adaptive(euclideanHybridSystem, timePeriod, 2 * granularity, 1, δ⁻, 2^5 * δ⁻)
 shield = grid
 #grid = grid_p
 #display(plot(heatmap(transpose(shield_cover_matrix_p))))

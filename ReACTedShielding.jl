@@ -383,7 +383,7 @@ function _ReACTed_reachable_cell_online(grid::Grid{N}, system::EuclideanHybridSy
 
     max_zonotope::Zonotope{Float64,Vector{Float64},Matrix{Float64}} = Zonotope(max_input.center, hcat(genmat(max_input), genmat(linear_map(max_flow, Z)), diagm(fill(granularity/2, N))))
 
-    max_zonotope = minkowski_sum(max_zonotope, Zonotope(zeros(grid.dimension), diagm(fill(granularity/2, N))))
+    #max_zonotope = minkowski_sum(max_zonotope, Zonotope(zeros(grid.dimension), diagm(fill(granularity/2, N))))
     # Fast cells all share max_zonotope's generators, so their cover test uses its precomputed H-representation.
     fast_cover = ConstantZonotopeCover(max_zonotope, Val(N))
     fast_center = zeros(N)
@@ -596,6 +596,7 @@ function _ReACTed_reachable_cell_online(grid::Grid{N}, system::EuclideanHybridSy
 
 end
 
+#=
 function ReACTed_reachable_cell_online_adaptive(system::EuclideanHybridSystem, p, max_granularity, granularity_steps::Int64, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true, max_steps::Int64=1000; include_border_cells::Bool=false)
     return _ReACTed_reachable_cell_online_adaptive(Grid(system.statespace, max_granularity / 2^granularity_steps), system, p, max_granularity, granularity_steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder, clustering, max_steps, include_border_cells)
 end
@@ -918,7 +919,7 @@ function _ReACTed_reachable_cell_online_adaptive(grid::Grid{N}, system::Euclidea
     return grid, reachable_by_action, reachable_by_flow, no_action_bad_matrix, shield_count_cover
 
 end
-
+=#
 #
 #   Right now this makes quite a bit of allocations.
 #   TODO - Needs a fix for determining the final reachset. Right now it is overapproximated and this is worse for large timestep sizes.

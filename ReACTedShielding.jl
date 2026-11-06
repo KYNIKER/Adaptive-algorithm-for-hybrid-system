@@ -1180,7 +1180,7 @@ function propagate_set_t(X0, interval, δ⁻::Float64, δ⁺::Float64, system, g
             end
             #TODO - Use the fast version?
             #intersectingSetsList = ReACT_touches_set_constant_input_b(minkowski_sum(newSet, inputSet),system.input, guard_intersection, δ⁻, [reachtime, endtime], PhiDict, inputDict)
-            intersectingSetsList = ReACT_touches_set_constant_input_b(newSet, inputSet, guard_intersection, guard_projection_vectors, guard_projection_bounds, invariantProjVectors, invariantProjBounds, δ⁻, [reachtime, endtime], PhiDict, inputDict)
+            intersectingSetsList = ReACT_touches_set_constant_input_b(newSet, inputSet, guard_intersection, copy(guardProjVectors), copy(guardProjBounds), invariantProjVectors, invariantProjBounds, δ⁻, [reachtime, endtime], PhiDict, inputDict)
 
 
 
@@ -1680,7 +1680,7 @@ function ReACT_guards_t(δ⁻::Float64, δ⁺::Float64, interval, identity_matri
     currentTimeStep = copy(δ⁺)
 
     attemptsRecorder = attemptsRecorder .* 0
-
+    origGuardProjVectors = copy(guardProjVectors)
     Φ::Matrix{Float64} = copy(identity_matrix)
 
     tempM = copy(identity_matrix)
@@ -1697,7 +1697,7 @@ function ReACT_guards_t(δ⁻::Float64, δ⁺::Float64, interval, identity_matri
             # Handle if we can no longer reduce the reachset (we keep hitting something)
             if currentTimeStep >= δ⁻
 
-                if fast_guards_check_t(discritezationDict[currentTimeStep], input, guardProjVectors, guardProjBounds)
+                if fast_guards_check_t(discritezationDict[currentTimeStep], input, guardProjVectors, origGuardProjVectors, guardProjBounds)
                     approveFlag = true
                     if currentTimeStep + time < endtime
                         #input = input + linear_map(Φ, inputDiscretizationDict[currentTimeStep])
@@ -1900,9 +1900,9 @@ function fast_guards_check_b(newR::Zonotope, input, constraintProjVectors, const
     return !(someinside(newR, input, constraintProjVectors, constraintProjBounds) || someinside(newR, input, guardProjVectors, guardProjBounds)) && allunder(newR, input, invariantProjVectors, invariantProjBounds)
 
 end
-function fast_guards_check_t(newR::Zonotope, input, guardProjVectors, guardProjBounds) #; solver=model
+function fast_guards_check_t(newR::Zonotope, input, tguardProjVectors, guardProjVectors, guardProjBounds) #; solver=model
     #return all((input + ρ(x, newR)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) && any((input + -ρ(-x, newR)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) && all((input - ρ(-x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
-    return !someinside(newR, input, guardProjVectors, guardProjBounds)
+    return !someinside(newR, input, tguardProjVectors, guardProjVectors, guardProjBounds)
     #return !someinside(minkowski_sum(newR, input), guardProjVectors, guardProjBounds)
 
 end
@@ -1998,6 +1998,15 @@ function someinside(set, input::LazySet, dir, bound)
     res = true
     @inbounds @simd for i in eachindex(dir, bound)
         res = res && (-ρ(-dir[i], set)+(-ρ(-dir[i], input)) <= bound[i])
+    end
+    return res
+    #return !allunder(set, dir, bound)
+end
+
+function someinside(set, input::LazySet, tdir, dir, bound)
+    res = true
+    @inbounds @simd for i in eachindex(dir, bound)
+        res = res && (-ρ(-tdir[i], set)+(-ρ(-dir[i], input)) <= bound[i])
     end
     return res
     #return !allunder(set, dir, bound)

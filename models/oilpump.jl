@@ -23,12 +23,18 @@ function loadOilPump()
     imprecision = 0.06
     latency = 2.00
 
+    A = zeros(Float64, (dims, dims))
+    A[accumulator_total_volume, pump_rate] = log(2.2)
+    A[accumulator_volume, pump_rate] = log(2.2)
+    A[accumulator_volume, machine_consumption_rate] = -log(2.2)
+    A[machine_clock, machine_clock] = 0.0
+
     A_1 = zeros(Float64, (dims, dims))
     A_2 = zeros(Float64, (dims, dims))
 
     consumption_rate_over_time = zip([0.0, 1.2, 0.0, 1.2, 2.5, 0.0, 1.7, 0.5, 0.0], collect(0.0:2.0:20.0))
 
-    input_noise = Zonotope(zeros(Float64, dims), [sparsevec([machine_consumption_rate], [fluctuation], dims)]) # epsilon 
+    input_noise = Zonotope(sparsevec([machine_clock], [1.0], dims), [sparsevec([machine_consumption_rate], [fluctuation], dims)]) # epsilon 
 
     constraint = HPolyhedron([
         LazySets.HalfSpace(sparsevec([accumulator_volume], [1.], dims), V_max), # v <= 25.1

@@ -147,7 +147,6 @@ function propagate_bad!(s::OnlinePredShieldState)
     end
 end
 
-# Everything above seems sound.
 
 # Same reachability as ReACTed_reachable_cell_online, but the shield is computed with the event-driven predecessor
 # relation above instead of repeated shield_step! sweeps. Returns the same tuple so it can be swapped in ShieldSandbox.jl.
@@ -295,6 +294,7 @@ function _ReACTed_reachable_cell_online_pred(grid::Grid{N}, system::EuclideanHyb
                 flow_succ = get_touching_cell_idxs_cover(grid, fast_cover, fast_center)
                 reachable_by_flow[idx] = flow_succ
             end
+
             if count % 1000 == 0
                 println(count)
             end

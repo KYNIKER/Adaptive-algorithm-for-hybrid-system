@@ -617,6 +617,19 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
     return res
 end
 
+function zonotopeStripIntersecitonSplit(Z, ax, bx)
+    res = Z
+    for (a, b) in zip(ax, bx)
+        hi = ρ(a, res)
+        if hi > b
+            lo = -ρ(-a, res)
+            lo > b && return nothing
+            res = zonotopeStripIntersection(res, a, (lo + b) / 2, (b - lo) / 2)
+        end
+    end
+    return res
+end
+
 function getUFromInputUncertainty(A, μ, δ⁻, P₁)
     ANorm = norm(A, Inf)
     β = (exp(ANorm * (δ⁻)) - 1) * μ / ANorm

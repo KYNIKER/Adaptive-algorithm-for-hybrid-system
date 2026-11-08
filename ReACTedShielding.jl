@@ -1056,6 +1056,7 @@ function propagate_jumpset(X0, interval, δ⁻::Float64, δ⁺::Float64, system,
 
 end
 
+#=
 function propagate_set_b(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ₂, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, discretizationDict, PhiDict, TPhiDict, inputDict, max_input, max_flow, guard_intersection, invariant, invariantProjVectors, invariantProjBounds, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5)
 
     #discretizationDict = newReACTDiscretizePlus(X0, δ⁻, δ⁺, system.flowMatrix, Φ₂, PhiDict, inputDict, alg, maxOrder, reduceOrder)
@@ -1132,6 +1133,7 @@ function propagate_set_b(X0, interval, δ⁻::Float64, δ⁺::Float64, system, �
         return (newSet, 3)
     end
 end
+=#
 
 function propagate_set_t(X0, interval, δ⁻::Float64, δ⁺::Float64, system, grid, fast_cell_matrix, listOfEdges, identity_matrix, attemptsRecorder, dims, Φ₂, guardProjVectors, guardProjBounds, invariantProjVectors, invariantProjBounds, discretizationDict, PhiDict, TPhiDict, inputDict, max_input, max_flow, guard_intersection, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5)
 
@@ -1194,6 +1196,7 @@ function propagate_set_t(X0, interval, δ⁻::Float64, δ⁺::Float64, system, g
             #end
 
             jumpSet = linear_map(edge.jumpMatrix, zonotopeStripIntersection(intersectedSet, guard_intersection))
+            #jumpSet = linear_map(edge.jumpMatrix, zonotopeStripIntersecitonSplit(intersectedSet, guard_projection_vectors, guard_projection_bounds))
             #jumpSet = linear_map(edge.jumpMatrix, getBoxIntersection(intersectedSet, guard_intersection))
             if !isnothing(edge.jumpVector)
                 LazySets.translate!(jumpSet, edge.jumpVector)

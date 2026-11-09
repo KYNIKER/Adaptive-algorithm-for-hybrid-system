@@ -52,15 +52,15 @@ close(f)
 #@allocations ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 
 #grid, act_set, no_act_set, no_act_bad_matrix = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-@time grid, act_set, no_act_set, no_act_bad_matrix, shield_cover_matrix = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+#@time grid, act_set, no_act_set, no_act_bad_matrix, shield_cover_matrix = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 # Event-driven predecessor version, compared against the shield_step! version above.
-@time grid, act_set, no_act_set, no_act_bad_matrix, shield_cover_matrix = ReACTed_reachable_cell_online_pred(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+@time grid, act_set, no_act_set, no_act_bad_matrix, act_bad_matrix, shield_cover_matrix = ReACTed_reachable_cell_online_pred(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 #@show count(grid.deadCells), count(grid_p.deadCells), count(grid.deadCells .⊻ grid_p.deadCells)
 #VSCodeServer.@profview _, _, _ = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-#@time grid, act_set, no_act_set, no_act_bad_matrix, shield_cover_matrix, ctx = ReACTed_reachable_cell_adaptive(euclideanHybridSystem, timePeriod, 2 * granularity, 1, δ⁻, 2^5 * δ⁻)
+#@time grid, act_set, no_act_set, no_act_bad_matrix, shield_cover_matrix, ctx = ReACTed_reachable_cell_adaptive(euclideanHybridSystem, timePeriod, granularity, 2, δ⁻, 2^5 * δ⁻, patience=1)
 shield = grid
 #grid = grid_p
-#display(plot(heatmap(transpose(shield_cover_matrix_p))))
+display(plot(heatmap(transpose(shield_cover_matrix))))
 #throw(error("womop"))
 #@show grid.deadCells# == trues(grid.numCells...)
 
@@ -116,24 +116,22 @@ if make_plot
 
 
         #@show any(x -> haskey(reach_by_Act, (x, cell.id)), euclideanHybridSystem.Act)
-        #if any(x -> haskey(act_set, (x.id, idx)), euclideanHybridSystem.Act)
-        #heatmap_matrix[idx] = 2
         #=
-            possible_acts = []
-            for act in euclideanHybridSystem.Act
-
-                if haskey(act_set, (act.id, idx))
-                    #push!(actDict[act.id], zonotopeArray3d[idx])
-
-                    #@show idx
-                    push!(possible_acts, act.id)
-                end
-
+        possible_acts = []
+        for act in euclideanHybridSystem.Act
+            
+            if haskey(act_set, (act.id, idx))
+                #push!(actDict[act.id], zonotopeArray3d[idx])
+                
+                #@show idx
+                push!(possible_acts, act.id)
             end
-            for actid in possible_acts
-                heatmap_matrix[idx] = 2 #+= act_translation[actid]
-            end
-            =#
+            
+        end
+        for actid in possible_acts
+            heatmap_matrix[idx] = 2 #+= act_translation[actid]
+        end
+        =#
         # end
 
         #push!(noAct, zonotopeArray3d[idx])
@@ -145,6 +143,9 @@ if make_plot
             #    heatmap_matrix[idx] = 3
         else
             heatmap_matrix[idx] = 2
+        end
+        if act_bad_matrix[idx] #|| !haskey(act_set, idx)
+            heatmap_matrix[idx] = 3
         end
         if shield.deadCells[idx] #|| (no_act_bad_matrix[idx] && act_bad_matrix[idx])
             heatmap_matrix[idx] = 0
@@ -235,8 +236,8 @@ if make_plot
     hm = heatmap(transpose(heatmap_matrix), c=cgrad([:black, :white, :purple, :yellow, :red], 5, categorical=true), clim=(0, 4), colorbar=false, xlabel="v", ylabel="p", xticks=(x_nt, x_st), yticks=(y_nt, y_st))
     #Plots.translate!(hm.shape(), 0, 0, -15)
     fig = Plots.plot(hm; colorbar_ticks=([0.0, 1.0, 2.0, 3.0, 4.0], ["dead", "no action", "act1", "act2", "act1 + act2"]))
-    color_labels = ["{}", "{hit, nohit}", "{hit}"]
-    for (color, label) in zip(cgrad([:black, :white, :purple]), color_labels)
+    color_labels = ["{}", "{hit, nohit}", "{hit}", "{nohit}"]
+    for (color, label) in zip(cgrad([:black, :white, :purple, :yellow]), color_labels)
         Plots.plot!(Float64[], Float64[], seriestype=:shape,   # The Float typing has been added to avoid a weird warning
             label=label, color=color)
     end

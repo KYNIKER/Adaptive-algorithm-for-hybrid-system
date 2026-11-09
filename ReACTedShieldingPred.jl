@@ -323,7 +323,7 @@ function _ReACTed_reachable_cell_online_pred(grid::Grid{N}, system::EuclideanHyb
 
         for jdx in s.changed
             if s.dead[jdx] && haskey(reachable_by_flow, jdx) && shield_count_cover[jdx] == 0.0
-                shield_count_cover[jdx] = length(reachable_by_flow[jdx]) / max(1, count_ones_at(s.dead, reachable_by_flow[jdx]))
+                shield_count_cover[jdx] = length(reachable_by_flow[jdx]) == max(1, count_ones_at(s.dead, reachable_by_flow[jdx])) ? 1.0 : 0.5
             end
         end
 
@@ -346,6 +346,23 @@ function _ReACTed_reachable_cell_online_pred(grid::Grid{N}, system::EuclideanHyb
         println("Stopped at max_steps = $max_steps before reaching a fixed point.")
     end
 
+    act_bad = falses(cellshape(grid))
+    for (ai, act) in enumerate(system.Act)
+        ActZonotope = remove_zero_generators(Zonotope(act.jumpVector, act.jumpMatrix*diagm(fill(granularity/2, grid.dimension))))
+        for idx in findall(may_act[ai])
+            if !s.computed[idx]
+                of = act.jumpMatrix*(lower_offset + ((car2vec(idx) .- 1) .* granularity))
+                of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
+                LazySets.API.translate!(ActZonotope, of)
+                actSucc = get_touching_cell_idxs_lz(grid, ActZonotope)
+                resAct = any(i -> (!(s.computed[i]) ? true : any(s.dead[reachable_by_flow[i]])), actSucc)
+                resAct && (act_bad[idx] = true)
+                LazySets.API.translate!(ActZonotope, -of)
+            end
+        end
+
+    end
+
     if TIME_FUNCS
         println("Total times:
         Total: $((time_ns() - recorderTimeStart)/10^9)
@@ -355,7 +372,9 @@ function _ReACTed_reachable_cell_online_pred(grid::Grid{N}, system::EuclideanHyb
         println("Shield rounds: $shield_count, cells computed: $count")
     end
 
-    return grid, reachable_by_action, reachable_by_flow, s.flow_bad, shield_count_cover
+
+
+    return grid, reachable_by_action, reachable_by_flow, s.flow_bad, act_bad, shield_count_cover
 end
 
 @inline function count_ones_at(m::BitArray, idxs)

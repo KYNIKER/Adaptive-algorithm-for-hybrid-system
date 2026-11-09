@@ -401,11 +401,12 @@ function neighbour_leaves(ctx::AdaptiveContext{N}, ids::Vector{Int32}) where N
             shape = cellshape(ctx.levels[m+1].grid)
             ranges = ntuple(N) do i
                 f = ctx.factor[i]
-                if m >= l
+                if m >= l # Leaf or children of leaf 
                     lo, hi = (c[i] - 1) * f^(m - l) + 1, c[i] * f^(m - l)
-                else
+                else # Anchestor of leaf
                     lo = hi = fld(c[i] - 1, f^(l - m)) + 1
                 end
+                # neighbour leaves
                 max(lo-1, 1):min(hi+1, shape[i])
             end
             for cc in CartesianIndices(ranges)
@@ -414,6 +415,7 @@ function neighbour_leaves(ctx::AdaptiveContext{N}, ids::Vector{Int32}) where N
             end
         end
     end
+    # computes a superset of the leaves we want, but this is okay because they arent active anyway.
     return collect(res)
 end
 
@@ -586,6 +588,7 @@ function ReACTed_reachable_cell_adaptive(system::EuclideanHybridSystem, p, max_g
     aux_time_recoder = time_ns()
     s, computed = init_leaves_online!(ctx, 0, include_border_cells, act_needs_safe_flow)
     reachability_time += time_ns() - aux_time_recoder
+    @show reachability_time/10^9
     aux_time_recoder = time_ns()
     dead, order = adaptive_shield(ctx.leaves; act_needs_safe_flow, computed=s.computed)
     shield_time += time_ns() - aux_time_recoder
@@ -628,7 +631,7 @@ function ReACTed_reachable_cell_adaptive(system::EuclideanHybridSystem, p, max_g
         println("Refinement rounds: $rounds, leaf computations: $computed")
     end
 
-    @show ctx.leaves #, size(ctx.levels[1])
+    #@show ctx.leaves #, size(ctx.levels[1])
 
     return adaptive_outputs(ctx, dead, s)..., ctx
 end

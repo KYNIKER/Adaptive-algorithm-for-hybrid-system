@@ -32,7 +32,7 @@ function loadOilPump()
     A_1 = zeros(Float64, (dims, dims))
     A_2 = zeros(Float64, (dims, dims))
 
-    consumption_rate_over_time = zip([0.0, 1.2, 0.0, 1.2, 2.5, 0.0, 1.7, 0.5, 0.0], collect(0.0:2.0:20.0))
+    consumption_rate_over_time = zip([0.0, 1.2, 0.0, 0.0, 1.2, 2.5, 0.0, 1.7, 0.5, 0.0], collect(0.0:2.0:20.0))
 
     input_noise = Zonotope(sparsevec([machine_clock], [1.0], dims), [sparsevec([machine_consumption_rate], [fluctuation], dims)]) # epsilon 
 
@@ -88,4 +88,61 @@ function loadOilPump()
     T = 20.0
 
     return H, T
+end
+
+# The oil pump as a ModalHybridSystem (ReACTedShieldingModal.jl). Returns the system and the decision period.
+# Continuous state: (t, v, l) = time in the consumption cycle, oil volume, time left of the pump latency.
+# Layers: pump off/on x latency free/locked. Each layer has one location per piece of the consumption profile, with
+# guards on t between them. The latency runs in the locked layers and ends with an edge to the free layer, the only place
+# the pump can switch.
+# For ReACTed_reachable_cell_continuous, where the pump can switch at any time, use latency_reset=2.0 and latency_top=2.05: the
+# value just below the latency relies on decisions a fixed period apart, and l = 2 needs a cell of its own.
+const OILPUMP_OFF_FREE, OILPUMP_OFF_LOCKED, OILPUMP_ON_FREE, OILPUMP_ON_LOCKED = 1, 2, 3, 4
+
+function loadOilPumpModal(; period=0.2, latency_reset=2.0 - 1e-3, latency_top=2.0)
+    time_axis, volume_axis, latency_axis = 1, 2, 3
+    V_min, V_max = 4.9, 25.1
+    inflow = 2.2
+    fluctuation = 0.1 # l/s, only when the consumption rate is not 0
+    margin = max(0.6, 3 * period) # more than the largest change in volume over a period (2.6 l/s), so no reach set leaves the grid
+    # Consumption pieces (start, end, rate)
+    pieces = [(0.0, 2.0, 0.0), (2.0, 4.0, 1.2), (4.0, 8.0, 0.0), (8.0, 10.0, 1.2), (10.0, 12.0, 2.5), (12.0, 14.0, 0.0), (14.0, 16.0, 1.7), (16.0, 18.0, 0.5), (18.0, 20.0, 0.0)]
+    cycle = 20.0
+    # By default switching sets l just below the latency of 2 s. Decisions are period apart, so the pump is free at exactly
+    # the same decision, and the value stays strictly inside a cell of the grid instead of on the border between two.
+    tol = 1e-6
+
+    e(i) = [j == i ? 1.0 : 0.0 for j in 1:3]
+    A = zeros(3, 3)
+    keep_all = Matrix{Float64}(I, 3, 3)
+    reset_latency = diagm([1.0, 1.0, 0.0])
+
+    layers = [(OILPUMP_OFF_FREE, 0.0, true), (OILPUMP_OFF_LOCKED, 0.0, false), (OILPUMP_ON_FREE, 1.0, true), (OILPUMP_ON_LOCKED, 1.0, false)]
+    location_id(layer, piece) = (layer - 1) * length(pieces) + piece
+
+    locations = ModalLocation[]
+    for (layer, pump, free) in layers, (i, (t_start, t_end, rate)) in enumerate(pieces)
+        U = Zonotope([1.0, inflow * pump - rate, free ? 0.0 : -1.0], reshape(rate > 0 ? [0.0, fluctuation, 0.0] : zeros(3), 3, 1))
+        # The free layers only use the cells at l = 0
+        region_faces = [LazySets.HalfSpace(-e(time_axis), -t_start), LazySets.HalfSpace(e(time_axis), t_end)]
+        free && push!(region_faces, LazySets.HalfSpace(e(latency_axis), tol))
+
+        last_piece = i == length(pieces)
+        edges = [Edge(location_id(layer, last_piece ? 1 : i + 1), HPolyhedron([LazySets.HalfSpace(-e(time_axis), -t_end)]), keep_all, last_piece ? -cycle .* e(time_axis) : zeros(3))]
+        actions = ModalAction[]
+        if free
+            target_layer = pump == 0.0 ? OILPUMP_ON_LOCKED : OILPUMP_OFF_LOCKED
+            push!(actions, ModalAction(Action(pump == 0.0 ? 1 : 2, nothing, reset_latency, latency_reset .* e(latency_axis)), location_id(target_layer, i)))
+        else
+            free_layer = pump == 0.0 ? OILPUMP_OFF_FREE : OILPUMP_ON_FREE
+            push!(edges, Edge(location_id(free_layer, i), HPolyhedron([LazySets.HalfSpace(e(latency_axis), 0.0)]), reset_latency, zeros(3)))
+        end
+        push!(locations, ModalLocation(layer, HPolyhedron(region_faces), A, U, edges, actions))
+    end
+
+    unsafe = [HPolyhedron([LazySets.HalfSpace(e(volume_axis), V_min - tol)]), HPolyhedron([LazySets.HalfSpace(-e(volume_axis), -(V_max + tol))])]
+    low_corner = [0.0, V_min - margin, 0.0]
+    high_corner = [cycle, V_max + margin, latency_top]
+    S = Hyperrectangle((low_corner .+ high_corner) ./ 2, (high_corner .- low_corner) ./ 2)
+    return ModalHybridSystem(S, unsafe, locations), period
 end

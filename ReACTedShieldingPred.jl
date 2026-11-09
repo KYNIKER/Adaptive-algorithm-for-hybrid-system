@@ -355,7 +355,7 @@ function _ReACTed_reachable_cell_online_pred(grid::Grid{N}, system::EuclideanHyb
                 of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
                 LazySets.API.translate!(ActZonotope, of)
                 actSucc = get_touching_cell_idxs_lz(grid, ActZonotope)
-                resAct = any(i -> (!(s.computed[i]) ? true : any(s.dead[reachable_by_flow[i]])), actSucc)
+                resAct = any(i -> (!(s.computed[i]) ? false : any(s.dead[reachable_by_flow[i]])), actSucc)
                 resAct && (act_bad[idx] = true)
                 LazySets.API.translate!(ActZonotope, -of)
             end

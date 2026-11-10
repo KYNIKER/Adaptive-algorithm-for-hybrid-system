@@ -2,14 +2,13 @@ using LazySets, LinearAlgebra, ReachabilityAnalysis, StaticArrays
 include("Discretize.jl")
 include("Utilities.jl")
 
-export ReACTedShieldingK
 
-function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true)
-    return _ReACTed_reachable_cell_t(Grid(system.statespace, granularity), system, p, granularity, δ⁻, δ⁺, alg, maxOrder, reduceOrder, clustering)
+function ReACTed_reachable_cell_t(system::EuclideanHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true; jump_hull::Bool=false)
+    return _ReACTed_reachable_cell_t(Grid(system.statespace, granularity), system, p, granularity, δ⁻, δ⁺, alg, maxOrder, reduceOrder, clustering; jump_hull)
 end
 
 # Function barrier: the body is compiled for the concrete Grid{N} and system type, so N can be used in type positions.
-function _ReACTed_reachable_cell_t(grid::Grid{N}, system::EuclideanHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg, maxOrder::Int, reduceOrder::Int, clustering) where N
+function _ReACTed_reachable_cell_t(grid::Grid{N}, system::EuclideanHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg, maxOrder::Int, reduceOrder::Int, clustering; jump_hull::Bool=false) where N
     @show foldl(*, grid.numCells), grid.numCells
     sweep_factor = 25
     TIME_FUNCS = true
@@ -26,6 +25,7 @@ function _ReACTed_reachable_cell_t(grid::Grid{N}, system::EuclideanHybridSystem,
     A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(system.flowMatrix)
     Φcache = system.flowMatrix == A_abs ? phiDict[d] : nothing
     P2A_abs = ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, isInvA, Φcache)
+    jump_reach = JumpReach(system, p, δ⁻, δ⁺, phiDict, tPhiDict, inputDict, P2A_abs, alg, maxOrder, reduceOrder; jump_hull)
 
     #frontierZonotopes = zonotopeArray[collect(CartesianIndex(c) for c in [gFrontierN; cFrontierN])]#zonotopeArray[collect(c.id for c in frontierN)]
     #push!(frontierZonotopes, zonotopeArray[40, 40, 1])
@@ -178,7 +178,7 @@ function _ReACTed_reachable_cell_t(grid::Grid{N}, system::EuclideanHybridSystem,
                 reachability_discretization_time += time_ns() - aux_time_recoder
             end
 
-            z, f = propagate_set_t(Z, [0.0, p], δ⁻, δ⁺, system, grid, fast_cells, system.edges, identity_matrix, attempt_recorder, grid.dimension, P2A_abs, guardProjVectors, guardProjBounds, invariantProjVectors, invariantProjBounds, discretizationDict, phiDict, tPhiDict, inputDict, max_input, max_flow, guard_invariant_intersection, alg, maxOrder, reduceOrder)
+            z, f = propagate_set_jumps(jump_reach, Z, discretizationDict)
 
             if f != 1 #&& f != 3
 
@@ -278,12 +278,12 @@ function _ReACTed_reachable_cell_t(grid::Grid{N}, system::EuclideanHybridSystem,
 
 end
 
-function ReACTed_reachable_cell_online(system::EuclideanHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true, max_steps::Int64=1000; include_border_cells::Bool=false)
-    return _ReACTed_reachable_cell_online(Grid(system.statespace, granularity), system, p, granularity, δ⁻, δ⁺, alg, maxOrder, reduceOrder, clustering, max_steps, include_border_cells)
+function ReACTed_reachable_cell_online(system::EuclideanHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true, max_steps::Int64=1000; include_border_cells::Bool=false, jump_hull::Bool=false)
+    return _ReACTed_reachable_cell_online(Grid(system.statespace, granularity), system, p, granularity, δ⁻, δ⁺, alg, maxOrder, reduceOrder, clustering, max_steps, include_border_cells; jump_hull)
 end
 
 # Function barrier: the body is compiled for the concrete Grid{N} and system type, so N can be used in type positions.
-function _ReACTed_reachable_cell_online(grid::Grid{N}, system::EuclideanHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg, maxOrder::Int, reduceOrder::Int, clustering, max_steps::Int64, include_border_cells::Bool) where N
+function _ReACTed_reachable_cell_online(grid::Grid{N}, system::EuclideanHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg, maxOrder::Int, reduceOrder::Int, clustering, max_steps::Int64, include_border_cells::Bool; jump_hull::Bool=false) where N
     @show foldl(*, grid.numCells), grid.numCells
     #max_steps = 300
     shield_count::Int64 = 0
@@ -302,6 +302,7 @@ function _ReACTed_reachable_cell_online(grid::Grid{N}, system::EuclideanHybridSy
     A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(system.flowMatrix)
     Φcache = system.flowMatrix == A_abs ? phiDict[d] : nothing
     P2A_abs = ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, isInvA, Φcache)
+    jump_reach = JumpReach(system, p, δ⁻, δ⁺, phiDict, tPhiDict, inputDict, P2A_abs, alg, maxOrder, reduceOrder; jump_hull)
 
     #frontierZonotopes = zonotopeArray[collect(CartesianIndex(c) for c in [gFrontierN; cFrontierN])]#zonotopeArray[collect(c.id for c in frontierN)]
     #push!(frontierZonotopes, zonotopeArray[40, 40, 1])
@@ -479,7 +480,7 @@ function _ReACTed_reachable_cell_online(grid::Grid{N}, system::EuclideanHybridSy
                 ReACT_discretize_combine_with_offset_vector!(preallocated_center, preallocated_genmat, preallocated_inter_genmat, discretizationDict, of, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict)
                 #z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
 
-                z, f = propagate_set_t(Z, [0.0, p], δ⁻, δ⁺, system, grid, fast_cells, system.edges, identity_matrix, attempt_recorder, grid.dimension, P2A_abs, guardProjVectors, guardProjBounds, invariantProjVectors, invariantProjBounds, discretizationDict, phiDict, tPhiDict, inputDict, max_input, max_flow, guard_invariant_intersection, alg, maxOrder, reduceOrder)
+                z, f = propagate_set_jumps(jump_reach, Z, discretizationDict)
 
                 if f != 1 #&& f != 3
 
@@ -596,400 +597,6 @@ function _ReACTed_reachable_cell_online(grid::Grid{N}, system::EuclideanHybridSy
 
 end
 
-#=
-function ReACTed_reachable_cell_online_adaptive(system::EuclideanHybridSystem, p, max_granularity, granularity_steps::Int64, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true, max_steps::Int64=1000; include_border_cells::Bool=false)
-    return _ReACTed_reachable_cell_online_adaptive(Grid(system.statespace, max_granularity / 2^granularity_steps), system, p, max_granularity, granularity_steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder, clustering, max_steps, include_border_cells)
-end
-
-# Function barrier: the body is compiled for the concrete Grid{N} and system type, so N can be used in type positions.
-function _ReACTed_reachable_cell_online_adaptive(grid::Grid{N}, system::EuclideanHybridSystem, p, max_granularity, granularity_steps::Int64, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg, maxOrder::Int, reduceOrder::Int, clustering, max_steps::Int64, include_border_cells::Bool) where N
-    recorderTimeStart = time_ns()
-    granularity_scale = 2^granularity_steps
-    granularity = max_granularity / granularity_scale
-    @show foldl(*, grid.numCells), grid.numCells, granularity
-    #max_steps = 300
-    shield_count::Int64 = 0
-    sweep_factor = 5
-    TIME_FUNCS = true
-
-
-
-    phiDict, tPhiDict, inputDict = phi_input_dict(system.flowMatrix, system.input, δ⁻, δ⁺, alg, maxOrder, reduceOrder)
-    d = δ⁻
-    isInvA = isinvertible(system.flowMatrix)
-    A = system.flowMatrix
-    A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(system.flowMatrix)
-    Φcache = system.flowMatrix == A_abs ? phiDict[d] : nothing
-    P2A_abs = ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, isInvA, Φcache)
-
-
-
-    #
-    #   0: Didnt hit either constraint, guard or invariant
-    #   1: Hit constraint
-    #   2: Hit guard
-    #   3: Hit invariant surface
-    #
-
-    reachable_by_action::ActionRelation{N} = ActionRelation{N}()
-    reachable_by_flow::FlowRelation{N} = FlowRelation{N}()
-    degenerate_dimensions = zeros(N) # Grid centres zero-width dimensions on their value, so cells need no extra offset
-    @show degenerate_dimensions
-    invariant = hyperrectangle_to_HPolyhedron(system.statespace)
-    U = system.input
-    max_input = linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, p, alg, false, nothing), U)
-    max_flow = exp(p .* system.flowMatrix)
-    #@show degenerate_dimensions
-
-    guardProjVectors, guardProjBounds = getHalfSpaceProjections(system.edges[1].guard)
-    invariantProjVectors, invariantProjBounds = getHalfSpaceProjections(invariant)
-
-    guard_invariant_intersection = intersection(system.edges[1].guard, invariant)
-
-
-    fast_cells = falses(cellshape(grid))
-    sweep = [min(granularity_scale*sweep_factor, n) for n in grid.numCells] # cells per sweep block in each dimension (dimensions smaller than a block use one block)
-    Z_big = remove_zero_generators(Zonotope(degenerate_dimensions, diagm(map((n, s) -> n == 1 ? 0. : granularity * (s/2), grid.numCells, sweep))))
-    lower_offset_big = grid.lower .+ granularity .* (sweep ./ 2)
-    generatorDict_big = ReACT_discretize_decomposed_generators(Z_big, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict)
-    discretizationDict_big, finaldims_big = ReACT_discretize_combine_with_offsets(Z_big, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict_big)
-    preallocated_center_big = zeros(grid.dimension)
-    preallocated_genmat_big = zeros(grid.dimension, finaldims_big)
-    preallocated_inter_genmat_big = zeros(grid.dimension, finaldims_big)
-    ranges = ntuple(i -> 1:fld(grid.numCells[i], sweep[i]), N)
-
-
-    attempt_recorder = zeros(4)
-    identity_matrix = diagm(ones(grid.dimension))
-    for bidx in CartesianIndices(ranges)
-
-        of = lower_offset_big + ((car2vec(bidx) .- 1) .* granularity .* sweep)
-        LazySets.API.translate!(Z_big, of)
-
-
-
-        ReACT_discretize_combine_with_offset_vector!(preallocated_center_big, preallocated_genmat_big, preallocated_inter_genmat_big, discretizationDict_big, of, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict_big)
-        #z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
-
-        f = propagate_set_check_hybrid_jump(Z_big, [0.0, p], δ⁻, δ⁺, system, system.edges, identity_matrix, attempt_recorder, grid.dimension, P2A_abs, guardProjVectors, guardProjBounds, invariantProjVectors, invariantProjBounds, discretizationDict_big, phiDict, tPhiDict, inputDict, max_input, max_flow, guard_invariant_intersection, alg, maxOrder, reduceOrder)
-
-        if f == 0
-            #@show collect(((b-1)*sweep_factor):(b*sweep_factor) for b in car2vec(bidx))
-            fast_cells[ntuple(i->(1+(bidx[i]-1)*sweep[i]):(bidx[i]*sweep[i]), N)...] .= true
-            #grid.deadCells[collect((1+(b-1)*sweep_factor):(b*sweep_factor) for b in car2vec(bidx))...] .= true
-
-        end
-
-
-        #grid.array[idx].sidx[1] = copy(f)
-        LazySets.API.translate!(Z_big, -of)
-    end
-    #granularity = granularity * granularity_scale
-    Z = remove_zero_generators(Zonotope(degenerate_dimensions, diagm(map(x -> x == 1 ? 0. : granularity/2, grid.numCells))))
-    #dc = 0
-    count = 0
-    #@show grid.lower
-    lower_offset = grid.lower .+ (granularity/2)
-    generatorDict = ReACT_discretize_decomposed_generators(Z, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict)
-    #discretizationDict = Dict()
-    discretizationDict, finaldims = ReACT_discretize_combine_with_offsets(Z, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict)
-    preallocated_center = zeros(grid.dimension)
-    preallocated_genmat = zeros(grid.dimension, finaldims)
-    preallocated_inter_genmat = zeros(grid.dimension, finaldims)
-
-    max_zonotope::Zonotope{Float64,Vector{Float64},Matrix{Float64}} = Zonotope(max_input.center, hcat(genmat(linear_map(max_flow, Z)), diagm(fill(granularity/2, N)), genmat(max_input)))
-
-    #max_zonotope = minkowski_sum(max_zonotope, Zonotope(zeros(grid.dimension), diagm(fill(granularity/2, N))))
-    # Fast cells all share max_zonotope's generators, so their cover test uses its precomputed H-representation.
-    fast_cover = ConstantZonotopeCover(max_zonotope, Val(N))
-    fast_center = zeros(N)
-
-
-    constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(system.globalConstraints[1])
-    guardProjVectors, guardProjBounds = getHalfSpaceProjections(system.edges[1].guard)
-    invariantProjVectors, invariantProjBounds = getHalfSpaceProjections(invariant)
-
-    #hbox = Hyperrectangle(grid.lower .+ (granularity/2), fill(granularity/2, N))
-
-
-
-    #done_list::Set{CartesianIndex{N}} = Set()#CartesianIndex{N}[]
-    done_list::Vector{CartesianIndex{N}} = CartesianIndex{N}[]
-    #frontier_list::Set{CartesianIndex{N}} = Set{CartesianIndex{N}}[]
-    frontier_list::Vector{CartesianIndex{N}} = CartesianIndex{N}[]
-    ln = 0
-    la = 0
-    ld = 0
-    dims = grid.dimension
-    #dead = grid.deadCells
-    can_act_matrix = trues(cellshape(grid))
-    no_action_bad_matrix = falses(cellshape(grid))
-
-    offset_list = offsets(grid)
-
-    may_act_dict::Dict{Int64,CellIdxs{N}} = Dict{Int64,CellIdxs{N}}()
-    #may_act_dict::Dict{Int64,BitMatrix} = Dict{Int64,BitMatrix}()
-    may_act_matrix = falses(cellshape(grid))
-    for act in system.Act
-        may_act_dict[act.id] = get_touching_cell_idxs_l(grid, act.guard) #falses(grid.numCells...)
-        #may_act_dict[act.id][get_touching_cell_idxs_l(grid, act.guard)...] .= true
-        may_act_matrix[may_act_dict[act.id]] .= true
-    end
-
-    for edge in system.edges
-        for didx in get_touching_cell_idxs_l(grid, edge.guard)
-            #@show didx
-            push!(frontier_list, didx)
-        end
-    end
-    #grid2 = Grid(system.statespace, max_granularity)
-    #@show grid
-    #@show grid2
-    for global_constraint in system.globalConstraints
-        #guard_invariant_intersection = intersection(guard_invariant_intersection, global_constraint)
-        #@show get_touching_cell_idxs_l(grid, global_constraint)
-        #@show get_touching_cell_idxs_l(grid2, global_constraint)
-        for didx in get_touching_cell_idxs_l(grid, global_constraint)
-            #@show didx
-            grid.deadCells[didx] = true
-            no_action_bad_matrix[didx] = true
-            push!(done_list, didx)
-        end
-    end
-
-    if include_border_cells
-        border = border_cells(grid)
-        append!(frontier_list, border)
-        append!(frontier_list, grow_indices_t(grid, border, offset_list))
-    end
-
-    push!(frontier_list, grow_indices_t(grid, done_list, offset_list)...)
-    @show frontier_list#, offset_list
-    #@show done_list, grid
-    #return grid, reachable_by_action, reachable_by_flow
-
-    setup_time = time_ns()
-    aux_time_recoder = time_ns()
-    reachability_time = 0.0
-    shield_time = 0.0
-
-    #shield_count_cover = zeros(Int64, grid.numCells...)
-    shield_count_cover = zeros(Float64, cellshape(grid))
-
-    popped_actions = Set{Tuple{Int64,CartesianIndex{N}}}()
-    reach_dead = CartesianIndex{N}[] # cells found dead in the reachability loop (flow hits a constraint); grow the frontier from them when include_border_cells
-    # Maybe the way to determine when to switch granularity is by checking each cells shield_count_cover value
-    # This could atleast make sense for not fast_cells.
-    while shield_count < max_steps
-        if TIME_FUNCS
-            aux_time_recoder = time_ns()
-        end
-        for idx in frontier_list
-            if grid.deadCells[idx]
-                #println("Skipping dead cell: ", idx)
-                continue
-
-                #else
-                #@show "Processing cell: ", idx
-            end
-            if !fast_cells[idx]
-                count += 1
-                of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
-                LazySets.API.translate!(Z, of)
-                #@show Z, idx, of
-
-
-                ReACT_discretize_combine_with_offset_vector!(preallocated_center, preallocated_genmat, preallocated_inter_genmat, discretizationDict, of, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict)
-                #z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
-
-                z, f = propagate_set_t(Z, [0.0, p], δ⁻, δ⁺, system, grid, fast_cells, system.edges, identity_matrix, attempt_recorder, grid.dimension, P2A_abs, guardProjVectors, guardProjBounds, invariantProjVectors, invariantProjBounds, discretizationDict, phiDict, tPhiDict, inputDict, max_input, max_flow, guard_invariant_intersection, alg, maxOrder, reduceOrder)
-
-                if f != 1 #&& f != 3
-
-
-                    reachable_by_flow[idx] = get_touching_cell_idxs_lz(grid, z)
-
-
-                else
-                    grid.deadCells[idx] = true
-                    include_border_cells && push!(reach_dead, idx)
-                end
-
-                LazySets.API.translate!(Z, -of)
-                if count % 1000 == 0
-                    println(count)
-                    #GC.gc()
-                end
-            else
-                count += 1
-                fast_cell_center!(fast_center, max_flow, max_zonotope.center, grid, idx)
-
-                #reachable_by_flow[idx] = get_touching_cell_idxs_lz(grid, max_zonotope)
-                reachable_by_flow[idx] = get_touching_cell_idxs_cover(grid, fast_cover, fast_center)
-
-                if count % 1000 == 0
-                    println(count)
-                    #GC.gc()
-                end
-            end
-
-            #can_act = false
-            if may_act_matrix[idx]
-                for act in system.Act
-                    #@show size(get_touching_cell_idxs_l(grid, act.guard))
-                    if idx in may_act_dict[act.id]
-                        of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
-                        LazySets.API.translate!(Z, of)
-                        #touches_list = get_touching_cell_idxs(grid, z)
-                        #touches_list = get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
-                        #if !isempty(touches_list)
-                        #    reachable_by_action[(act, idx)] = copy(touches_list)
-                        #reachable_by_flow[idx] = get_touching_cell_idxs(grid, z)
-                        #end
-                        reachable_by_action[(act.id, idx)] = get_touching_cell_idxs_lz(grid, minkowski_sum(linear_map(max_flow, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector)), max_input))
-
-                        #if act.id == 1
-                        #@show get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector)), LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector)
-                        #reachable_by_action[(act.id, idx)] = get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
-                        #end
-                        if grid.deadCells[idx]
-                            grid.deadCells[idx] = false
-                        end
-                        LazySets.API.translate!(Z, -of)
-                    end
-                end
-            end
-            push!(done_list, idx)
-        end
-        if TIME_FUNCS
-            reachability_time += (time_ns()-aux_time_recoder)
-            aux_time_recoder = time_ns()
-        end
-        # TODO - Maybe this should be frontier_list with done_list subset difference with deadCells
-        _, la, ln, ld = shield_step!(grid.deadCells, done_list, can_act_matrix, no_action_bad_matrix, reachable_by_action, reachable_by_flow, system.Act, dims; popped_actions)
-        if shield_count % 5 == 0
-            println("$(max_steps - shield_count) : $(Dates.format(now(), "HH:MM:SS"))")
-        end
-        #@show can_act_matrix == trues(grid.numCells...)
-        if !isempty(ld)
-            for jdx in ld
-                if haskey(reachable_by_flow, jdx)
-                    #grid.deadCells[idx] = true 
-                    ndead = findall(grid.deadCells[reachable_by_flow[jdx]])
-                    shield_count_cover[jdx] = length(reachable_by_flow[jdx]) / length(ndead)#length(reachable_by_flow[idx]) / length(findall(grid.deadCells))
-                end
-            end
-        end
-        if length(la) == 0 && length(ln) == 0 && length(ld) == 0 && isempty(reach_dead)
-
-            println("Fixed point found after $(shield_count) shield steps!")
-            #grid.deadCells = dead´
-            if TIME_FUNCS
-                shield_time += (time_ns() - aux_time_recoder)
-            end
-            break
-        end
-        shield_count += 1
-        empty!(frontier_list)
-        # TODO - This is missing the cells where no_act_bad_matrix is true
-        #push!(frontier_list, grow_indices_t(grid, findall(grid.deadCells), offset_list)...)
-        removed_list::Vector{CartesianIndex{N}} = vcat(ln, ld, la, reach_dead)
-        empty!(reach_dead)
-        #@show removed_list
-        push!(frontier_list, grow_indices_t(grid, removed_list, offset_list)...)
-        #filter!(t -> !in(t, done_list), frontier_list)
-        setdiff!(frontier_list, done_list)
-        if TIME_FUNCS
-            shield_time += (time_ns() - aux_time_recoder)
-        end
-    end
-
-
-    #@show frontier_list
-    if TIME_FUNCS
-        println("Total times: 
-        Total: $((time_ns() - recorderTimeStart)/10^9)
-        Setup: $(setup_time / 10^9)
-        Reachability: $(reachability_time / 10^9) 
-        Shield: $(shield_time / 10^9)")
-        println("Shied steps: $shield_count")
-    end
-
-    #return grid, reachable_by_action, reachable_by_flow, fast_cells, shield_count_cover
-    return grid, reachable_by_action, reachable_by_flow, no_action_bad_matrix, shield_count_cover
-
-end
-=#
-#
-#   Right now this makes quite a bit of allocations.
-#   TODO - Needs a fix for determining the final reachset. Right now it is overapproximated and this is worse for large timestep sizes.
-#
-function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ₂, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, invariantProjVectors, invariantProjBounds, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5)
-
-    discretizationDict = newReACTDiscretizePlus(X0, δ⁻, δ⁺, system.flowMatrix, Φ₂, PhiDict, inputDict, alg, maxOrder, reduceOrder)
-    time::Float64 = copy(minimum(interval))
-    endtime::Float64 = maximum(interval)
-    constraint = system.globalConstraints[1]
-    listOfEdges = system.edges
-
-
-
-    for edge in listOfEdges
-        invariant_projection_vectors = copy(invariantProjVectors)
-        invariant_projection_bounds = copy(invariantProjBounds)
-        guard_projection_vectors = copy(guardProjVectors)
-        guard_projection_bounds = copy(guardProjBounds)
-        constraint_projection_vectors = copy(constraintProjVectors)
-        constraint_projection_bounds = copy(constraintProjBounds)
-
-        #Sρ = zeros(Float64, length(constraintProjVectors))
-        #Gρ = zeros(Float64, length(guardProjVectors))
-        #Iρ = zeros(Float64, length(invarientProjVectors))
-
-        #   Compute the reachset closest to the guard without intersecting it and not reaching the unsafe set. 
-        reachtime, newSet, inputSet, flag = ReACT_guards_b(δ⁻, δ⁺, interval, system.statespace, edge.guard, guard_projection_vectors, guard_projection_bounds, constraint, constraint_projection_vectors, constraint_projection_bounds, invariant, invariant_projection_vectors, invariant_projection_bounds, 2, PhiDict, TPhiDict, discretizationDict, inputDict)
-
-
-        #
-        #   0: Didnt hit either constraint, guard or invariant
-        #   1: Hit constraint
-        #   2: Hit guard
-        #   3: Hit invariant surface
-        #
-        #@show flag, time, reachtime, newSet
-        if flag == 0
-            #@show time
-            #if time == 0.0
-            #    return (minkowski_sum(linear_map(max_flow, X0), max_input), 0)
-            #else
-            A_abs = abs.(system.flowMatrix)
-            max_input = linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, endtime - time, alg, false, nothing), system.input)
-
-            return (minkowski_sum(linear_map(exp((endtime - time) .* system.flowMatrix), X0), linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, endtime - time, alg, false, nothing), system.input)), 0)
-            #end
-        elseif flag == 1 # Hit constraint
-            #@show LazySets.API.isdisjoint(minkowski_sum(newSet, inputSet), system.globalConstraints[1]), newSet.center, flag, reachtime
-
-            return (nothing, 1)
-        elseif flag == 2
-            throw(error("Nope not happening"))
-            #@show inputSet
-            intersectingSetsList = ReACT_touches_set_constant_input(newSet, inputSet, edge.guard, δ⁻, [reachtime, endtime], PhiDict, inputDict)
-            tempIntersect = foldl(ConvexHull, intersectingSetsList)
-            intersectedSet = convert(Zonotope, box_approximation(tempIntersect))
-            jumpSet = linear_map(edge.jumpMatrix, zonotopeStripIntersection(intersectedSet, edge.guard))
-            if !isnothing(edge.jumpVector)
-                LazySets.translate!(jumpSet, edge.jumpVector)
-            end
-            #res = propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, PhiDict, TPhiDict, inputDict, alg, maxOrder, reduceOrder)
-            #@show res
-            return propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
-        end
-        #@show LazySets.API.isdisjoint(minkowski_sum(newSet, inputSet), invariant), newSet.center, flag, reachtime
-        return (minkowski_sum(newSet, inputSet), 3)
-    end
-
-end
 
 # TODO - Consider whether it is cheaper to check whether jumpset is part of fast_cells and does not need reachability analysis for the remaining interval. 
 function propagate_jumpset(X0, interval, δ⁻::Float64, δ⁺::Float64, system, identity_matrix, attemptsRecorder, dims, Φ₂, guardProjVectors, guardProjBounds, PhiDict, TPhiDict, inputDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5)
@@ -1056,84 +663,7 @@ function propagate_jumpset(X0, interval, δ⁻::Float64, δ⁺::Float64, system,
 
 end
 
-#=
-function propagate_set_b(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ₂, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, discretizationDict, PhiDict, TPhiDict, inputDict, max_input, max_flow, guard_intersection, invariant, invariantProjVectors, invariantProjBounds, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5)
 
-    #discretizationDict = newReACTDiscretizePlus(X0, δ⁻, δ⁺, system.flowMatrix, Φ₂, PhiDict, inputDict, alg, maxOrder, reduceOrder)
-    time::Float64 = copy(minimum(interval))
-    endtime::Float64 = maximum(interval)
-    constraint = system.globalConstraints[1]
-    listOfEdges = system.edges
-
-    for edge in listOfEdges
-        #constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint)
-        #guardProjVectors, guardProjBounds = getHalfSpaceProjections(edge.guard)
-        invariant_projection_vectors = copy(invariantProjVectors)
-        invariant_projection_bounds = copy(invariantProjBounds)
-        guard_projection_vectors = copy(guardProjVectors)
-        guard_projection_bounds = copy(guardProjBounds)
-        constraint_projection_vectors = copy(constraintProjVectors)
-        constraint_projection_bounds = copy(constraintProjBounds)
-
-
-        #   Compute the reachset closest to the guard without intersecting it and not reaching the unsafe set. 
-        reachtime, newSet, inputSet, flag = ReACT_guards_b(δ⁻, δ⁺, interval, system.statespace, edge.guard, guard_projection_vectors, guard_projection_bounds, constraint, constraint_projection_vectors, constraint_projection_bounds, invariant, invariant_projection_vectors, invariant_projection_bounds, 2, PhiDict, TPhiDict, discretizationDict, inputDict)
-
-
-        #
-        #   0: Didnt hit either constraint, guard or invariant
-        #   1: Hit constraint
-        #   2: Hit guard
-        #   3: Hit invariant surface
-        #
-        if flag == 0
-            if time == 0.0
-                return (minkowski_sum(linear_map(max_flow, X0), max_input), 0)
-            else
-                A_abs = abs.(system.flowMatrix)
-                max_input = linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, endtime - time, alg, false, nothing), system.input)
-
-                return (minkowski_sum(linear_map(exp((endtime - time) .* system.flowMatrix), X0), linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, endtime - time, alg, false, nothing), system.input)), 0)
-            end
-        elseif flag == 1 # Hit constraint
-            return (minkowski_sum(newSet, inputSet), 1)
-        elseif flag == 2
-            # Move this outside the function
-            #return (minkowski_sum(newSet, inputSet), 2)
-
-            intersectingSetsList = ReACT_touches_set_constant_input_b(newSet, inputSet, edge.guard, copy(guardProjVectors), copy(guardProjBounds), invariantProjVectors, invariantProjBounds, δ⁻, [reachtime, endtime], PhiDict, inputDict)
-
-
-
-            tempIntersect = foldl(ConvexHull, intersectingSetsList)
-            intersectedSet = convert(Zonotope, box_approximation(tempIntersect))
-            #jumpSet = linear_map(edge.jumpMatrix, zonotopeStripIntersection(minkowski_sum(newSet, inputSet), guard_intersection))
-            #if !LazySets.API.issubset(minkowski_sum(newSet, inputSet), invariant)
-            #    @show minkowski_sum(newSet, inputSet), reachtime
-            #    return (minkowski_sum(newSet, inputSet), 3)
-            #end
-            jumpSet = linear_map(edge.jumpMatrix, zonotopeStripIntersection(intersectedSet, guard_intersection))
-            #jumpSet = linear_map(edge.jumpMatrix, getBoxIntersection(intersectedSet, guard_intersection))
-            if !isnothing(edge.jumpVector)
-                LazySets.translate!(jumpSet, edge.jumpVector)
-            end
-            #=
-            if LazySets.API.isdisjoint(jumpSet, invariant)
-                @show jumpSet
-                @show newSet, inputSet
-                @show reachtime
-            end
-            =#
-            return propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, invariantProjVectors, invariantProjBounds, alg, maxOrder, reduceOrder)
-            # Cant use propagate_set_b here because we need to recompute the discretizationDict for the new jumpSet. This is because the jumpSet may be a different shape than the original set and thus the discretization may be different. We could try to reuse the discretizationDict but this would require a lot of work and is not worth it for now.
-            #return propagate_set_b(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, discretizationDict, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
-
-        end
-        #println("shiit")
-        return (newSet, 3)
-    end
-end
-=#
 
 function propagate_set_t(X0, interval, δ⁻::Float64, δ⁺::Float64, system, grid, fast_cell_matrix, listOfEdges, identity_matrix, attemptsRecorder, dims, Φ₂, guardProjVectors, guardProjBounds, invariantProjVectors, invariantProjBounds, discretizationDict, PhiDict, TPhiDict, inputDict, max_input, max_flow, guard_intersection, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5)
 
@@ -1253,134 +783,6 @@ function propagate_set_check_hybrid_jump(X0, interval, δ⁻::Float64, δ⁺::Fl
     return 0
 end
 
-function propagate_state(s::Vector{Float64}, interval, system, grid, fast_cell_matrix, listOfEdges, identity_matrix, dims, Φ₂, guardProjVectors, guardProjBounds, invariantProjVectors, invariantProjBounds, PhiDict, TPhiDict, max_flow, max_input, guard_intersection, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp)
-    sidx = fastbox(grid, s)
-    if fast_cell_matrix[sidx]
-        return LazySets.API.translate(max_input, max_flow * s)
-    else
-        # Sketch
-        # 1) determine whether state is subject to hybrid jump or not...
-        # 2) if true then determine when
-    end
-end
-#
-#   Given we have must semantics for guards we could probably
-#
-function ReACT_time_touches_set(X0, set, δ⁻::Float64, δ⁺::Float64, interval, PhiDict, Φ)
-    # Note that in touches we always use δ⁻
-    # That is, we do not adjust timestep sizes
-
-    #phiDict = PhiDict
-    #=
-    constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint)
-    guardProjVectors, guardProjBounds = getHalfSpaceProjections(guard)
-    invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(loc.invarient)
-    =#
-    time::Float64 = interval[1]
-    endtime::Float64 = interval[2]
-
-
-    #Vs = nestedInputDiscCalculate(inputDiscritezationDict, PhiDict, δ⁻, initialTime, reduce_order, max_order)
-    # i = 1
-
-    #if ismissing(Φ)
-    #    Φ::Matrix{Float64} = exp(initialTime .* loc.A)
-    #end
-
-    #ϕ = similar(Φ)
-    #ϕ = phiDict[δ⁻]
-
-    # Compute current sets
-    #newR = discritezationDict[δ⁻]
-    #newRR = linear_map(Φ, newR)
-    #V = copy(inputDiscritezationDict[δ⁻])
-    #V = linear_map(Φ, V)
-    #intersectingSetsList = Vector{Zonotope}() # This will store all of our sets
-
-    tempSet = linear_map(Φ, X0)
-    while time < endtime
-
-        #if all((ρ(x, tempSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
-        #   all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) &&
-        #   all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
-        if !LazySets.API.isdisjoint(set, tempSet) #touchesCheck(tempSet, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, invarientProjVectors, invarientProjBounds)
-            #if mapreduce(x -> intersects(newRR, x), &, guard)
-            #@show time
-            #push!(intersectingSetsList, copy(tempSet))
-
-            # Main calculation. No longer changing timesteps
-            #Vs = minkowski_sum(Vs, V) #Update input
-            #newRR = linear_map(ϕ, newRR)
-            #V = linear_map(ϕ, V)
-            tempSet = linear_map(PhiDict[δ⁻], tempSet)
-            # i = i + 1
-            time += δ⁻
-        else
-            break
-        end
-        #=
-        else # Handle hit something. We do not reduce anymore!
-            #@show all((ρ(x, tempSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds))
-            #@show all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds))
-            #@show all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds))
-            #if all((ρ(x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) && any(((ρ(x, tempSet)) > y) for (x, y) in zip(constraintProjVectors, constraintProjBounds))
-            #    handleHitConstraint(time, loc.id)
-            #end
-
-            #continueAfter = true
-            #=
-            if !((all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) || !all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds))) == (!someunder(tempSet, guardProjVectors, guardProjBounds) || !someunder(tempSet, invarientProjVectors, invarientProjBounds)))
-                println((all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) || !all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds))))
-                @show someunder(tempSet, guardProjVectors, guardProjBounds)
-                @show all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds))
-                @show !someunder(tempSet, invarientProjVectors, invarientProjBounds)
-            end
-            =#
-            if someunder(tempSet, guardProjVectors, guardProjBounds) || !someunder(tempSet, invarientProjVectors, invarientProjBounds)
-                # If we stop because we are no longer intersect guards, 
-                # but still intersect the invariant we try continue
-
-                #@show all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds))
-                #continueAfter = false
-                return false, time, intersectingSetsList
-            end
-
-            if allunder(tempSet, constraintProjVectors, constraintProjBounds)#all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
-                return true, time, intersectingSetsList
-            else
-                intersectionSet = LazySets.Intersection(tempSet, loc.invarient)
-                if !all((ρ(x, intersectionSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds))  # IsSubSet
-                    @show LazySets.API.high(tempSet)
-                    @show LazySets.API.low(tempSet)
-                    @show LazySets.API.high(Vs)
-                    @show LazySets.API.low(Vs)
-                    handleHitConstraint(time, loc.id)
-                end
-                return true, time, intersectingSetsList
-            end
-
-            #=if all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) && continueAfter
-
-                intersectSet = zonotopeStripIntersection(tempSet, loc.invarient)
-                @show isSubSet(tempSet, loc.invarient)
-                tem = intersection(overapproximate(tempSet, BoxDirections(LazySets.dim(newR))), loc.invarient)
-                #@show map((x, y) -> ρ(x, tem) <= y, zip(constraintProjVectors, constraintProjBounds))
-                @show all((ρ(x, tempSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) # IsSubSet
-                @show all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds))
-                @show all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
-                @show minimum(interval) - time
-                @show LazySets.API.high(tempSet)
-                @show LazySets.API.low(tempSet)
-                !(all((ρ(x, tem)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds))) && handleHitConstraint(time, loc.id)
-            end=#
-
-            #return continueAfter, time, intersectingSetsList
-        end
-        =#
-    end
-    #continueAfter = false # We are at the end time horizon, therefore no continuing
-    return (LazySets.API.issubset(tempSet, set), time)
-end
 
 # TODO - Optimize this! We know that the set will be intersecting initially, thus we can just use the fast disjoint check and actually use larger step sizes as long as we dont hit the constraint!!!
 function ReACT_touches_set_constant_input(X0, U, set, δ⁻::Float64, interval, PhiDict, inputDiscretizationDict)
@@ -1468,216 +870,8 @@ function ReACT_touches_set_constant_input_b(X0, U, set, projection_vectors, proj
     return intersectingSetsList
 end
 
-function ReACT_touches_set(X0, set, δ⁻::Float64, δ⁺::Float64, interval, PhiDict, inputDiscretizationDict)
-    # Note that in touches we always use δ⁻
-    # That is, we do not adjust timestep sizes
-
-    time::Float64 = interval[1]
-    endtime::Float64 = interval[2]
-
-    intersectingSetsList = Vector{Zonotope}() # This will store all of our sets
-
-    tempSet = X0
-    while time < endtime
-
-        #if all((ρ(x, tempSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
-        #   all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) &&
-        #   all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
-        if !LazySets.API.isdisjoint(set, tempSet) #touchesCheck(tempSet, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, invarientProjVectors, invarientProjBounds)
-            #if mapreduce(x -> intersects(newRR, x), &, guard)
-            #@show time
-            push!(intersectingSetsList, copy(tempSet))
-
-            # Main calculation. No longer changing timesteps
-            #Vs = minkowski_sum(Vs, V) #Update input
-            #newRR = linear_map(ϕ, newRR)
-            #V = linear_map(ϕ, V)
-            tempSet = minkowski_sum(linear_map(PhiDict[δ⁻], tempSet), inputDiscretizationDict[δ⁻])
-            # i = i + 1
-            time += δ⁻
-        else
-            break
-        end
-
-    end
-    #continueAfter = false # We are at the end time horizon, therefore no continuing
-    return (LazySets.API.issubset(tempSet, set), intersectingSetsList, time)
-end
-
-
-# TODO - For some reason changing this to only use the more precise method when the smallest time step is used gives a different answer than the previous version...
-function ReACT_guards_b(δ⁻::Float64, δ⁺::Float64, interval, statespace, guards, guardProjVectors, guardProjBounds, constraint, constraintProjVectors, constraintProjBounds, invariant, invariantProjVectors, invariantProjBounds, STRATEGY::Integer, PhiDict, permutedphiDict, discritezationDict, inputDiscretizationDict)
-
-    #
-    #   These functions should be evaluated outside ReACT_guards and passed as parameters
-    #
-    #constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint)
-    #guardProjVectors, guardProjBounds = getHalfSpaceProjections(guards)
-    #invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(invariant)
-
-    dims = LazySets.API.dim(statespace)
-
-    time::Float64 = copy(minimum(interval))
-    endtime::Float64 = maximum(interval)
-
-    currentTimeStep = copy(δ⁺)
-
-    attemptsRecorder = zeros(4)
-
-    Φ::Matrix{Float64} = diagm(ones(Float64, dims))
-
-    tempM = diagm(ones(Float64, dims))
-
-    #   Because we assume an empty input set i have trouble seeing how these can become relevant.
-    #   But i am keeping them for now to reuse as much as possible
-
-    #Sρ = zeros(Float64, length(constraintProjVectors))
-    #Gρ = zeros(Float64, length(guardProjVectors))
-    #Iρ = zeros(Float64, length(invarientProjVectors))
-
-
-    i = 1
-    input = Zonotope(zeros(dims), zeros(size(genmat((inputDiscretizationDict[δ⁻])))))
-    while time < endtime
-
-        attempts = 1
-        approveFlag = false
-        check = 0
-        while !approveFlag
-            # Handle if we can no longer reduce the reachset (we keep hitting something)
-            if currentTimeStep > δ⁻
-                #linear_map!(Z, Φ, discritezationDict[currentTimeStep])
-                #check = guardCheck(minkowski_sum(input, linear_map(Φ, discritezationDict[currentTimeStep])), constraint, guards, invariant)
-                if fast_guards_check_b(discritezationDict[currentTimeStep], input, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, invariantProjVectors, invariantProjBounds)# || (0 == guardCheck(input, Φ, discritezationDict[currentTimeStep], constraint, guards, invariant)) # check if fast or slow fails.
-                    #=
-                    if (0 != guardCheck(input, Φ, discritezationDict[currentTimeStep], constraint, guards, invariant))#0 == guardCheck(discritezationDict[currentTimeStep], Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds)
-                        println("Fast check passed but slow check failed. This should not happen. Check the fast check implementation.")
-                        @show guardCheck(input, Φ, discritezationDict[currentTimeStep], constraint, guards, invariant), time, someinside_transparent(discritezationDict[currentTimeStep], input, invariantProjVectors, invariantProjBounds)
-                        @show someinside_transparent(discritezationDict[currentTimeStep], input, map!(x -> permutedphiDict[δ⁻] * x, invariantProjVectors), invariantProjBounds)
-                    end
-                    =#
-                    approveFlag = true
-                    if currentTimeStep + time < endtime
-                        #input = input + linear_map(Φ, inputDiscretizationDict[currentTimeStep])
-                        #input = linear_map(Φ, input) + inputDiscretizationDict[currentTimeStep]
-                        input = linear_map(PhiDict[currentTimeStep], input) + inputDiscretizationDict[currentTimeStep]
-
-                        #Sρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), constraintProjVectors)
-                        #Gρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), guardProjVectors)
-                        #Iρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), invarientProjVectors)
-
-
-                        map!(x -> permutedphiDict[currentTimeStep] * x, constraintProjVectors)
-                        map!(x -> permutedphiDict[currentTimeStep] * x, guardProjVectors)
-                        map!(x -> permutedphiDict[currentTimeStep] * x, invariantProjVectors)
-
-                        mul!(tempM, Φ, PhiDict[currentTimeStep])
-                        copy!(Φ, tempM)
-
-                    else
-                        # TODO - The input gets used or referenced somewhere even with the zero flag..
-                        #=
-                        d = max(2^(floor(log2((endtime - time)/δ⁻))) * δ⁻, δ⁻)
-                        #@show (endtime - time, d)
-                        input = linear_map(PhiDict[δ⁻], input) + inputDiscretizationDict[δ⁻]
-                        input = linear_map(PhiDict[d], input) + inputDiscretizationDict[d]
-                        mul!(tempM, Φ, PhiDict[d])
-                        copy!(Φ, tempM)
-                        mul!(tempM, Φ, PhiDict[δ⁻])
-                        copy!(Φ, tempM)
-                        time = time + d #+ δ⁻
-                        #println("from coarse")
-                        =#
-                        #return (time, linear_map(Φ, discritezationDict[δ⁻]), input, guardCheck(input, Φ, discritezationDict[δ⁻], constraint, guards, invariant))
-                        return (endtime, discritezationDict[δ⁻], input, 0)
-                    end
-                else
-
-                    currentTimeStep /= 2
-                    attempts += 1
-                end
-
-
-            elseif currentTimeStep == δ⁻
-                #elseif currentTimeStep == (δ⁻/2)
-                #    currentTimeStep = δ⁻
-                #linear_map!(Z, Φ, discritezationDict[currentTimeStep])
-                check = guardCheck(input, Φ, discritezationDict[currentTimeStep], constraint, guards, invariant)
-                #if check == 0 && !allunder(discritezationDict[δ⁻], input, invariantProjVectors, invariantProjBounds)
-                #println
-                #return (time, linear_map(Φ, discritezationDict[δ⁻]), input, 3)
-                #end
-                #if fast_guards_check_b(discritezationDict[currentTimeStep], input, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds) || (0 == guardCheck(input, Φ, discritezationDict[currentTimeStep], constraint, guards, invariant)) # check if fast or slow fails.
-                if (0 == check) # check if fast or slow fails.
-                    #if 0 == guardCheck(discritezationDict[currentTimeStep], Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds)
-                    approveFlag = true
-
-                    #input = linear_map(Φ, input) + inputDiscretizationDict[currentTimeStep]
-                    input = linear_map(PhiDict[currentTimeStep], input) + inputDiscretizationDict[currentTimeStep]
-
-                    #Sρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), constraintProjVectors)
-                    #Gρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), guardProjVectors)
-                    #Iρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), invarientProjVectors)
-
-
-                    map!(x -> permutedphiDict[currentTimeStep] * x, constraintProjVectors)
-                    map!(x -> permutedphiDict[currentTimeStep] * x, guardProjVectors)
-                    map!(x -> permutedphiDict[currentTimeStep] * x, invariantProjVectors)
-
-                    mul!(tempM, Φ, PhiDict[currentTimeStep])
-                    copy!(Φ, tempM)
-
-
-                else
-                    #currentTimeStep /= 2
-                    #attempts += 1
-
-                    return (time, linear_map(Φ, discritezationDict[δ⁻]), input, check)
-
-                end
-
-                #else
-                #println("hit something")
-                #eturn (time, linear_map(Φ, discritezationDict[δ⁻]), input, check)
-            end
-        end
-
-        attemptsRecorder[(i%4)+1] = attempts
-        i = i + 1
-        time = time + currentTimeStep
-
-        # Reset / apply strategy
-        # Only do this if the current timestep is less than the initial
-        if STRATEGY == 0
-            # Only reduce
-        elseif STRATEGY == 1
-            # always try double
-            if currentTimeStep < δ⁺
-                currentTimeStep = currentTimeStep * 2
-                #changedTimeStep = true
-            end
-        elseif STRATEGY == 2
-            # If attemptsrecorder past 4 are successes, double timestep
-            if currentTimeStep < δ⁺
-                #lowest = min(4, i - 1)
-                #window = @view attemptsRecorder[i-lowest:i-1]
-                if all(==(1), attemptsRecorder)
-                    currentTimeStep = currentTimeStep * 2
-                    #changedTimeStep = true
-                end
-
-            end
-        end
-    end
-    #println("ever")
-    return (endtime, linear_map(Φ, discritezationDict[δ⁻]), input, 0)
-end
 
 function ReACT_guards_t(δ⁻::Float64, δ⁺::Float64, interval, identity_matrix, attemptsRecorder, zero_input, guardProjVectors, guardProjBounds, STRATEGY::Integer, PhiDict, permutedphiDict, discritezationDict, inputDiscretizationDict)
-
-
-
-
     time::Float64 = copy(minimum(interval))
     endtime::Float64 = maximum(interval)
 
@@ -1787,43 +981,6 @@ function handleHitConstraint(time, locationId)
             ERROR!!!\n")
 end
 
-#=
-function guardCheck(newR::Zonotope, Sρ::Vector{Float64}, constraintProjVectors::Vector{SparseArrays.SparseVector{Float64,Int}}, constraintProjBounds::Vector{Float64}, Gρ::Vector{Float64}, guardProjVectors::Vector{SparseArrays.SparseVector{Float64,Int}}, guardProjBounds::Vector{Float64}, Iρ::Vector{Float64}, invarientProjVectors::Vector{SparseArrays.SparseVector{Float64,Int}}, invarientProjBounds::Vector{Float64}) #; solver=model
-    #cache = map((input, x, y) -> input + ρ(x, newR) <= y, Sρ, constraintProjVectors, constraintProjBounds)
-    abssum = 0.0
-    c = newR.center
-    G = transpose(genmat(newR))
-    tc = Vector{Float64}(undef, size(G, 1))
-    #a = sum(abs, transpose(a) * G)
-
-    res = all(input + tsupfunc(x, tc, abssum, c, G) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
-
-    res = res && any((input - tsupfunc(-x, tc, abssum, c, G)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds))
-
-    res = res && all((input - tsupfunc(-x, tc, abssum, c, G)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
-
-    return res
-end
-=#
-#=
-function guardCheck(newR::Zonotope, Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds) #; solver=model
-
-
-
-    if !someunder(newR, Sρ, constraintProjVectors, constraintProjBounds) && someunder(newR, Iρ, invarientProjVectors, invarientProjBounds)
-        #println("didnt hit constraints")
-        if someoutside(newR, Gρ, guardProjVectors, guardProjBounds)
-            #println("didnt hit guard")
-            return 0
-        else
-            return LazySets.API.isdisjoint(newR, HPolyhedron(collect(LazySets.HalfSpace(a, b+c) for (a, b, c) in zip(guardProjVectors, guardProjBounds, Gρ)))) ? 0 : 1
-        end
-    else
-        #println("hit constraints")
-        return 2
-    end
-end
-=#
 
 function guardCheck(input::Zonotope, Φ, X::Zonotope, constraint, guard, invariant) #; solver=model
     #
@@ -1832,25 +989,7 @@ function guardCheck(input::Zonotope, Φ, X::Zonotope, constraint, guard, invaria
     #   2: Hit guard
     #   3: Hit invariant surface
     #
-    #=
-    if !LazySets.API.isdisjoint(newR, guard)
-        @show LazySets.API.isdisjoint(newR, constraint)
-        println("GUARD TOUCHED")
-    end
-    if LazySets.API.isdisjoint(newR, guard)
-        if LazySets.API.issubset(newR, invariant)
-            if LazySets.API.isdisjoint(newR, constraint)
-                return 0
-            else
-                return 1
-            end
-        else
-            return 3
-        end
-    else
-        return 2
-    end
-    =#
+
     newR = minkowski_sum(input, linear_map(Φ, X))
     if LazySets.API.isdisjoint(newR, constraint)
         if LazySets.API.isdisjoint(newR, guard)
@@ -1862,25 +1001,6 @@ function guardCheck(input::Zonotope, Φ, X::Zonotope, constraint, guard, invaria
     else
         return 1
     end
-
-    #=
-    if LazySets.API.issubset(newR, invariant)
-        if LazySets.API.isdisjoint(newR, constraint)
-            if LazySets.API.isdisjoint(newR, guard)
-                return 0
-            else
-                return 2
-            end
-
-        else
-            return 1
-        end
-    else
-        #@show LazySets.API.isdisjoint(newR, guard)
-        return 3
-    end
-    =#
-
 end
 
 function fast_guards_check(newR::Zonotope, co, constraintProjVectors, constraintProjBounds, go, guardProjVectors, guardProjBounds, io, invariantProjVectors, invariantProjBounds) #; solver=model
@@ -1911,24 +1031,7 @@ function fast_guards_check_t(newR::Zonotope, input, tguardProjVectors, guardProj
 
 end
 function touchesCheck(newR::Zonotope, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, invarientProjVectors, invarientProjBounds) #; solver=model
-    #cache = map((input, x, y) -> input + ρ(x, newR) <= y, Sρ, constraintProjVectors, constraintProjBounds)
-    #abssum = 0.0
-    #c = newR.center
-    #G = transpose(genmat(newR))
-    #tc = Vector{Float64}(undef, size(G, 1))
-    #a = sum(abs, transpose(a) * G)
-    #res = all((input + ρ(x, newR)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))#all(input + tsupfunc(x, tc, abssum, c, G) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds))
-
-    #res = res && any((input + -ρ(-x, newR)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds))#any((input - tsupfunc(-x, tc, abssum, c, G)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds))
-
-    #res = res && all((input - ρ(-x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))#all((input - tsupfunc(-x, tc, abssum, c, G)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
-    #(all((input + ρ(x, discritezationDict[currentTimeStep])) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) &&
-    #any(sign(y) >= 0 ? (input + ρ(-x, newR)) <= y : !((input + ρ(x, newR)) < y) for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) &&
-    #any((input + -ρ(-x, discritezationDict[currentTimeStep])) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) &&
-    #all((input - ρ(-x, discritezationDict[currentTimeStep])) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds)))
-    #return all((input + ρ(x, newR)) <= y for (input, x, y) in zip(Sρ, constraintProjVectors, constraintProjBounds)) && any((input + -ρ(-x, newR)) > y for (input, x, y) in zip(Gρ, guardProjVectors, guardProjBounds)) && all((input - ρ(-x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
     return allunder(newR, constraintProjVectors, constraintProjBounds) && someinside(newR, guardProjVectors, guardProjBounds) && someinside(newR, invarientProjVectors, invarientProjBounds)#all((input - ρ(-x, newR)) <= y for (input, x, y) in zip(Iρ, invarientProjVectors, invarientProjBounds))
-
 end
 
 function tsupfunc(d, Z, Ab, c, G)
@@ -2034,7 +1137,7 @@ function someinside_transparent(set, input::LazySet, dir, bound)
     return res
     #return !allunder(set, dir, bound)
 end
-
+#=
 function ReACTedShieldingK(system::EuclideanHybridSystem, p, k, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true)
     grid = Grid(system.statespace, granularity)
     unsafeDict = Dict{CartesianIndex,Vector{LazySet}}()
@@ -2353,7 +1456,7 @@ function auxReACTedShielding(waitinglist, hybridSystem, loc::Location, currentEd
 
 
 end
-#=
+
 function ReACT_guards(δ⁻::Float64, δ⁺::Float64, interval, statespace, guards, constraint, invariant, STRATEGY::Integer, PhiDict, permutedphiDict, discritezationDict, inputDiscretizationDict)
 
     #
@@ -2776,3 +1879,821 @@ function ReACTed_reachable_cell(system::EuclideanHybridSystem, p, granularity, �
 
 end
 =#
+
+#=
+function ReACT_touches_set(X0, set, δ⁻::Float64, δ⁺::Float64, interval, PhiDict, inputDiscretizationDict)
+    # Note that in touches we always use δ⁻
+    # That is, we do not adjust timestep sizes
+
+    time::Float64 = interval[1]
+    endtime::Float64 = interval[2]
+
+    intersectingSetsList = Vector{Zonotope}() # This will store all of our sets
+
+    tempSet = X0
+    while time < endtime
+
+        #if all((ρ(x, tempSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
+        #   all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) &&
+        #   all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
+        if !LazySets.API.isdisjoint(set, tempSet) #touchesCheck(tempSet, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, invarientProjVectors, invarientProjBounds)
+            #if mapreduce(x -> intersects(newRR, x), &, guard)
+            #@show time
+            push!(intersectingSetsList, copy(tempSet))
+
+            # Main calculation. No longer changing timesteps
+            #Vs = minkowski_sum(Vs, V) #Update input
+            #newRR = linear_map(ϕ, newRR)
+            #V = linear_map(ϕ, V)
+            tempSet = minkowski_sum(linear_map(PhiDict[δ⁻], tempSet), inputDiscretizationDict[δ⁻])
+            # i = i + 1
+            time += δ⁻
+        else
+            break
+        end
+
+    end
+    #continueAfter = false # We are at the end time horizon, therefore no continuing
+    return (LazySets.API.issubset(tempSet, set), intersectingSetsList, time)
+end
+=#
+
+# TODO - For some reason changing this to only use the more precise method when the smallest time step is used gives a different answer than the previous version...
+#=
+function ReACT_guards_b(δ⁻::Float64, δ⁺::Float64, interval, statespace, guards, guardProjVectors, guardProjBounds, constraint, constraintProjVectors, constraintProjBounds, invariant, invariantProjVectors, invariantProjBounds, STRATEGY::Integer, PhiDict, permutedphiDict, discritezationDict, inputDiscretizationDict)
+
+    #
+    #   These functions should be evaluated outside ReACT_guards and passed as parameters
+    #
+    #constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint)
+    #guardProjVectors, guardProjBounds = getHalfSpaceProjections(guards)
+    #invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(invariant)
+
+    dims = LazySets.API.dim(statespace)
+
+    time::Float64 = copy(minimum(interval))
+    endtime::Float64 = maximum(interval)
+
+    currentTimeStep = copy(δ⁺)
+
+    attemptsRecorder = zeros(4)
+
+    Φ::Matrix{Float64} = diagm(ones(Float64, dims))
+
+    tempM = diagm(ones(Float64, dims))
+
+    #   Because we assume an empty input set i have trouble seeing how these can become relevant.
+    #   But i am keeping them for now to reuse as much as possible
+
+    #Sρ = zeros(Float64, length(constraintProjVectors))
+    #Gρ = zeros(Float64, length(guardProjVectors))
+    #Iρ = zeros(Float64, length(invarientProjVectors))
+
+
+    i = 1
+    input = Zonotope(zeros(dims), zeros(size(genmat((inputDiscretizationDict[δ⁻])))))
+    while time < endtime
+
+        attempts = 1
+        approveFlag = false
+        check = 0
+        while !approveFlag
+            # Handle if we can no longer reduce the reachset (we keep hitting something)
+            if currentTimeStep > δ⁻
+                #linear_map!(Z, Φ, discritezationDict[currentTimeStep])
+                #check = guardCheck(minkowski_sum(input, linear_map(Φ, discritezationDict[currentTimeStep])), constraint, guards, invariant)
+                if fast_guards_check_b(discritezationDict[currentTimeStep], input, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, invariantProjVectors, invariantProjBounds)# || (0 == guardCheck(input, Φ, discritezationDict[currentTimeStep], constraint, guards, invariant)) # check if fast or slow fails.
+                    #=
+                    if (0 != guardCheck(input, Φ, discritezationDict[currentTimeStep], constraint, guards, invariant))#0 == guardCheck(discritezationDict[currentTimeStep], Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds)
+                        println("Fast check passed but slow check failed. This should not happen. Check the fast check implementation.")
+                        @show guardCheck(input, Φ, discritezationDict[currentTimeStep], constraint, guards, invariant), time, someinside_transparent(discritezationDict[currentTimeStep], input, invariantProjVectors, invariantProjBounds)
+                        @show someinside_transparent(discritezationDict[currentTimeStep], input, map!(x -> permutedphiDict[δ⁻] * x, invariantProjVectors), invariantProjBounds)
+                    end
+                    =#
+                    approveFlag = true
+                    if currentTimeStep + time < endtime
+                        #input = input + linear_map(Φ, inputDiscretizationDict[currentTimeStep])
+                        #input = linear_map(Φ, input) + inputDiscretizationDict[currentTimeStep]
+                        input = linear_map(PhiDict[currentTimeStep], input) + inputDiscretizationDict[currentTimeStep]
+
+                        #Sρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), constraintProjVectors)
+                        #Gρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), guardProjVectors)
+                        #Iρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), invarientProjVectors)
+
+
+                        map!(x -> permutedphiDict[currentTimeStep] * x, constraintProjVectors)
+                        map!(x -> permutedphiDict[currentTimeStep] * x, guardProjVectors)
+                        map!(x -> permutedphiDict[currentTimeStep] * x, invariantProjVectors)
+
+                        mul!(tempM, Φ, PhiDict[currentTimeStep])
+                        copy!(Φ, tempM)
+
+                    else
+                        # TODO - The input gets used or referenced somewhere even with the zero flag..
+                        #=
+                        d = max(2^(floor(log2((endtime - time)/δ⁻))) * δ⁻, δ⁻)
+                        #@show (endtime - time, d)
+                        input = linear_map(PhiDict[δ⁻], input) + inputDiscretizationDict[δ⁻]
+                        input = linear_map(PhiDict[d], input) + inputDiscretizationDict[d]
+                        mul!(tempM, Φ, PhiDict[d])
+                        copy!(Φ, tempM)
+                        mul!(tempM, Φ, PhiDict[δ⁻])
+                        copy!(Φ, tempM)
+                        time = time + d #+ δ⁻
+                        #println("from coarse")
+                        =#
+                        #return (time, linear_map(Φ, discritezationDict[δ⁻]), input, guardCheck(input, Φ, discritezationDict[δ⁻], constraint, guards, invariant))
+                        return (endtime, discritezationDict[δ⁻], input, 0)
+                    end
+                else
+
+                    currentTimeStep /= 2
+                    attempts += 1
+                end
+
+
+            elseif currentTimeStep == δ⁻
+                #elseif currentTimeStep == (δ⁻/2)
+                #    currentTimeStep = δ⁻
+                #linear_map!(Z, Φ, discritezationDict[currentTimeStep])
+                check = guardCheck(input, Φ, discritezationDict[currentTimeStep], constraint, guards, invariant)
+                #if check == 0 && !allunder(discritezationDict[δ⁻], input, invariantProjVectors, invariantProjBounds)
+                #println
+                #return (time, linear_map(Φ, discritezationDict[δ⁻]), input, 3)
+                #end
+                #if fast_guards_check_b(discritezationDict[currentTimeStep], input, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds) || (0 == guardCheck(input, Φ, discritezationDict[currentTimeStep], constraint, guards, invariant)) # check if fast or slow fails.
+                if (0 == check) # check if fast or slow fails.
+                    #if 0 == guardCheck(discritezationDict[currentTimeStep], Sρ, constraintProjVectors, constraintProjBounds, Gρ, guardProjVectors, guardProjBounds, Iρ, invarientProjVectors, invarientProjBounds)
+                    approveFlag = true
+
+                    #input = linear_map(Φ, input) + inputDiscretizationDict[currentTimeStep]
+                    input = linear_map(PhiDict[currentTimeStep], input) + inputDiscretizationDict[currentTimeStep]
+
+                    #Sρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), constraintProjVectors)
+                    #Gρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), guardProjVectors)
+                    #Iρ += map(x -> ρ(x, inputDiscretizationDict[currentTimeStep]), invarientProjVectors)
+
+
+                    map!(x -> permutedphiDict[currentTimeStep] * x, constraintProjVectors)
+                    map!(x -> permutedphiDict[currentTimeStep] * x, guardProjVectors)
+                    map!(x -> permutedphiDict[currentTimeStep] * x, invariantProjVectors)
+
+                    mul!(tempM, Φ, PhiDict[currentTimeStep])
+                    copy!(Φ, tempM)
+
+
+                else
+                    #currentTimeStep /= 2
+                    #attempts += 1
+
+                    return (time, linear_map(Φ, discritezationDict[δ⁻]), input, check)
+
+                end
+
+                #else
+                #println("hit something")
+                #eturn (time, linear_map(Φ, discritezationDict[δ⁻]), input, check)
+            end
+        end
+
+        attemptsRecorder[(i%4)+1] = attempts
+        i = i + 1
+        time = time + currentTimeStep
+
+        # Reset / apply strategy
+        # Only do this if the current timestep is less than the initial
+        if STRATEGY == 0
+            # Only reduce
+        elseif STRATEGY == 1
+            # always try double
+            if currentTimeStep < δ⁺
+                currentTimeStep = currentTimeStep * 2
+                #changedTimeStep = true
+            end
+        elseif STRATEGY == 2
+            # If attemptsrecorder past 4 are successes, double timestep
+            if currentTimeStep < δ⁺
+                #lowest = min(4, i - 1)
+                #window = @view attemptsRecorder[i-lowest:i-1]
+                if all(==(1), attemptsRecorder)
+                    currentTimeStep = currentTimeStep * 2
+                    #changedTimeStep = true
+                end
+
+            end
+        end
+    end
+    #println("ever")
+    return (endtime, linear_map(Φ, discritezationDict[δ⁻]), input, 0)
+end
+=#
+#
+#   Given we have must semantics for guards we could probably
+#
+#=
+function ReACT_time_touches_set(X0, set, δ⁻::Float64, δ⁺::Float64, interval, PhiDict, Φ)
+    # Note that in touches we always use δ⁻
+    # That is, we do not adjust timestep sizes
+
+    #phiDict = PhiDict
+    #=
+    constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint)
+    guardProjVectors, guardProjBounds = getHalfSpaceProjections(guard)
+    invarientProjVectors, invarientProjBounds = getHalfSpaceProjections(loc.invarient)
+    =#
+    time::Float64 = interval[1]
+    endtime::Float64 = interval[2]
+
+
+    #Vs = nestedInputDiscCalculate(inputDiscritezationDict, PhiDict, δ⁻, initialTime, reduce_order, max_order)
+    # i = 1
+
+    #if ismissing(Φ)
+    #    Φ::Matrix{Float64} = exp(initialTime .* loc.A)
+    #end
+
+    #ϕ = similar(Φ)
+    #ϕ = phiDict[δ⁻]
+
+    # Compute current sets
+    #newR = discritezationDict[δ⁻]
+    #newRR = linear_map(Φ, newR)
+    #V = copy(inputDiscritezationDict[δ⁻])
+    #V = linear_map(Φ, V)
+    #intersectingSetsList = Vector{Zonotope}() # This will store all of our sets
+
+    tempSet = linear_map(Φ, X0)
+    while time < endtime
+
+        #if all((ρ(x, tempSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) && # IsSubSet
+        #   all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) &&
+        #   all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
+        if !LazySets.API.isdisjoint(set, tempSet) #touchesCheck(tempSet, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, invarientProjVectors, invarientProjBounds)
+            #if mapreduce(x -> intersects(newRR, x), &, guard)
+            #@show time
+            #push!(intersectingSetsList, copy(tempSet))
+
+            # Main calculation. No longer changing timesteps
+            #Vs = minkowski_sum(Vs, V) #Update input
+            #newRR = linear_map(ϕ, newRR)
+            #V = linear_map(ϕ, V)
+            tempSet = linear_map(PhiDict[δ⁻], tempSet)
+            # i = i + 1
+            time += δ⁻
+        else
+            break
+        end
+        #=
+        else # Handle hit something. We do not reduce anymore!
+            #@show all((ρ(x, tempSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds))
+            #@show all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds))
+            #@show all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds))
+            #if all((ρ(x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) && any(((ρ(x, tempSet)) > y) for (x, y) in zip(constraintProjVectors, constraintProjBounds))
+            #    handleHitConstraint(time, loc.id)
+            #end
+
+            #continueAfter = true
+            #=
+            if !((all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) || !all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds))) == (!someunder(tempSet, guardProjVectors, guardProjBounds) || !someunder(tempSet, invarientProjVectors, invarientProjBounds)))
+                println((all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds)) || !all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds))))
+                @show someunder(tempSet, guardProjVectors, guardProjBounds)
+                @show all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds))
+                @show !someunder(tempSet, invarientProjVectors, invarientProjBounds)
+            end
+            =#
+            if someunder(tempSet, guardProjVectors, guardProjBounds) || !someunder(tempSet, invarientProjVectors, invarientProjBounds)
+                # If we stop because we are no longer intersect guards, 
+                # but still intersect the invariant we try continue
+
+                #@show all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds))
+                #continueAfter = false
+                return false, time, intersectingSetsList
+            end
+
+            if allunder(tempSet, constraintProjVectors, constraintProjBounds)#all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
+                return true, time, intersectingSetsList
+            else
+                intersectionSet = LazySets.Intersection(tempSet, loc.invarient)
+                if !all((ρ(x, intersectionSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds))  # IsSubSet
+                    @show LazySets.API.high(tempSet)
+                    @show LazySets.API.low(tempSet)
+                    @show LazySets.API.high(Vs)
+                    @show LazySets.API.low(Vs)
+                    handleHitConstraint(time, loc.id)
+                end
+                return true, time, intersectingSetsList
+            end
+
+            #=if all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) && continueAfter
+
+                intersectSet = zonotopeStripIntersection(tempSet, loc.invarient)
+                @show isSubSet(tempSet, loc.invarient)
+                tem = intersection(overapproximate(tempSet, BoxDirections(LazySets.dim(newR))), loc.invarient)
+                #@show map((x, y) -> ρ(x, tem) <= y, zip(constraintProjVectors, constraintProjBounds))
+                @show all((ρ(x, tempSet)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds)) # IsSubSet
+                @show all(((-ρ(-x, tempSet)) <= y) for (x, y) in zip(guardProjVectors, guardProjBounds))
+                @show all((-ρ(-x, tempSet)) <= y for (x, y) in zip(invarientProjVectors, invarientProjBounds)) # Intersects
+                @show minimum(interval) - time
+                @show LazySets.API.high(tempSet)
+                @show LazySets.API.low(tempSet)
+                !(all((ρ(x, tem)) <= y for (x, y) in zip(constraintProjVectors, constraintProjBounds))) && handleHitConstraint(time, loc.id)
+            end=#
+
+            #return continueAfter, time, intersectingSetsList
+        end
+        =#
+    end
+    #continueAfter = false # We are at the end time horizon, therefore no continuing
+    return (LazySets.API.issubset(tempSet, set), time)
+end
+=#
+
+#=
+function propagate_set_b(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ₂, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, discretizationDict, PhiDict, TPhiDict, inputDict, max_input, max_flow, guard_intersection, invariant, invariantProjVectors, invariantProjBounds, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5)
+
+    #discretizationDict = newReACTDiscretizePlus(X0, δ⁻, δ⁺, system.flowMatrix, Φ₂, PhiDict, inputDict, alg, maxOrder, reduceOrder)
+    time::Float64 = copy(minimum(interval))
+    endtime::Float64 = maximum(interval)
+    constraint = system.globalConstraints[1]
+    listOfEdges = system.edges
+
+    for edge in listOfEdges
+        #constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(constraint)
+        #guardProjVectors, guardProjBounds = getHalfSpaceProjections(edge.guard)
+        invariant_projection_vectors = copy(invariantProjVectors)
+        invariant_projection_bounds = copy(invariantProjBounds)
+        guard_projection_vectors = copy(guardProjVectors)
+        guard_projection_bounds = copy(guardProjBounds)
+        constraint_projection_vectors = copy(constraintProjVectors)
+        constraint_projection_bounds = copy(constraintProjBounds)
+
+
+        #   Compute the reachset closest to the guard without intersecting it and not reaching the unsafe set. 
+        reachtime, newSet, inputSet, flag = ReACT_guards_b(δ⁻, δ⁺, interval, system.statespace, edge.guard, guard_projection_vectors, guard_projection_bounds, constraint, constraint_projection_vectors, constraint_projection_bounds, invariant, invariant_projection_vectors, invariant_projection_bounds, 2, PhiDict, TPhiDict, discretizationDict, inputDict)
+
+
+        #
+        #   0: Didnt hit either constraint, guard or invariant
+        #   1: Hit constraint
+        #   2: Hit guard
+        #   3: Hit invariant surface
+        #
+        if flag == 0
+            if time == 0.0
+                return (minkowski_sum(linear_map(max_flow, X0), max_input), 0)
+            else
+                A_abs = abs.(system.flowMatrix)
+                max_input = linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, endtime - time, alg, false, nothing), system.input)
+
+                return (minkowski_sum(linear_map(exp((endtime - time) .* system.flowMatrix), X0), linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, endtime - time, alg, false, nothing), system.input)), 0)
+            end
+        elseif flag == 1 # Hit constraint
+            return (minkowski_sum(newSet, inputSet), 1)
+        elseif flag == 2
+            # Move this outside the function
+            #return (minkowski_sum(newSet, inputSet), 2)
+
+            intersectingSetsList = ReACT_touches_set_constant_input_b(newSet, inputSet, edge.guard, copy(guardProjVectors), copy(guardProjBounds), invariantProjVectors, invariantProjBounds, δ⁻, [reachtime, endtime], PhiDict, inputDict)
+
+
+
+            tempIntersect = foldl(ConvexHull, intersectingSetsList)
+            intersectedSet = convert(Zonotope, box_approximation(tempIntersect))
+            #jumpSet = linear_map(edge.jumpMatrix, zonotopeStripIntersection(minkowski_sum(newSet, inputSet), guard_intersection))
+            #if !LazySets.API.issubset(minkowski_sum(newSet, inputSet), invariant)
+            #    @show minkowski_sum(newSet, inputSet), reachtime
+            #    return (minkowski_sum(newSet, inputSet), 3)
+            #end
+            jumpSet = linear_map(edge.jumpMatrix, zonotopeStripIntersection(intersectedSet, guard_intersection))
+            #jumpSet = linear_map(edge.jumpMatrix, getBoxIntersection(intersectedSet, guard_intersection))
+            if !isnothing(edge.jumpVector)
+                LazySets.translate!(jumpSet, edge.jumpVector)
+            end
+            #=
+            if LazySets.API.isdisjoint(jumpSet, invariant)
+                @show jumpSet
+                @show newSet, inputSet
+                @show reachtime
+            end
+            =#
+            return propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, invariantProjVectors, invariantProjBounds, alg, maxOrder, reduceOrder)
+            # Cant use propagate_set_b here because we need to recompute the discretizationDict for the new jumpSet. This is because the jumpSet may be a different shape than the original set and thus the discretization may be different. We could try to reuse the discretizationDict but this would require a lot of work and is not worth it for now.
+            #return propagate_set_b(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, discretizationDict, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
+
+        end
+        #println("shiit")
+        return (newSet, 3)
+    end
+end
+=#
+#=
+function propagate_state(s::Vector{Float64}, interval, system, grid, fast_cell_matrix, listOfEdges, identity_matrix, dims, Φ₂, guardProjVectors, guardProjBounds, invariantProjVectors, invariantProjBounds, PhiDict, TPhiDict, max_flow, max_input, guard_intersection, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp)
+    sidx = fastbox(grid, s)
+    if fast_cell_matrix[sidx]
+        return LazySets.API.translate(max_input, max_flow * s)
+    else
+        # Sketch
+        # 1) determine whether state is subject to hybrid jump or not...
+        # 2) if true then determine when
+    end
+end
+=#
+
+#=
+function ReACTed_reachable_cell_online_adaptive(system::EuclideanHybridSystem, p, max_granularity, granularity_steps::Int64, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true, max_steps::Int64=1000; include_border_cells::Bool=false, jump_hull::Bool=false)
+    return _ReACTed_reachable_cell_online_adaptive(Grid(system.statespace, max_granularity / 2^granularity_steps), system, p, max_granularity, granularity_steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder, clustering, max_steps, include_border_cells)
+end
+
+# Function barrier: the body is compiled for the concrete Grid{N} and system type, so N can be used in type positions.
+function _ReACTed_reachable_cell_online_adaptive(grid::Grid{N}, system::EuclideanHybridSystem, p, max_granularity, granularity_steps::Int64, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg, maxOrder::Int, reduceOrder::Int, clustering, max_steps::Int64, include_border_cells::Bool) where N
+    recorderTimeStart = time_ns()
+    granularity_scale = 2^granularity_steps
+    granularity = max_granularity / granularity_scale
+    @show foldl(*, grid.numCells), grid.numCells, granularity
+    #max_steps = 300
+    shield_count::Int64 = 0
+    sweep_factor = 5
+    TIME_FUNCS = true
+
+
+
+    phiDict, tPhiDict, inputDict = phi_input_dict(system.flowMatrix, system.input, δ⁻, δ⁺, alg, maxOrder, reduceOrder)
+    d = δ⁻
+    isInvA = isinvertible(system.flowMatrix)
+    A = system.flowMatrix
+    A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(system.flowMatrix)
+    Φcache = system.flowMatrix == A_abs ? phiDict[d] : nothing
+    P2A_abs = ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, isInvA, Φcache)
+    jump_reach = JumpReach(system, p, δ⁻, δ⁺, phiDict, tPhiDict, inputDict, P2A_abs, alg, maxOrder, reduceOrder; jump_hull)
+
+
+
+    #
+    #   0: Didnt hit either constraint, guard or invariant
+    #   1: Hit constraint
+    #   2: Hit guard
+    #   3: Hit invariant surface
+    #
+
+    reachable_by_action::ActionRelation{N} = ActionRelation{N}()
+    reachable_by_flow::FlowRelation{N} = FlowRelation{N}()
+    degenerate_dimensions = zeros(N) # Grid centres zero-width dimensions on their value, so cells need no extra offset
+    @show degenerate_dimensions
+    invariant = hyperrectangle_to_HPolyhedron(system.statespace)
+    U = system.input
+    max_input = linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, p, alg, false, nothing), U)
+    max_flow = exp(p .* system.flowMatrix)
+    #@show degenerate_dimensions
+
+    guardProjVectors, guardProjBounds = getHalfSpaceProjections(system.edges[1].guard)
+    invariantProjVectors, invariantProjBounds = getHalfSpaceProjections(invariant)
+
+    guard_invariant_intersection = intersection(system.edges[1].guard, invariant)
+
+
+    fast_cells = falses(cellshape(grid))
+    sweep = [min(granularity_scale*sweep_factor, n) for n in grid.numCells] # cells per sweep block in each dimension (dimensions smaller than a block use one block)
+    Z_big = remove_zero_generators(Zonotope(degenerate_dimensions, diagm(map((n, s) -> n == 1 ? 0. : granularity * (s/2), grid.numCells, sweep))))
+    lower_offset_big = grid.lower .+ granularity .* (sweep ./ 2)
+    generatorDict_big = ReACT_discretize_decomposed_generators(Z_big, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict)
+    discretizationDict_big, finaldims_big = ReACT_discretize_combine_with_offsets(Z_big, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict_big)
+    preallocated_center_big = zeros(grid.dimension)
+    preallocated_genmat_big = zeros(grid.dimension, finaldims_big)
+    preallocated_inter_genmat_big = zeros(grid.dimension, finaldims_big)
+    ranges = ntuple(i -> 1:fld(grid.numCells[i], sweep[i]), N)
+
+
+    attempt_recorder = zeros(4)
+    identity_matrix = diagm(ones(grid.dimension))
+    for bidx in CartesianIndices(ranges)
+
+        of = lower_offset_big + ((car2vec(bidx) .- 1) .* granularity .* sweep)
+        LazySets.API.translate!(Z_big, of)
+
+
+
+        ReACT_discretize_combine_with_offset_vector!(preallocated_center_big, preallocated_genmat_big, preallocated_inter_genmat_big, discretizationDict_big, of, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict_big)
+        #z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
+
+        f = propagate_set_check_hybrid_jump(Z_big, [0.0, p], δ⁻, δ⁺, system, system.edges, identity_matrix, attempt_recorder, grid.dimension, P2A_abs, guardProjVectors, guardProjBounds, invariantProjVectors, invariantProjBounds, discretizationDict_big, phiDict, tPhiDict, inputDict, max_input, max_flow, guard_invariant_intersection, alg, maxOrder, reduceOrder)
+
+        if f == 0
+            #@show collect(((b-1)*sweep_factor):(b*sweep_factor) for b in car2vec(bidx))
+            fast_cells[ntuple(i->(1+(bidx[i]-1)*sweep[i]):(bidx[i]*sweep[i]), N)...] .= true
+            #grid.deadCells[collect((1+(b-1)*sweep_factor):(b*sweep_factor) for b in car2vec(bidx))...] .= true
+
+        end
+
+
+        #grid.array[idx].sidx[1] = copy(f)
+        LazySets.API.translate!(Z_big, -of)
+    end
+    #granularity = granularity * granularity_scale
+    Z = remove_zero_generators(Zonotope(degenerate_dimensions, diagm(map(x -> x == 1 ? 0. : granularity/2, grid.numCells))))
+    #dc = 0
+    count = 0
+    #@show grid.lower
+    lower_offset = grid.lower .+ (granularity/2)
+    generatorDict = ReACT_discretize_decomposed_generators(Z, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict)
+    #discretizationDict = Dict()
+    discretizationDict, finaldims = ReACT_discretize_combine_with_offsets(Z, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict)
+    preallocated_center = zeros(grid.dimension)
+    preallocated_genmat = zeros(grid.dimension, finaldims)
+    preallocated_inter_genmat = zeros(grid.dimension, finaldims)
+
+    max_zonotope::Zonotope{Float64,Vector{Float64},Matrix{Float64}} = Zonotope(max_input.center, hcat(genmat(linear_map(max_flow, Z)), diagm(fill(granularity/2, N)), genmat(max_input)))
+
+    #max_zonotope = minkowski_sum(max_zonotope, Zonotope(zeros(grid.dimension), diagm(fill(granularity/2, N))))
+    # Fast cells all share max_zonotope's generators, so their cover test uses its precomputed H-representation.
+    fast_cover = ConstantZonotopeCover(max_zonotope, Val(N))
+    fast_center = zeros(N)
+
+
+    constraintProjVectors, constraintProjBounds = getHalfSpaceProjections(system.globalConstraints[1])
+    guardProjVectors, guardProjBounds = getHalfSpaceProjections(system.edges[1].guard)
+    invariantProjVectors, invariantProjBounds = getHalfSpaceProjections(invariant)
+
+    #hbox = Hyperrectangle(grid.lower .+ (granularity/2), fill(granularity/2, N))
+
+
+
+    #done_list::Set{CartesianIndex{N}} = Set()#CartesianIndex{N}[]
+    done_list::Vector{CartesianIndex{N}} = CartesianIndex{N}[]
+    #frontier_list::Set{CartesianIndex{N}} = Set{CartesianIndex{N}}[]
+    frontier_list::Vector{CartesianIndex{N}} = CartesianIndex{N}[]
+    ln = 0
+    la = 0
+    ld = 0
+    dims = grid.dimension
+    #dead = grid.deadCells
+    can_act_matrix = trues(cellshape(grid))
+    no_action_bad_matrix = falses(cellshape(grid))
+
+    offset_list = offsets(grid)
+
+    may_act_dict::Dict{Int64,CellIdxs{N}} = Dict{Int64,CellIdxs{N}}()
+    #may_act_dict::Dict{Int64,BitMatrix} = Dict{Int64,BitMatrix}()
+    may_act_matrix = falses(cellshape(grid))
+    for act in system.Act
+        may_act_dict[act.id] = get_touching_cell_idxs_l(grid, act.guard) #falses(grid.numCells...)
+        #may_act_dict[act.id][get_touching_cell_idxs_l(grid, act.guard)...] .= true
+        may_act_matrix[may_act_dict[act.id]] .= true
+    end
+
+    for edge in system.edges
+        for didx in get_touching_cell_idxs_l(grid, edge.guard)
+            #@show didx
+            push!(frontier_list, didx)
+        end
+    end
+    #grid2 = Grid(system.statespace, max_granularity)
+    #@show grid
+    #@show grid2
+    for global_constraint in system.globalConstraints
+        #guard_invariant_intersection = intersection(guard_invariant_intersection, global_constraint)
+        #@show get_touching_cell_idxs_l(grid, global_constraint)
+        #@show get_touching_cell_idxs_l(grid2, global_constraint)
+        for didx in get_touching_cell_idxs_l(grid, global_constraint)
+            #@show didx
+            grid.deadCells[didx] = true
+            no_action_bad_matrix[didx] = true
+            push!(done_list, didx)
+        end
+    end
+
+    if include_border_cells
+        border = border_cells(grid)
+        append!(frontier_list, border)
+        append!(frontier_list, grow_indices_t(grid, border, offset_list))
+    end
+
+    push!(frontier_list, grow_indices_t(grid, done_list, offset_list)...)
+    @show frontier_list#, offset_list
+    #@show done_list, grid
+    #return grid, reachable_by_action, reachable_by_flow
+
+    setup_time = time_ns()
+    aux_time_recoder = time_ns()
+    reachability_time = 0.0
+    shield_time = 0.0
+
+    #shield_count_cover = zeros(Int64, grid.numCells...)
+    shield_count_cover = zeros(Float64, cellshape(grid))
+
+    popped_actions = Set{Tuple{Int64,CartesianIndex{N}}}()
+    reach_dead = CartesianIndex{N}[] # cells found dead in the reachability loop (flow hits a constraint); grow the frontier from them when include_border_cells
+    # Maybe the way to determine when to switch granularity is by checking each cells shield_count_cover value
+    # This could atleast make sense for not fast_cells.
+    while shield_count < max_steps
+        if TIME_FUNCS
+            aux_time_recoder = time_ns()
+        end
+        for idx in frontier_list
+            if grid.deadCells[idx]
+                #println("Skipping dead cell: ", idx)
+                continue
+
+                #else
+                #@show "Processing cell: ", idx
+            end
+            if !fast_cells[idx]
+                count += 1
+                of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
+                LazySets.API.translate!(Z, of)
+                #@show Z, idx, of
+
+
+                ReACT_discretize_combine_with_offset_vector!(preallocated_center, preallocated_genmat, preallocated_inter_genmat, discretizationDict, of, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict)
+                #z, f = propagate_set(Z, [0.0, p], δ⁻, δ⁺, system, P2A_abs, phiDict, tPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
+
+                z, f = propagate_set_jumps(jump_reach, Z, discretizationDict)
+
+                if f != 1 #&& f != 3
+
+
+                    reachable_by_flow[idx] = get_touching_cell_idxs_lz(grid, z)
+
+
+                else
+                    grid.deadCells[idx] = true
+                    include_border_cells && push!(reach_dead, idx)
+                end
+
+                LazySets.API.translate!(Z, -of)
+                if count % 1000 == 0
+                    println(count)
+                    #GC.gc()
+                end
+            else
+                count += 1
+                fast_cell_center!(fast_center, max_flow, max_zonotope.center, grid, idx)
+
+                #reachable_by_flow[idx] = get_touching_cell_idxs_lz(grid, max_zonotope)
+                reachable_by_flow[idx] = get_touching_cell_idxs_cover(grid, fast_cover, fast_center)
+
+                if count % 1000 == 0
+                    println(count)
+                    #GC.gc()
+                end
+            end
+
+            #can_act = false
+            if may_act_matrix[idx]
+                for act in system.Act
+                    #@show size(get_touching_cell_idxs_l(grid, act.guard))
+                    if idx in may_act_dict[act.id]
+                        of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
+                        LazySets.API.translate!(Z, of)
+                        #touches_list = get_touching_cell_idxs(grid, z)
+                        #touches_list = get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
+                        #if !isempty(touches_list)
+                        #    reachable_by_action[(act, idx)] = copy(touches_list)
+                        #reachable_by_flow[idx] = get_touching_cell_idxs(grid, z)
+                        #end
+                        reachable_by_action[(act.id, idx)] = get_touching_cell_idxs_lz(grid, minkowski_sum(linear_map(max_flow, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector)), max_input))
+
+                        #if act.id == 1
+                        #@show get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector)), LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector)
+                        #reachable_by_action[(act.id, idx)] = get_touching_cell_idxs(grid, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector))
+                        #end
+                        if grid.deadCells[idx]
+                            grid.deadCells[idx] = false
+                        end
+                        LazySets.API.translate!(Z, -of)
+                    end
+                end
+            end
+            push!(done_list, idx)
+        end
+        if TIME_FUNCS
+            reachability_time += (time_ns()-aux_time_recoder)
+            aux_time_recoder = time_ns()
+        end
+        # TODO - Maybe this should be frontier_list with done_list subset difference with deadCells
+        _, la, ln, ld = shield_step!(grid.deadCells, done_list, can_act_matrix, no_action_bad_matrix, reachable_by_action, reachable_by_flow, system.Act, dims; popped_actions)
+        if shield_count % 5 == 0
+            println("$(max_steps - shield_count) : $(Dates.format(now(), "HH:MM:SS"))")
+        end
+        #@show can_act_matrix == trues(grid.numCells...)
+        if !isempty(ld)
+            for jdx in ld
+                if haskey(reachable_by_flow, jdx)
+                    #grid.deadCells[idx] = true 
+                    ndead = findall(grid.deadCells[reachable_by_flow[jdx]])
+                    shield_count_cover[jdx] = length(reachable_by_flow[jdx]) / length(ndead)#length(reachable_by_flow[idx]) / length(findall(grid.deadCells))
+                end
+            end
+        end
+        if length(la) == 0 && length(ln) == 0 && length(ld) == 0 && isempty(reach_dead)
+
+            println("Fixed point found after $(shield_count) shield steps!")
+            #grid.deadCells = dead´
+            if TIME_FUNCS
+                shield_time += (time_ns() - aux_time_recoder)
+            end
+            break
+        end
+        shield_count += 1
+        empty!(frontier_list)
+        # TODO - This is missing the cells where no_act_bad_matrix is true
+        #push!(frontier_list, grow_indices_t(grid, findall(grid.deadCells), offset_list)...)
+        removed_list::Vector{CartesianIndex{N}} = vcat(ln, ld, la, reach_dead)
+        empty!(reach_dead)
+        #@show removed_list
+        push!(frontier_list, grow_indices_t(grid, removed_list, offset_list)...)
+        #filter!(t -> !in(t, done_list), frontier_list)
+        setdiff!(frontier_list, done_list)
+        if TIME_FUNCS
+            shield_time += (time_ns() - aux_time_recoder)
+        end
+    end
+
+
+    #@show frontier_list
+    if TIME_FUNCS
+        println("Total times: 
+        Total: $((time_ns() - recorderTimeStart)/10^9)
+        Setup: $(setup_time / 10^9)
+        Reachability: $(reachability_time / 10^9) 
+        Shield: $(shield_time / 10^9)")
+        println("Shied steps: $shield_count")
+    end
+
+    #return grid, reachable_by_action, reachable_by_flow, fast_cells, shield_count_cover
+    return grid, reachable_by_action, reachable_by_flow, no_action_bad_matrix, shield_count_cover
+
+end
+=#
+#
+#   Right now this makes quite a bit of allocations.
+#   TODO - Needs a fix for determining the final reachset. Right now it is overapproximated and this is worse for large timestep sizes.
+#
+#=
+function propagate_set(X0, interval, δ⁻::Float64, δ⁺::Float64, system, Φ₂, constraintProjVectors, constraintProjBounds, guardProjVectors, guardProjBounds, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, invariantProjVectors, invariantProjBounds, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5)
+
+    discretizationDict = newReACTDiscretizePlus(X0, δ⁻, δ⁺, system.flowMatrix, Φ₂, PhiDict, inputDict, alg, maxOrder, reduceOrder)
+    time::Float64 = copy(minimum(interval))
+    endtime::Float64 = maximum(interval)
+    constraint = system.globalConstraints[1]
+    listOfEdges = system.edges
+
+
+
+    for edge in listOfEdges
+        invariant_projection_vectors = copy(invariantProjVectors)
+        invariant_projection_bounds = copy(invariantProjBounds)
+        guard_projection_vectors = copy(guardProjVectors)
+        guard_projection_bounds = copy(guardProjBounds)
+        constraint_projection_vectors = copy(constraintProjVectors)
+        constraint_projection_bounds = copy(constraintProjBounds)
+
+        #Sρ = zeros(Float64, length(constraintProjVectors))
+        #Gρ = zeros(Float64, length(guardProjVectors))
+        #Iρ = zeros(Float64, length(invarientProjVectors))
+
+        #   Compute the reachset closest to the guard without intersecting it and not reaching the unsafe set. 
+        reachtime, newSet, inputSet, flag = ReACT_guards_b(δ⁻, δ⁺, interval, system.statespace, edge.guard, guard_projection_vectors, guard_projection_bounds, constraint, constraint_projection_vectors, constraint_projection_bounds, invariant, invariant_projection_vectors, invariant_projection_bounds, 2, PhiDict, TPhiDict, discretizationDict, inputDict)
+
+
+        #
+        #   0: Didnt hit either constraint, guard or invariant
+        #   1: Hit constraint
+        #   2: Hit guard
+        #   3: Hit invariant surface
+        #
+        #@show flag, time, reachtime, newSet
+        if flag == 0
+            #@show time
+            #if time == 0.0
+            #    return (minkowski_sum(linear_map(max_flow, X0), max_input), 0)
+            #else
+            A_abs = abs.(system.flowMatrix)
+            max_input = linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, endtime - time, alg, false, nothing), system.input)
+
+            return (minkowski_sum(linear_map(exp((endtime - time) .* system.flowMatrix), X0), linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, endtime - time, alg, false, nothing), system.input)), 0)
+            #end
+        elseif flag == 1 # Hit constraint
+            #@show LazySets.API.isdisjoint(minkowski_sum(newSet, inputSet), system.globalConstraints[1]), newSet.center, flag, reachtime
+
+            return (nothing, 1)
+        elseif flag == 2
+            throw(error("Nope not happening"))
+            #@show inputSet
+            intersectingSetsList = ReACT_touches_set_constant_input(newSet, inputSet, edge.guard, δ⁻, [reachtime, endtime], PhiDict, inputDict)
+            tempIntersect = foldl(ConvexHull, intersectingSetsList)
+            intersectedSet = convert(Zonotope, box_approximation(tempIntersect))
+            jumpSet = linear_map(edge.jumpMatrix, zonotopeStripIntersection(intersectedSet, edge.guard))
+            if !isnothing(edge.jumpVector)
+                LazySets.translate!(jumpSet, edge.jumpVector)
+            end
+            #res = propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, PhiDict, TPhiDict, inputDict, alg, maxOrder, reduceOrder)
+            #@show res
+            return propagate_set(jumpSet, [reachtime, endtime], δ⁻, δ⁺, system, Φ₂, PhiDict, TPhiDict, inputDict, max_input, max_flow, invariant, alg, maxOrder, reduceOrder)
+        end
+        #@show LazySets.API.isdisjoint(minkowski_sum(newSet, inputSet), invariant), newSet.center, flag, reachtime
+        return (minkowski_sum(newSet, inputSet), 3)
+    end
+
+end
+=#
+include("ReACTedPropagate.jl")

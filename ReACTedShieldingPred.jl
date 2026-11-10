@@ -150,12 +150,12 @@ end
 
 # Same reachability as ReACTed_reachable_cell_online, but the shield is computed with the event-driven predecessor
 # relation above instead of repeated shield_step! sweeps. Returns the same tuple so it can be swapped in ShieldSandbox.jl.
-function ReACTed_reachable_cell_online_pred(system::EuclideanHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true, max_steps::Int64=100000; act_needs_safe_flow::Bool=true, include_border_cells::Bool=false)
-    return _ReACTed_reachable_cell_online_pred(Grid(system.statespace, granularity), system, p, granularity, δ⁻, δ⁺, alg, maxOrder, reduceOrder, clustering, max_steps, act_needs_safe_flow, include_border_cells)
+function ReACTed_reachable_cell_online_pred(system::EuclideanHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true, max_steps::Int64=100000; act_needs_safe_flow::Bool=true, include_border_cells::Bool=false, jump_hull::Bool=false)
+    return _ReACTed_reachable_cell_online_pred(Grid(system.statespace, granularity), system, p, granularity, δ⁻, δ⁺, alg, maxOrder, reduceOrder, clustering, max_steps, act_needs_safe_flow, include_border_cells; jump_hull)
 end
 
 # Function barrier: the body is compiled for the concrete Grid{N} and system type, so N can be used in type positions.
-function _ReACTed_reachable_cell_online_pred(grid::Grid{N}, system::EuclideanHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg, maxOrder::Int, reduceOrder::Int, clustering, max_steps::Int64, act_needs_safe_flow::Bool, include_border_cells::Bool) where N
+function _ReACTed_reachable_cell_online_pred(grid::Grid{N}, system::EuclideanHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg, maxOrder::Int, reduceOrder::Int, clustering, max_steps::Int64, act_needs_safe_flow::Bool, include_border_cells::Bool; jump_hull::Bool=false) where N
     @show foldl(*, grid.numCells), grid.numCells
     sweep_factor = 20
     TIME_FUNCS = true
@@ -169,6 +169,8 @@ function _ReACTed_reachable_cell_online_pred(grid::Grid{N}, system::EuclideanHyb
     A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(system.flowMatrix)
     Φcache = system.flowMatrix == A_abs ? phiDict[d] : nothing
     P2A_abs = ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, isInvA, Φcache)
+    jump_reach = JumpReach(system, p, δ⁻, δ⁺, phiDict, tPhiDict, inputDict, P2A_abs, alg, maxOrder, reduceOrder; jump_hull)
+    covers = CoverCache{N}()
 
     reachable_by_action = ActionRelation{N}()
     reachable_by_flow = FlowRelation{N}()
@@ -283,9 +285,9 @@ function _ReACTed_reachable_cell_online_pred(grid::Grid{N}, system::EuclideanHyb
                 of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
                 LazySets.API.translate!(Z, of)
                 ReACT_discretize_combine_with_offset_vector!(preallocated_center, preallocated_genmat, preallocated_inter_genmat, discretizationDict, of, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict)
-                z, f = propagate_set_t(Z, [0.0, p], δ⁻, δ⁺, system, grid, fast_cells, system.edges, identity_matrix, attempt_recorder, grid.dimension, P2A_abs, guardProjVectors, guardProjBounds, invariantProjVectors, invariantProjBounds, discretizationDict, phiDict, tPhiDict, inputDict, max_input, max_flow, guard_invariant_intersection, alg, maxOrder, reduceOrder)
+                z, f = propagate_set_jumps(jump_reach, Z, discretizationDict)
                 if f != 1
-                    flow_succ = get_touching_cell_idxs_lz(grid, z)
+                    flow_succ = get_touching_cell_idxs_lz(grid, z, covers)
                     reachable_by_flow[idx] = flow_succ
                 end
                 LazySets.API.translate!(Z, -of)
@@ -305,7 +307,7 @@ function _ReACTed_reachable_cell_online_pred(grid::Grid{N}, system::EuclideanHyb
                     of = lower_offset + ((car2vec(idx) .- 1) .* granularity)
                     LazySets.API.translate!(Z, of)
                     # This should propably check if the cells are fast_cells and use a precomputed max_ai_zonotope in the case that it is and actually propagate the set otherwise.
-                    succ = get_touching_cell_idxs_lz(grid, minkowski_sum(linear_map(max_flow, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector)), max_input))
+                    succ = get_touching_cell_idxs_lz(grid, minkowski_sum(linear_map(max_flow, LazySets.API.translate(linear_map(act.jumpMatrix, Z), act.jumpVector)), max_input), covers)
                     reachable_by_action[(act.id, idx)] = succ
                     act_succs[ai] = succ
                     LazySets.API.translate!(Z, -of)
@@ -348,13 +350,13 @@ function _ReACTed_reachable_cell_online_pred(grid::Grid{N}, system::EuclideanHyb
 
     act_bad = falses(cellshape(grid))
     for (ai, act) in enumerate(system.Act)
-        ActZonotope = remove_zero_generators(Zonotope(act.jumpVector, act.jumpMatrix*diagm(fill(granularity/2, grid.dimension))))
+        ActZonotope = remove_zero_generators(Zonotope(copy(act.jumpVector), act.jumpMatrix*diagm(fill(granularity/2, grid.dimension)))) # copy: translate! below would move the action's own jump vector
         for idx in findall(may_act[ai])
             if !s.computed[idx]
                 of = act.jumpMatrix*(lower_offset + ((car2vec(idx) .- 1) .* granularity))
 
                 LazySets.API.translate!(ActZonotope, of)
-                actSucc = get_touching_cell_idxs_lz(grid, ActZonotope)
+                actSucc = get_touching_cell_idxs_lz(grid, ActZonotope, covers)
                 resAct = any(i -> (!(s.computed[i]) ? false : s.dead[i]), actSucc)
                 resAct && (act_bad[idx] = true)
                 LazySets.API.translate!(ActZonotope, -of)
@@ -362,6 +364,9 @@ function _ReACTed_reachable_cell_online_pred(grid::Grid{N}, system::EuclideanHyb
         end
 
     end
+
+    action_ids = [a.id for a in system.Act]
+    allowed, lost = cell_choices(cellshape(grid), n_acts, s, (ai, k) -> may_act[ai][k], relation_acted(reachable_by_action, action_ids, CartesianIndices(s.dead)))
 
     if TIME_FUNCS
         println("Total times:
@@ -374,7 +379,7 @@ function _ReACTed_reachable_cell_online_pred(grid::Grid{N}, system::EuclideanHyb
 
 
 
-    return grid, reachable_by_action, reachable_by_flow, s.flow_bad, act_bad, shield_count_cover
+    return grid, allowed, lost, (; act_bad, shield_count_cover)
 end
 
 @inline function count_ones_at(m::BitArray, idxs)

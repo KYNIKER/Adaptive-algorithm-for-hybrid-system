@@ -121,6 +121,7 @@ struct ModalContext{D,N,S}
     identity_matrix::Matrix{Float64}
     center::Vector{Float64}
     max_depth::Int
+    covers::CoverCache{D}
 end
 
 const MODAL_TOL = 1e-9
@@ -206,17 +207,29 @@ function clock_after_jump(lo::Vector{Float64}, hi::Vector{Float64}, guard, M::Ma
     return lo′, hi′
 end
 
-# True if the set at the shortest or longest remaining time is outside the state space. A set still touching a guard does not count, since the part beyond the guard has jumped.
+# True if the set at the shortest or longest remaining time leaves the state space. These sets are flowed without jumps,
+# so states that jumped appear in them as if they had not:
+#   - a face a ⋅ x <= b that a guard of the location borders (the guard has the halfspace -a ⋅ x <= -b, such as the wrap
+#     at t = 20) is skipped: beyond it are only states that jumped, and the bloat of the sets around the jump. This assumes
+#     a state can only cross such a face inside that guard.
+#   - beyond any other face, a part inside a guard has jumped too; any other part has left.
 # Tracked clock axes use their exact interval: X may have been clipped to a guard, and that clip is not exact, so after a jump it can sit slightly outside on such an axis without any state being there.
 function left_statespace(ctx::ModalContext, loc::ModalLocationData, X, D::Int, total::Int, lo::Vector{Float64}, hi::Vector{Float64})
     dyn = loc.dynamics
-    for k in (D, total)
+    for k in unique((D, total))
         final = minkowski_sum(linear_map(dyn.Φ[k+1], X), dyn.V[k+1])
-        any(guard -> someinside(final, guard...), loc.guards) && continue
         for (a, b) in zip(ctx.statespace...)
+            any(((v, w),) -> any(i -> isapprox(v[i], -a; atol=MODAL_TOL) && isapprox(w[i], -b; atol=MODAL_TOL), eachindex(v)), loc.guards) && continue
             axis = findfirst(!iszero, a)
-            value = isnan(lo[axis]) ? ρ(a, final) : (a[axis] > 0 ? a[axis] * hi[axis] : a[axis] * lo[axis])
-            value > b + MODAL_TOL && return true
+            tracked = !isnan(lo[axis])
+            value = tracked ? (a[axis] > 0 ? a[axis] * hi[axis] : a[axis] * lo[axis]) : ρ(a, final)
+            value > b + MODAL_TOL || continue
+            beyond = clip_to_guard(final, ([-a], [-b]))
+            if beyond === nothing
+                tracked && return true # the interval is exact, the set is not
+                continue
+            end
+            any(guard -> allunder(beyond, guard...), loc.guards) || return true
         end
     end
     return false
@@ -233,8 +246,9 @@ function modal_reach!(out::Vector{ModalEndSet}, ctx::ModalContext, li::Int, X, D
     end
     loc = ctx.locations[li]
     dyn = loc.dynamics
-    disc = newReACTDiscretizePlus(X, ctx.δ⁻, ctx.δ⁺, dyn.A, dyn.P2A_abs, dyn.phiDict, dyn.inputDict, ctx.alg, ctx.maxOrder, ctx.reduceOrder)
-    k0 = first_touch(dyn, disc, Iterators.flatten((loc.guards, ctx.unsafe)), total, ctx.δ⁻, ctx.δ⁺, ctx.identity_matrix)
+    δ⁺ = min(ctx.δ⁺, ctx.δ⁻ * 2^floor(Int, log2(total))) # no step longer than the time left
+    disc = newReACTDiscretizePlus(X, ctx.δ⁻, δ⁺, dyn.A, dyn.P2A_abs, dyn.phiDict, dyn.inputDict, ctx.alg, ctx.maxOrder, ctx.reduceOrder)
+    k0 = first_touch(dyn, disc, Iterators.flatten((loc.guards, ctx.unsafe)), total, ctx.δ⁻, δ⁺, ctx.identity_matrix)
 
     # Pieces from the first touch on, and the pieces that end the period when the time left varies.
     for k in min(k0, W == 0 ? total : D):total-1
@@ -350,7 +364,7 @@ function _ModalContext(grid::Grid{D}, ::Val{N}, system, p::Float64, δ⁻, δ⁺
         end
     end
 
-    return ModalContext{D,N,typeof(system)}(system, grid, steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder, locations, unsafe, statespace, cell_generators, action_ids, may_act, maximum(loc.layer for loc in system.locations), identity_matrix, zeros(D), max_depth)
+    return ModalContext{D,N,typeof(system)}(system, grid, steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder, locations, unsafe, statespace, cell_generators, action_ids, may_act, maximum(loc.layer for loc in system.locations), identity_matrix, zeros(D), max_depth, CoverCache{D}())
 end
 
 function cell_locations(ctx::ModalContext{D}, layer::Int, c::CartesianIndex{D}) where D
@@ -380,7 +394,7 @@ function append_touching!(res::Vector{CartesianIndex{N}}, ctx::ModalContext{D,N}
                 c[i] = grid.lower[i] + 10 * MODAL_TOL
             end
         end
-        for cell in get_touching_cell_idxs_lz(grid, Zonotope(c, G))
+        for cell in get_touching_cell_idxs_lz(grid, Zonotope(c, G), ctx.covers)
             if cell_in_clock_intervals(grid, cell, e.lo, e.hi)
                 push!(res, CartesianIndex(cell, ctx.locations[e.location].layer))
             end
@@ -503,7 +517,9 @@ end
 # include_border_cells also starts the online search from the border of the grid, for when leaving the state space should count as unsafe.
 # With exit_bad_for_actions = false an action may leave the state space, and only its successors inside the grid count, as in ReACTed_reachable_cell_online_pred.
 # action_reach computes the successors of an action, and anytime_predecessors says whether it can act after some flow (see ReACTedShieldingContinuous.jl).
-# Returns the continuous grid, the action and flow relations, the cells where not acting is unsafe, and the dead cells. The last two and the relations are indexed by (continuous cell..., layer).
+# Returns grid, allowed, lost, info like every shield (see choice_bits in ReACTedShieldingFlat.jl). grid is the continuous
+# grid; allowed and lost are indexed by (continuous cell..., layer), and a cell is dead in a layer where allowed is 0.
+# A cell is enabled for an action when every location covering it offers the action there. info.ctx is the context.
 function ReACTed_reachable_cell_modal(system::ModalHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5; online::Bool=false, include_border_cells::Bool=false, act_needs_safe_flow::Bool=true, exit_bad_for_actions::Bool=true, sweep_factor=20, max_depth::Int=16, action_reach=action_successors, anytime_predecessors::Bool=false)
     recorderTimeStart = time_ns()
     ctx = ModalContext(system, p, Float64(granularity), δ⁻, δ⁺, alg, maxOrder, reduceOrder, sweep_factor, max_depth)
@@ -596,5 +612,12 @@ function _ReACTed_reachable_cell_modal(ctx::ModalContext{D,N}, online::Bool, inc
         Reachability: $(reachability_time / 10^9)
         Shield: $(shield_time / 10^9)")
     println("Rounds: $rounds, cells computed: $count_cells, dead: $(count(s.dead))")
-    return grid, reachable_by_action, reachable_by_flow, s.flow_bad, s.dead
+    cells = CartesianIndices(shape)
+    function enabled(ai, k)
+        c = CartesianIndex(ntuple(i -> cells[k][i], D))
+        locs = cell_locations(ctx, cells[k][N], c)
+        return !isempty(locs) && all(li -> ctx.may_act[li][ai][c], locs)
+    end
+    allowed, lost = cell_choices(shape, n_acts, s, enabled, relation_acted(reachable_by_action, ctx.action_ids, cells))
+    return grid, allowed, lost, (; ctx)
 end

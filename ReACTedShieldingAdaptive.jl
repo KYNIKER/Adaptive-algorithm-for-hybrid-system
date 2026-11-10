@@ -99,26 +99,6 @@ end
 child_cells(c::CartesianIndex{N}, factor::NTuple{N,Int}) where N =
     CartesianIndices(ntuple(i -> ((c[i]-1)*factor[i]+1):(c[i]*factor[i]), N))
 
-# Everything level-independent that the reachability computations need.
-function adaptive_shared(system::EuclideanHybridSystem, p, δ⁻::Float64, δ⁺::Float64, alg, maxOrder::Int, reduceOrder::Int, ::Val{N}) where N
-    phiDict, tPhiDict, inputDict = phi_input_dict(system.flowMatrix, system.input, δ⁻, δ⁺, alg, maxOrder, reduceOrder)
-    A = system.flowMatrix
-    isInvA = isinvertible(A)
-    A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(A)
-    Φcache = A == A_abs ? phiDict[δ⁻] : nothing
-    P2A_abs = ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, isInvA, Φcache)
-    invariant = hyperrectangle_to_HPolyhedron(system.statespace)
-    U = system.input
-    max_input = linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, p, alg, false, nothing), U)
-    max_flow = exp(p .* A)
-    guardProjVectors, guardProjBounds = getHalfSpaceProjections(system.edges[1].guard)
-    invariantProjVectors, invariantProjBounds = getHalfSpaceProjections(invariant)
-    guard_invariant_intersection = intersection(system.edges[1].guard, invariant)
-    return (; p=Float64(p), δ⁻, δ⁺, alg, maxOrder, reduceOrder, phiDict, tPhiDict, inputDict, A, P2A_abs, U, max_input, max_flow,
-        guardProjVectors, guardProjBounds, invariantProjVectors, invariantProjBounds, guard_invariant_intersection,
-        identity_matrix=diagm(ones(N)), attempt_recorder=zeros(4), center=zeros(N))
-end
-
 # Per-level reachability data (as set up in ReACTed_reachable_cell_t for a uniform grid of this granularity).
 function adaptive_level(system::EuclideanHybridSystem, sh, grid0::Grid{N}, l::Int, L::Int, factor::NTuple{N,Int}, sweep_factor::Int) where N
     grid = level_grid(grid0, l, factor)
@@ -174,16 +154,16 @@ struct AdaptiveContext{N,S,SH,LV}
     L::Int
 end
 
-function AdaptiveContext(system::EuclideanHybridSystem, p, max_granularity::Float64, L::Int, δ⁻::Float64, δ⁺::Float64, alg, maxOrder::Int, reduceOrder::Int, sweep_factor::Int)
+function AdaptiveContext(system::EuclideanHybridSystem, p, max_granularity::Float64, L::Int, δ⁻::Float64, δ⁺::Float64, alg, maxOrder::Int, reduceOrder::Int, sweep_factor::Int; jump_hull::Bool=false)
     grid0 = Grid(system.statespace, max_granularity)
-    return _AdaptiveContext(grid0, system, p, L, δ⁻, δ⁺, alg, maxOrder, reduceOrder, sweep_factor)
+    return _AdaptiveContext(grid0, system, p, L, δ⁻, δ⁺, alg, maxOrder, reduceOrder, sweep_factor; jump_hull)
 end
 
 # Function barrier on Grid{N}
-function _AdaptiveContext(grid0::Grid{N}, system, p, L, δ⁻, δ⁺, alg, maxOrder, reduceOrder, sweep_factor) where N
+function _AdaptiveContext(grid0::Grid{N}, system, p, L, δ⁻, δ⁺, alg, maxOrder, reduceOrder, sweep_factor; jump_hull::Bool=false) where N
     zero_width = low(system.statespace) .== high(system.statespace)
     factor = ntuple(i -> zero_width[i] ? 1 : 2, N)
-    sh = adaptive_shared(system, p, δ⁻, δ⁺, alg, maxOrder, reduceOrder, Val(N))
+    sh = reach_setup(system, p, δ⁻, δ⁺, alg, maxOrder, reduceOrder, Val(N); jump_hull)
     levels = [adaptive_level(system, sh, grid0, l, L, factor, sweep_factor) for l in 0:L]
     return AdaptiveContext(system, sh, levels, factor, AdaptiveLeaves{N}(L), L)
 end
@@ -228,7 +208,7 @@ function compute_leaf!(ctx::AdaptiveContext{N}, id::Int32) where N
         lev.pg .= 0
         lev.pig .= 0
         ReACT_discretize_combine_with_offset_vector!(lev.pc, lev.pg, lev.pig, lev.discretizationDict, of, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, lev.generatorDict)
-        z, f = propagate_set_t(lev.Z, [0.0, sh.p], δ⁻, δ⁺, sys, lev.grid, lev.fast, sys.edges, sh.identity_matrix, sh.attempt_recorder, N, P2A_abs, sh.guardProjVectors, sh.guardProjBounds, sh.invariantProjVectors, sh.invariantProjBounds, lev.discretizationDict, phiDict, tPhiDict, inputDict, max_input, max_flow, sh.guard_invariant_intersection, sh.alg, sh.maxOrder, sh.reduceOrder)
+        z, f = propagate_set_jumps(sh.jump_reach, lev.Z, lev.discretizationDict)
         LazySets.API.translate!(lev.Z, -of)
         if f == 1
             leaves.flow_none[id] = true
@@ -337,20 +317,6 @@ function adaptive_shield(leaves::AdaptiveLeaves; act_needs_safe_flow::Bool=true,
         end
     end
     return dead, order
-end
-
-# Cells of the finest level covered by active leaves whose flag is set (e.g. dead), expanding each leaf to the finest
-# cells it covers.
-function finest_dead(ctx::AdaptiveContext{N}, dead::BitVector) where N
-    leaves = ctx.leaves
-    out = falses(cellshape(ctx.levels[end].grid))
-    for id in eachindex(leaves.level)
-        (leaves.active[id] && dead[id]) || continue
-        k = ctx.L - leaves.level[id]
-        c = leaves.cell[id]
-        out[ntuple(i->((c[i]-1)*ctx.factor[i]^k+1):(c[i]*ctx.factor[i]^k), N)...] .= true
-    end
-    return out
 end
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -537,33 +503,13 @@ function dead_volume(ctx::AdaptiveContext{N}, dead::AbstractVector{Bool}) where 
     return v
 end
 
-# Results in the format of the uniform algorithms, on the finest grid: a Grid whose deadCells are the cells covered by
-# dead leaves, the action and flow successor relations of the computed leaves (keyed by leaf id as CartesianIndex{1},
-# since leaves have different sizes), the cells where not acting is unsafe, and the shield cover matrix
-# (successors / dead successors of dead leaves, as in ReACTed_reachable_cell_online).
-function adaptive_outputs(ctx::AdaptiveContext{N}, dead::BitVector, s::OnlinePredShieldState{1}) where N
+# What each finest cell allows and lost (see choice_bits in ReACTedShieldingFlat.jl). A leaf is enabled for an action
+# when it touches the guard on its level.
+function adaptive_allowed(ctx::AdaptiveContext{N}, s::OnlinePredShieldState{1}) where N
     leaves = ctx.leaves
-    fine = ctx.levels[end].grid
-    grid = Grid(N, fine.granularity, copy(fine.lower), copy(fine.upper), copy(fine.numCells), finest_dead(ctx, dead))
-    no_action_bad_matrix = finest_dead(ctx, BitVector(s.flow_bad))
-    shield_count_cover = zeros(Float64, cellshape(fine))
-    reachable_by_action = ActionRelation{1}()
-    reachable_by_flow = FlowRelation{1}()
-    for id in Int32(1):Int32(length(leaves.level))
-        (leaves.active[id] && s.computed[id] && !is_constraint_leaf(ctx, id)) || continue
-        if !leaves.flow_none[id]
-            reachable_by_flow[LeafIdx(id)] = LeafIdx.(leaves.flow[id])
-            if dead[id]
-                k = ctx.L - leaves.level[id]
-                c = leaves.cell[id]
-                shield_count_cover[ntuple(i->((c[i]-1)*ctx.factor[i]^k+1):(c[i]*ctx.factor[i]^k), N)...] .= id# length(leaves.flow[id]) / max(1, count(v -> dead[v], leaves.flow[id]))
-            end
-        end
-        for (ai, act) in enumerate(ctx.system.Act)
-            leaves.act_enabled[id][ai] && (reachable_by_action[(act.id, LeafIdx(id))] = LeafIdx.(leaves.act[id][ai]))
-        end
-    end
-    return grid, reachable_by_action, reachable_by_flow, no_action_bad_matrix, shield_count_cover
+    enabled = (ai, id) -> ctx.levels[leaves.level[id]+1].may_act[ai][leaves.cell[id]]
+    acted = (ai, id) -> !isempty(leaves.act[id][ai])
+    return leaf_choices(cellshape(ctx.levels[end].grid), length(ctx.system.Act), leaves, ctx.L, ctx.factor, s, enabled, acted)
 end
 
 # Adaptive online shield synthesis. Computes the online shield at max_granularity (level 0, exactly as
@@ -572,13 +518,12 @@ end
 # cascade, which calibration showed is where finer cells revive states), recomputes what changed and continues the
 # exploration. Refinement stops when nothing is left to split, after `patience` consecutive rounds that revive nothing
 # (no decrease in dead volume), or after max_steps rounds.
-# Returns the same values as ReACTed_reachable_cell_online_adaptive, on the finest grid (see adaptive_outputs), and
-# the context with all leaves as a sixth value. on_round(ctx, dead, round, leaf_computations) is called after every
-# round, e.g. for experiments.
-function ReACTed_reachable_cell_adaptive(system::EuclideanHybridSystem, p, max_granularity, granularity_steps::Int64, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true, max_steps::Int64=1000; include_border_cells::Bool=false, refine_fraction::Float64=0.4, patience::Int=1, act_needs_safe_flow::Bool=true, sweep_factor::Int=20, on_round=(ctx, dead, r, computed) -> nothing)
+# Returns grid, allowed, lost, info like every shield (see choice_bits), on the finest grid, with the context as
+# info.ctx. on_round(ctx, dead, round, leaf_computations) is called after every round, e.g. for experiments.
+function ReACTed_reachable_cell_adaptive(system::EuclideanHybridSystem, p, max_granularity, granularity_steps::Int64, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true, max_steps::Int64=1000; include_border_cells::Bool=false, refine_fraction::Float64=0.4, patience::Int=1, act_needs_safe_flow::Bool=true, sweep_factor::Int=20, on_round=(ctx, dead, r, computed) -> nothing, jump_hull::Bool=false)
     recorderTimeStart = time_ns()
     TIME_FUNCS = true
-    ctx = AdaptiveContext(system, p, Float64(max_granularity), granularity_steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder, sweep_factor)
+    ctx = AdaptiveContext(system, p, Float64(max_granularity), granularity_steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder, sweep_factor; jump_hull)
     fine = ctx.levels[end].grid
     @show foldl(*, fine.numCells), fine.numCells, fine.granularity, size(ctx.levels)
     setup_time = time_ns()
@@ -633,5 +578,8 @@ function ReACTed_reachable_cell_adaptive(system::EuclideanHybridSystem, p, max_g
 
     #@show ctx.leaves #, size(ctx.levels[1])
 
-    return adaptive_outputs(ctx, dead, s)..., ctx
+    allowed, lost = adaptive_allowed(ctx, s)
+    fine = ctx.levels[end].grid
+    grid = Grid(length(fine.numCells), fine.granularity, copy(fine.lower), copy(fine.upper), copy(fine.numCells), allowed .== 0)
+    return grid, allowed, lost, (; ctx)
 end

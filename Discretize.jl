@@ -241,6 +241,36 @@ function newReACTDiscretizePlus(X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Floa
 end
 =#
 
+# overapproximate(CH(Z1, Z2), Zonotope) for two zonotopes, written out: the same arithmetic as LazySets' default ("mean",
+# Girard 2005) algorithm, so the same zonotope, without its temporaries. Always returns a new zonotope.
+function zonotope_hull(Z1::Zonotope, Z2::Zonotope)
+    m1, m2 = ngens(Z1), ngens(Z2)
+    if m1 < m2
+        Z2 = reduce_order(Z2, max(1, m1))
+    elseif m1 > m2
+        Z1 = reduce_order(Z1, max(1, m2))
+    end
+    if ngens(Z2) > ngens(Z1)
+        Z1, Z2 = Z2, Z1
+    end
+    c1, c2 = LazySets.center(Z1), LazySets.center(Z2)
+    G1, G2 = genmat(Z1), genmat(Z2)
+    n, k1, k2 = length(c1), size(G1, 2), size(G2, 2)
+    G = Matrix{Float64}(undef, n, k1 + k2 + 1)
+    col = 0
+    # Columns in LazySets' order: (G1 + G2) / 2, (c1 - c2) / 2, (G1 - G2) / 2 over the first k2 generators, then the rest of G1. Zero columns are dropped.
+    for part in 1:4, j in (part == 2 ? (1:1) : part == 4 ? (k2+1:k1) : (1:k2))
+        nonzero = false
+        @inbounds for i in 1:n
+            x = part == 1 ? (G1[i, j] + G2[i, j]) / 2 : part == 2 ? (c1[i] - c2[i]) / 2 : part == 3 ? (G1[i, j] - G2[i, j]) / 2 : G1[i, j]
+            G[i, col+1] = x
+            nonzero |= !iszero(x)
+        end
+        col += nonzero
+    end
+    return Zonotope((c1 + c2) / 2, col == size(G, 2) ? G : G[:, 1:col])
+end
+
 function newReACTDiscretizePlus(X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Float64, δ⁺::Float64, A, P2A_absp, phiDict, inputDiscritezationDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}
     d = copy(δ⁻)
     discritezationDictp = Dict{Float64,Zonotope{N,Vector{N},Matrix{N}}}()
@@ -254,7 +284,7 @@ function newReACTDiscretizePlus(X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Floa
     #dia::Matrix{Float64} = diagm(δ⁻ * ones(XDim))
     #@show LazySets.order(X0)
     #@show LazySets.order(remove_zero_generators(f))
-    disc = overapproximate(CH(X0, f), Zonotope; algorithm="mean") # overapproximate(CH(X0, minkowski_sum(f, PZ)), Zonotope) #
+    disc = f isa Zonotope ? zonotope_hull(X0, f) : overapproximate(CH(X0, f), Zonotope; algorithm="mean") # overapproximate(CH(X0, minkowski_sum(f, PZ)), Zonotope) #
     #disc = overapproximate(CH(X0, f), Zonotope) # overapproximate(CH(X0, minkowski_sum(f, PZ)), Zonotope) #
     #@show disc
     while d < δ⁺
@@ -269,7 +299,7 @@ function newReACTDiscretizePlus(X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Floa
         =#
         #@show inputDiscritezationDict[d]
         rs = minkowski_sum(linear_map(phiDict[d], disc), inputDiscritezationDict[d])
-        disc = copy(overapproximate(CH(disc, rs), Zonotope))
+        disc = zonotope_hull(disc, rs)
 
         d = d * 2
     end

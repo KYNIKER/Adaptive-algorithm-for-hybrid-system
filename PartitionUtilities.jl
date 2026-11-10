@@ -886,6 +886,27 @@ function get_touching_cell_idxs_lz(grid::Grid{N}, convexSet::Zonotope{Float64,Ve
     return get_touching_cell_idxs_cover(grid, ConstantZonotopeCover(bloated, radius, Val(N)), convexSet.center)
 end
 
+# Covers by their generator matrix (the set's nonzero generators and the half-cell bloat), so sets that only differ by a
+# translation share one. Emptied when it reaches MAX_CACHED_COVERS.
+const CoverCache{N} = Dict{Matrix{Float64},ConstantZonotopeCover{N}}
+const MAX_CACHED_COVERS = 100_000
+
+# get_touching_cell_idxs_lz with the cover taken from, or added to, covers. Gives the same cells.
+function get_touching_cell_idxs_lz(grid::Grid{N}, convexSet::Zonotope{Float64,Vector{Float64},Matrix{Float64}}, covers::CoverCache{N}) where N
+    G = genmat(convexSet)
+    nonzero = [j for j in axes(G, 2) if any(!iszero, view(G, :, j))]
+    if cover_facet_pairs(length(nonzero) + N, N) > MAX_COVER_FACET_PAIRS
+        return get_touching_cell_idxs_lz_lp(grid, convexSet)
+    end
+    bloated = hcat(G[:, nonzero], Matrix((grid.granularity / 2) * I, N, N))
+    cov = get(covers, bloated, nothing)
+    if cov === nothing
+        length(covers) >= MAX_CACHED_COVERS && empty!(covers)
+        cov = covers[bloated] = ConstantZonotopeCover(bloated, ntuple(i -> sum(abs, view(G, i, :)), N), Val(N))
+    end
+    return get_touching_cell_idxs_cover(grid, cov, convexSet.center)
+end
+
 function get_touching_cell_idxs_lz_lp(grid::Grid{N}, convexSet::Zonotope{Float64,Vector{Float64},Matrix{Float64}}) where N
     touching_cell_idxs::Vector{CartesianIndex{N}} = CartesianIndex{N}[]
 

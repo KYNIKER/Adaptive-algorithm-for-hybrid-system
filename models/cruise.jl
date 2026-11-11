@@ -49,6 +49,7 @@ function loadCruiseControl()
     ])
 
     speedlimit_ego = intersection(minspeedlimit_ego, maxspeedlimit_ego)
+    speedlimit_front = intersection(minspeedlimit_front, maxspeedlimit_front)
 
     layers = [(EGO_NEUTRAL_FRONT_NEUTRAL, 0, 0),
         (EGO_NEUTRAL_FRONT_ACCELERATE, 0, 1),
@@ -83,21 +84,41 @@ function loadCruiseControl()
     locations = ModalLocation[]
     dia = diagm(ones(dims))
     for (i, eg, fr) in layers
+        actions = modalAction[]
+        edges = []
         Al = copy(A)
         Al[v_ego] = eg * 2.0
         Al[v_front] = fr * 2.0
+        if eg == 0 && fr == 0
 
-        edges = []
 
-        eg > 0 && push!(edges, Edge(lookupDict(0, fr), maxspeedlimit_ego, dia, zeros(dims)))
-        eg < 0 && push!(edges, Edge(lookupDict(0, fr), minspeedlimit_ego, dia, zeros(dims)))
-        fr > 0 && push!(edges, Edge(lookupDict(eg, 0), maxspeedlimit_front, dia, zeros(dims)))
-        fr < 0 && push!(edges, Edge(lookupDict(eg, 0), minspeedlimit_front, dia, zeros(dims)))
-        actions = modalAction[]
-        for j in -1:1:1
-            j == eg && continue
-            push!(actions, Action(lookupDict(j, fr), speedlimit_ego), dia, zeros(dims))
+
+            eg > 0 && push!(edges, Edge(lookupDict(0, fr), maxspeedlimit_ego, dia, zeros(dims)))
+            eg < 0 && push!(edges, Edge(lookupDict(0, fr), minspeedlimit_ego, dia, zeros(dims)))
+            fr > 0 && push!(edges, Edge(lookupDict(eg, 0), maxspeedlimit_front, dia, zeros(dims)))
+            fr < 0 && push!(edges, Edge(lookupDict(eg, 0), minspeedlimit_front, dia, zeros(dims)))
+            for j in -1:1:1
+                j == 0 && continue
+                push!(actions, Action(lookupDict(0, j), speedlimit_ego), dia, zeros(dims))
+            end
+        else
+
+
+
+
+            eg > 0 && push!(edges, Edge(lookupDict(0, fr), maxspeedlimit_ego, dia, zeros(dims)))
+            eg < 0 && push!(edges, Edge(lookupDict(0, fr), minspeedlimit_ego, dia, zeros(dims)))
+            fr > 0 && push!(edges, Edge(lookupDict(eg, 0), maxspeedlimit_front, dia, zeros(dims)))
+            fr < 0 && push!(edges, Edge(lookupDict(eg, 0), minspeedlimit_front, dia, zeros(dims)))
+
+            if fr == 0
+                for j in -1:1:1
+                    j == fr && continue
+                    push!(actions, Action(lookupDict(eg, j), speedlimit_ego), dia, zeros(dims))
+                end
+            end
         end
+        push!(locations, ModalLocation(i, nothing, Al, zero_input, edges, actions))
     end
     #edges::Vector{Edge} = [Edge(1, guard, jumpMatrix, zeros(3))]
     #constraint = LazySets.API.intersection(constraint, S)
@@ -109,5 +130,5 @@ function loadCruiseControl()
 
     T = 1.0
 
-    return H, T
+    return ModalHybridSystem(S, constraint, locations), T
 end

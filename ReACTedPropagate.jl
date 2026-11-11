@@ -118,6 +118,7 @@ function reach_jumps!(out::Vector{DenseZonotope}, jr::JumpReach, X, disc, D::Int
     klast = jr.jump_hull ? fill(-1, length(jr.guards)) : nothing
     all_jumped = false
     # Pieces from the first touch on, and the pieces that end the period when the time left varies
+    #push!(out, minkowski_sum(linear_map(jr.Φ[k0], disc[jr.δ⁻]), jr.V[k0]))
     for k in min(k0, W==0 ? total : D):(total-1)
         piece = minkowski_sum(linear_map(jr.Φ[k+1], disc[jr.δ⁻]), jr.V[k+1])
         if k >= k0
@@ -127,7 +128,8 @@ function reach_jumps!(out::Vector{DenseZonotope}, jr::JumpReach, X, disc, D::Int
                 clipped === nothing && continue
                 all_jumped = all_jumped || allunder(piece, guard...)
                 if jr.jump_hull
-                    h = hulls[gi] === nothing ? clipped : zonotope_hull(hulls[gi], clipped)
+                    #h = hulls[gi] === nothing ? clipped : zonotope_hull(hulls[gi], clipped)
+                    h = k == k0 ? zonotope_hull(minkowski_sum(linear_map(jr.Φ[k0], disc[jr.δ⁻]), jr.V[k0]), clipped) : zonotope_hull(hulls[gi], clipped)
                     jr.maxOrder > 0 && LazySets.order(h) > jr.maxOrder && (h = reduce_order(h, jr.reduceOrder))
                     hulls[gi] = dense_zonotope(h)
                     kfirst[gi] = min(kfirst[gi], k)
@@ -145,13 +147,20 @@ function reach_jumps!(out::Vector{DenseZonotope}, jr::JumpReach, X, disc, D::Int
         W > 0 && k >= D && push!(out, piece)
     end
     if jr.jump_hull
+        #push!(out, collect(clip_to_polyhedron(hulls[gi], guard) for (gi, guard) in enumerate(jr.guards) if hulls[gi] !== nothing)...)
         for (gi, (M, j)) in enumerate(jr.jumps)
             hulls[gi] === nothing && continue
             # A state in the hull has spent between kfirst and klast + 1 steps
             D′ = max(D - klast[gi] - 1, 0)
             W′ = total - kfirst[gi] - D′
-            reach_jumps!(out, jr, jump_set(hulls[gi], M, j, jr.maxOrder, jr.reduceOrder), nothing, D′, W′, depth + 1) || return false
+            #@show D′, W′, kfirst[gi], klast[gi], total
+            #push!(out, hulls[gi])
+            # TODO - Determine whether the hull needs to get bloated by Phi2 
+            reach_jumps!(out, jr, jump_set(zonotope_hull(minkowski_sum(linear_map(jr.Φ[k0], X), jr.V[k0]), minkowski_sum(linear_map(jr.Φ[klast[gi]+1], X), jr.V[klast[gi]+1])), M, j, jr.maxOrder, jr.reduceOrder), nothing, total-kfirst[gi]-1, 1, depth + 1) || return false
+            #reach_jumps!(out, jr, jump_set(hulls[gi], M, j, jr.maxOrder, jr.reduceOrder), nothing, D′+W′-1, 1, depth + 1) || return false
+            #reach_jumps!(out, jr, jump_set(hulls[gi], M, j, jr.maxOrder, jr.reduceOrder), nothing, total-kfirst[gi]-1, 1, depth + 1) || return false
         end
+        #@show size(out)
     end
     all_jumped && return true
     # The sets at the shortest and longest time left are flowed without jumps, so states that jumped appear in them as if

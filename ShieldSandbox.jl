@@ -52,15 +52,27 @@ close(f)
 #@allocations ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 
 #grid, act_set, no_act_set, no_act_bad_matrix = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-#@time grid, act_set, no_act_set, no_act_bad_matrix, shield_cover_matrix = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+@time _, _, _, online_info = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+@time grid, allowed, lost, info = ReACTed_reachable_cell_t(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+
 # Event-driven predecessor version, compared against the shield_step! version above.
-@time grid, act_set, no_act_set, no_act_bad_matrix, act_bad_matrix, shield_cover_matrix = ReACTed_reachable_cell_online_pred(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+@time _, _, _, _ = ReACTed_reachable_cell_online_pred(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 #@show count(grid.deadCells), count(grid_p.deadCells), count(grid.deadCells .⊻ grid_p.deadCells)
 #VSCodeServer.@profview _, _, _ = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-#@time grid, act_set, no_act_set, no_act_bad_matrix, shield_cover_matrix, ctx = ReACTed_reachable_cell_adaptive(euclideanHybridSystem, timePeriod, granularity, 2, δ⁻, 2^5 * δ⁻, patience=1)
+#@time grid, allowed, lost, info = ReACTed_reachable_cell_adaptive(euclideanHybridSystem, timePeriod, granularity, 2, δ⁻, 2^5 * δ⁻, patience=1)
+
+#include("ReACTedShieldingAdaptiveFast.jl")
+#@time grid, allowed, lost, info = ReACTed_reachable_cell_adaptive_fast(euclideanHybridSystem, timePeriod, granularity, 1, δ⁻, 2^5 * δ⁻, patience=0)
+#can_wait = (allowed .& 0x01) .!= 0
+#can_act(ai) = ((allowed .>> ai) .& 0x01) .!= 0   # ai is the position in Act
+
+include("ReACTedShieldingPredFast.jl")
+# Every shield returns grid, allowed, lost, info (see choice_bits in ReACTedShieldingFlat.jl); info holds what only that shield has, here info.act_bad and info.shield_count_cover
+#@time grid, allowed, lost, info = ReACTed_reachable_cell_online_pred_fast(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^4 * δ⁻; jump_hull=true)
 shield = grid
+
 #grid = grid_p
-display(plot(heatmap(transpose(shield_cover_matrix))))
+#display(plot(heatmap(transpose(shield_cover_matrix))))
 #throw(error("womop"))
 #@show grid.deadCells# == trues(grid.numCells...)
 
@@ -135,23 +147,15 @@ if make_plot
         # end
 
         #push!(noAct, zonotopeArray3d[idx])
-        if !no_act_bad_matrix[idx] # || !haskey(no_act_set, idx)
-            #push!(invalid_cells, idx)
+        heatmap_matrix[idx] = allowed[idx]
+        if (allowed[idx] .& 0x01) .!= 0
             heatmap_matrix[idx] = 1
-            #push!(unsafe, zonotopeArray3d[idx])
-            #elseif act_bad_matrix[idx]
-            #    heatmap_matrix[idx] = 3
-        else
-            heatmap_matrix[idx] = 2
         end
-        if act_bad_matrix[idx] #|| !haskey(act_set, idx)
+
+        if allowed[idx] == 1 && lost[idx] > 1
             heatmap_matrix[idx] = 3
-        end
-        if shield.deadCells[idx] #|| (no_act_bad_matrix[idx] && act_bad_matrix[idx])
-            heatmap_matrix[idx] = 0
-            #push!(unsafe, zonotopeArray3d[cell.id])
-        else
-            #heatmap_matrix[idx] = 1
+        elseif allowed[idx] > 1 && heatmap_matrix[idx] != 1
+            heatmap_matrix[idx] = 2
         end
     end
     #heatmap_matrix[findall(p -> !isempty(p.second), act_set)] .= 2

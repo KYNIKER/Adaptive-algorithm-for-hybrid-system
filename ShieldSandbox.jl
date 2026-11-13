@@ -8,7 +8,6 @@ include("Utilities.jl")
 include("models/bouncingBall.jl")
 include("ReACTedShielding.jl")
 include("ReACTedShieldingPred.jl")
-include("ReACTedShieldingAdaptive.jl")
 
 fresh_grid = false
 make_plot = true
@@ -22,86 +21,20 @@ cscheme = palette(:matter, 2^length(euclideanHybridSystem.Act)+1; rev=true)
 
 δ⁻ = 0.001
 
+include("ReACTedShieldingAdaptiveFast.jl")
+include("ReACTedShieldingPredFast.jl")
+#@time grid, allowed, lost, info = ReACTed_reachable_cell_t(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+#@time grid, allowed, lost, info = ReACTed_reachable_cell_online_pred(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
+#@time grid, allowed, lost, info = ReACTed_reachable_cell_online_pred_fast(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻; jump_hull=false)
+@time grid, allowed, lost, info = ReACTed_reachable_cell_adaptive_fast(euclideanHybridSystem, timePeriod, granularity, 1, δ⁻, 2^5 * δ⁻, patience=0)
 
-
-#GC.gc(true)
-# TODO - Looking at the serialized reach by act dict it looks like it maps to cells that only have a idx but no other information.
-#=
-grid = nothing
-reach_by_Act = nothing
-if fresh_grid
-    if isfile(savefile)
-        #@show length(keys(reach_by_Act´))
-
-        #@show grid.deadCells
-        rm(savefile)
-        #sets = ReACTedShieldingK(euclideanHybridSystem, 2 * timePeriod, 1, granularity, 0.001, 0.004)
-    end
-    grid´, reach_by_Act´ = nothing, nothing
-    @time grid´, reach_by_Act´ = ReACTed_reachable_cell(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^0 * δ⁻)
-    jldsave(savefile; g=grid´, r=reach_by_Act´)
-end
-f = jldopen(savefile)
-@show f
-grid = read(f, "g")
-reach_by_Act = read(f, "r")
-close(f)
-@show reach_by_Act
-=#
-
-#@allocations ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-
-#grid, act_set, no_act_set, no_act_bad_matrix = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-@time _, _, _, online_info = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-@time grid, allowed, lost, info = ReACTed_reachable_cell_t(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-
-# Event-driven predecessor version, compared against the shield_step! version above.
-@time _, _, _, _ = ReACTed_reachable_cell_online_pred(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-#@show count(grid.deadCells), count(grid_p.deadCells), count(grid.deadCells .⊻ grid_p.deadCells)
-#VSCodeServer.@profview _, _, _ = ReACTed_reachable_cell_online(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-#@time grid, allowed, lost, info = ReACTed_reachable_cell_adaptive(euclideanHybridSystem, timePeriod, granularity, 2, δ⁻, 2^5 * δ⁻, patience=1)
-
-#include("ReACTedShieldingAdaptiveFast.jl")
-#@time grid, allowed, lost, info = ReACTed_reachable_cell_adaptive_fast(euclideanHybridSystem, timePeriod, granularity, 1, δ⁻, 2^5 * δ⁻, patience=0)
 #can_wait = (allowed .& 0x01) .!= 0
 #can_act(ai) = ((allowed .>> ai) .& 0x01) .!= 0   # ai is the position in Act
-
-include("ReACTedShieldingPredFast.jl")
 # Every shield returns grid, allowed, lost, info (see choice_bits in ReACTedShieldingFlat.jl); info holds what only that shield has, here info.act_bad and info.shield_count_cover
-#@time grid, allowed, lost, info = ReACTed_reachable_cell_online_pred_fast(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^4 * δ⁻; jump_hull=true)
 shield = grid
 
 #grid = grid_p
 #display(plot(heatmap(transpose(shield_cover_matrix))))
-#throw(error("womop"))
-#@show grid.deadCells# == trues(grid.numCells...)
-
-#=
-@time grid, reach_by_Act, reach_by_no_Act = ReACTed_reachable_cell_t(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-no_act_bad_matrix = copy(grid.deadCells)
-act_bad_matrix = trues(grid.numCells...)
-@time act_set, no_act_set = predecessor_graph!(reach_by_Act, reach_by_no_Act, no_act_bad_matrix, act_bad_matrix)
-@time shield_from_predecessor_graph!(grid, euclideanHybridSystem.Act, act_set, no_act_set, no_act_bad_matrix, act_bad_matrix)
-shield = grid
-=#
-
-#ProfileView.@profview _, _, _ = ReACTed_reachable_cell_t(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-#ProfileView.@profview _, _, _ = ReACTed_reachable_cell_b(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-#shield, iters, act_set, no_act_set, no_act_bad_matrix = make_shield(grid, reach_by_Act, reach_by_no_Act, 350, euclideanHybridSystem.Act)
-
-
-#@show grid.deadCells
-#ProfileView.@profview _, _, _, _ = make_shield(grid, reach_by_Act, reach_by_no_Act, 70, euclideanHybridSystem.Act)
-#@show typeof(reach_by_Act)
-
-
-#shield = grid
-#act_set = reach_by_Act
-#no_act_set = reach_by_no_Act
-
-#@show (length(keys(act_set)), length(keys(no_act_set)))
-#ProfileView.@profview shield, iters = make_shield(grid, reach_by_Act, reach_by_no_Act, 50, euclideanHybridSystem.Act)
-#@time _, _ = make_shield(grid, reach_by_Act, reach_by_no_Act, 500, euclideanHybridSystem.Act)
 
 if make_plot
     unsafe = []
@@ -124,29 +57,7 @@ if make_plot
     heatmap_matrix = zeros(Int64, shield.numCells...)
     #@show keys(act_set)
     for idx in CartesianIndices(shield.deadCells)
-        #@show cell.pCells
 
-
-        #@show any(x -> haskey(reach_by_Act, (x, cell.id)), euclideanHybridSystem.Act)
-        #=
-        possible_acts = []
-        for act in euclideanHybridSystem.Act
-            
-            if haskey(act_set, (act.id, idx))
-                #push!(actDict[act.id], zonotopeArray3d[idx])
-                
-                #@show idx
-                push!(possible_acts, act.id)
-            end
-            
-        end
-        for actid in possible_acts
-            heatmap_matrix[idx] = 2 #+= act_translation[actid]
-        end
-        =#
-        # end
-
-        #push!(noAct, zonotopeArray3d[idx])
         heatmap_matrix[idx] = allowed[idx]
         if (allowed[idx] .& 0x01) .!= 0
             heatmap_matrix[idx] = 1
@@ -187,47 +98,7 @@ if make_plot
     #@show degenerate_dimensions
     aexp = exp(timePeriod * euclideanHybridSystem.flowMatrix)
     Z = remove_zero_generators(Zonotope(degenerate_dimensions, diagm(map(x -> x == 1 ? 0. : granularity/2, grid.numCells))))
-    #=
-    for i in 298:300
-        for j in 128:140
-            tidx = CartesianIndex(i, j)
-            of = lower_offset + ((car2vec(tidx) .- 1) .* granularity)
-            LazySets.API.translate!(Z, of)
-            @show tidx, get_touching_cell_idxs_lz(grid, minkowski_sum(linear_map(aexp, Z), max_input)), haskey(no_act_set, tidx), no_act_bad_matrix[tidx], shield.deadCells[tidx], grid.deadCells[tidx]
-            #tidx = CartesianIndex(91, 1)
-            heatmap_matrix[tidx] = 4
-            #@show haskey(no_act_set, tidx)
-            if haskey(no_act_set, tidx)
-                for v in no_act_set[tidx]
-                    if heatmap_matrix[v] == 0 || heatmap_matrix[v] == 3 || heatmap_matrix[v] == 2
-                        heatmap_matrix[v] = 3
-                        heatmap_matrix[tidx] = 2
-                    else
-                        heatmap_matrix[v] = 4
-                    end
-                    #heatmap_matrix[v] = 4
 
-                end
-
-                @show no_act_set[tidx]
-            end
-            for key in euclideanHybridSystem.Act
-                if haskey(act_set, (key.id, tidx))
-                    for v in act_set[(key.id, tidx)]
-                        if heatmap_matrix[v] == 0 || heatmap_matrix[v] == 3
-                            heatmap_matrix[v] = 3
-                        else
-                            heatmap_matrix[v] = 2
-                        end
-                        @show v
-                    end
-                end
-            end
-            LazySets.API.translate!(Z, -of)
-
-        end
-    end
-    =#
     println("amount of dead cells: $(length(findall(==(0), heatmap_matrix))/foldl(*, grid.numCells))")
     println("amount of blocked cells: $(length(findall(==(2), heatmap_matrix))/foldl(*, grid.numCells))")
 
@@ -250,123 +121,3 @@ if make_plot
     display(fig)
     #savefig(fig, "plots/shield.pdf")
 end
-
-
-
-#=
-
-
-nextFrontierZonotopes = map(z -> linear_map(eA, z), frontierZonotopes)
-
-nextPFrontierZonotopes = get_grid_shapes(nextFrontierZonotopes, dirs)
-
-for z in nextPFrontierZonotopes
-    plot!(plt, z, c=:blue)
-end
-
-
-
-#=
-S = Zonotope([7.5, 0.0], [8.5 0.0; 0.0 15.0])  # Example zonotope in 2D
-grid = Grid(S, granularity)
-
-
-@time zonotopeArray = initialize_zonotope_array(grid)  # Initialize the zonotope array for the grid
-
-#@show zonotopeArray
-
-@show CartesianIndices(grid.array)
-
-A = [0.0 0.0; 1. 0.0]
-
-b = [-9.81, 0]
-U = Zonotope(b, zeros(2, 2))
-=#
-
-#=
-for idx in eachindex(zonotopeArray)
-    if idx % 2 == 0
-        plot!(plt, zonotopeArray[idx], vars=(1, 2), c=:red, alpha=0.3, lw=0.65, label="")
-    else
-        plot!(plt, zonotopeArray[idx], vars=(1, 2), c=:blue, alpha=0.3, lw=0.65, label="")
-    end
-end
-
-eA = exp(A * 0.1)
-
-plot!(plt, eA * Zonotope([0.0, 0.0], Diagonal(fill(grid.granularity * 3.5, grid.dimension))), vars=(1, 2), c=:black, label="")
-#=
-for idx in eachindex(zonotopeArray)
-    if idx % 2 == 0
-        plot!(plt, eA * zonotopeArray[idx], vars=(1, 2), c=:red, alpha=0.3, lw=0.65, label="")
-    else
-        plot!(plt, eA * zonotopeArray[idx], vars=(1, 2), c=:blue, alpha=0.3, lw=0.65, label="")
-    end
-end
-=#
-
-#initialize_safe_cells!(grid)  # Initialize the safe cells in the grid
-
-#@time box(grid, [0.5, 0.5])  # Example state to find the corresponding cell
-@time box(grid, [-0.195, -0.195])  # Example state to find the corresponding cell using fastbox
-@time fastbox(grid, [-0.195, -0.195])  # Example state to find the corresponding cell using fastbox
-#@time get_cell_bounds(grid, fastbox(grid, [0., -1.]))  # Example to get the bounds of the corresponding cell
-
-for idx in get_touching_cells(grid, eA * Zonotope([0.0, 0.0], Diagonal(fill(grid.granularity * 3.5, grid.dimension))))
-    
-    plot!(plt, zonotopeArray[idx.id], vars=(1, 2), c=:blue, alpha=0.3, lw=0.65, label="")
-end
-for idx in get_contained_cells(grid, eA * Zonotope([0.0, 0.0], Diagonal(fill(grid.granularity * 3.5, grid.dimension))))
-    plot!(plt, zonotopeArray[idx.id], vars=(1, 2), c=:white, alpha=0.3, lw=0.65, label="")
-end
-
-
-@time get_contained_cells(grid, Zonotope([0.0, 0.0], Diagonal(fill(grid.granularity * 3, grid.dimension))))
-
-_, edgeCells = get_contained_edge_cells(grid, eA * Zonotope([0.0, 0.0], Diagonal(fill(grid.granularity * 3.5, grid.dimension))))
-
-for idx in edgeCells #get_perimeter_cells(grid, eA * Zonotope([0.0, 0.0], Diagonal(fill(grid.granularity * 3.5, grid.dimension))))
-    plot!(plt, zonotopeArray[idx.id], vars=(1, 2), c=:orange, alpha=0.3, lw=0.65, label="")
-end
-#=
-=#
-
-#AA = AAPolytope([[1.0, 0.0], [0.0, 1.0], [-1.0, 0.0], [0.0, -1.0]])  # Example axis-aligned polytope in 2D
-#@show convert(HPolytope, AA)  # Convert the axis-aligned polytope to an HPolytope
-
-
-@show grow_indices(grid, [[1, 1], [1, 2]])
-
-@show offsets(grid)
-
-mark_dead_cells!(grid, eA * Zonotope([0.0, 0.0], Diagonal(fill(grid.granularity * 3.5, grid.dimension))), unsafeDict)
-
-for v in values(unsafeDict)
-    #@show v
-    plot!(plt, v[1], c=:green)
-end
-
-
-inputSet = linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A, 0.1, ReachabilityAnalysis.Exponentiation.BaseExp, false, nothing), U)
-
-for v in values(unsafeDict)
-    #@show v
-    plot!(plt, minkowski_sum(inputSet, linear_map(eA, v[1])), c=:yellow)
-end
-
-dirs = [1, 2]
-setSets = zonotopeArray3d[1, 1:2]
-@show typeof(setSets)
-shapes = get_grid_shapes(setSets, dirs)
-
-for v in shapes
-    #@show v
-    plot!(plt, v, c=:red)
-end
-
-=#
-=#
-# Måske muligt i stedet for at genbruge koden fra Astrid, at bruge den samme funktion til at lave en grid som bare er en store af keys og så gemme values et andet sted. Hvis det er implementeret med et linært index
-# eller som en dictionary på cartisianIndex ville man nok kunne fjerne keys som er cell'er der ikke længere har safe elementer. 
-# Så ville man stadig kunne bruge bounds funktioner til at finde de tætteste celler til constraints.
-# Man kunne tjekke at når en cell ikke længere er safe så fjerner man de eventuelle constraints den har medført og bytter dem ud med cell da den nok er simplere

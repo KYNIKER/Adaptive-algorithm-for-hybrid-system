@@ -11,6 +11,58 @@ using LazySets, LinearAlgebra
 #   - choice_bits and its helpers: the common results of all shields, what each cell allows and what it lost, as bits
 
 # ---------------------------------------------------------------------------------------------------------------------
+# Grids and fast cells
+
+# Grid for level l, obtained by subdividing the level-0 grid (not by Grid(statespace, g/2^l), whose ceil can break the
+# nesting). Zero-width axes (factor 1) keep a single cell centred on their value.
+function level_grid(grid0::Grid{N}, l::Int, factor::NTuple{N,Int}) where N
+    g = grid0.granularity / 2^l
+    numCells = [grid0.numCells[i] * factor[i]^l for i in 1:N]
+    lower = copy(grid0.lower)
+    upper = copy(grid0.upper)
+    for i in 1:N
+        if factor[i] == 1
+            value = grid0.lower[i] + grid0.granularity / 2
+            lower[i] = value - g / 2
+            upper[i] = value + g / 2
+        end
+    end
+    return Grid(N, g, lower, upper, numCells, falses(numCells...))
+end
+
+# Cells of level l+1 covering cell c of level l.
+child_cells(c::CartesianIndex{N}, factor::NTuple{N,Int}) where N =
+    CartesianIndices(ntuple(i -> ((c[i]-1)*factor[i]+1):(c[i]*factor[i]), N))
+
+# Fast-cell matrix for one level that classifies sweep blocks on first access (and caches them), so fine levels are only swept where cells are actually used. 
+#Reads give the same values as the full sweep in ReACTed_reachable_cell_t.
+mutable struct LazyFastCells{N,F} <: AbstractArray{Bool,N}
+    dims::NTuple{N,Int}
+    sweep::NTuple{N,Int}
+    nblocks::NTuple{N,Int}
+    known::BitArray{N}
+    fast::BitArray{N}
+    check::F # block index -> Bool
+end
+
+Base.size(A::LazyFastCells) = A.dims
+
+# Check whether we know that the lazy cell is fast or not. If it is not in a full block for the sweep, then it will always be false, as that the hybrid jump check fails for those intitially.
+function Base.getindex(A::LazyFastCells{N}, I::Vararg{Int,N}) where N
+    b = CartesianIndex(ntuple(i -> fld(I[i] - 1, A.sweep[i]) + 1, N))
+    for i in 1:N
+        if b[i] > A.nblocks[i]
+            return false # cells beyond the last full block are never fast
+        end
+    end
+    if !A.known[b]
+        A.fast[b] = A.check(b)
+        A.known[b] = true
+    end
+    return A.fast[b]
+end
+
+# ---------------------------------------------------------------------------------------------------------------------
 # Reach sets of cells
 
 # One zonotope Z the size of a cell, or of a block of scale cells per dimension, with its discretization. Each
@@ -160,7 +212,7 @@ function cell_meets(H::CellHalfSpaces{N}, grid::Grid{N}, c::CartesianIndex{N}) w
 end
 
 # Masks of the cells touching P on every level, the same cells as get_touching_cell_idxs_l per level. A finer level only
-# tests the children of touching cells that are not inside P (child_cells is in ReACTedShieldingAdaptive.jl).
+# tests the children of touching cells that are not inside P.
 function touching_masks(grids::Vector{Grid{N}}, P, factor::NTuple{N,Int}) where N
     H = CellHalfSpaces(P, Val(N))
     # The candidate cells of get_touching_cell_idxs_l on a grid. Its bounds are clamped to the state space, so on a grid
@@ -448,7 +500,7 @@ function cell_choices!(allowed::Array{T}, lost::Array{T}, s, enabled::E, acted::
 end
 
 # allowed and lost of an adaptive shield on its finest grid: every active leaf (with the fields level, cell and active)
-# writes its bits to the finest cells it covers. child_cells is in ReACTedShieldingAdaptive.jl.
+# writes its bits to the finest cells it covers.
 function leaf_choices(shape, n_acts::Int, leaves, L::Int, factor, s, enabled, acted)
     T = choice_type(n_acts)
     return leaf_choices!(zeros(T, shape), zeros(T, shape), leaves, L, factor, s, enabled, acted)
@@ -466,23 +518,6 @@ function leaf_choices!(allowed::Array{T,N}, lost::Array{T,N}, leaves, L::Int, fa
         end
     end
     return allowed, lost
-end
-
-# For shields that end with successor relations keyed by cell instead of a state with act_ok (the shield_step! shields):
-# the state choice_bits reads. An action is ok in an alive computed cell when it has successors and none of them is
-# dead or, with act_needs_safe_flow, unable to wait. A cell is computed when it has a relation entry or a bad flow.
-function relation_state(dead::BitArray{N}, flow_bad::BitArray{N}, act_rel, flow_rel, action_ids::Vector{Int}; act_needs_safe_flow::Bool=true) where N
-    computed = copy(flow_bad)
-    for c in keys(flow_rel)
-        computed[c] = true
-    end
-    act_ok = [falses(size(dead)) for _ in action_ids]
-    for ((id, c), succ) in act_rel
-        computed[c] = true
-        ok = !dead[c] && !isempty(succ) && all(v -> !dead[v] && !(act_needs_safe_flow && flow_bad[v]), succ)
-        ok && (act_ok[findfirst(==(id), action_ids)][c] = true)
-    end
-    return (; dead, flow_bad, computed, act_ok)
 end
 
 # acted for choice_bits from an action relation keyed by (action id, cell), for linear indices into cells.

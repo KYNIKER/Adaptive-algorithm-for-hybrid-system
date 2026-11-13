@@ -41,17 +41,12 @@ function JumpReach(system::EuclideanHybridSystem, p, δ⁻::Float64, δ⁺::Floa
     A = Matrix{Float64}(system.flowMatrix)
     n = size(A, 1)
     U = system.input
-    A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(A)
     Φ = Matrix{Float64}[Matrix{Float64}(I, n, n)]
     V = [Zonotope(zeros(n), zeros(n, n))]
-    # The centre of the input is constant, so its solution is exact. Its generators may change over time, so they are bounded with |A|.
-    radius = vec(sum(abs, genmat(U); dims=2))
     for k in 1:steps
         d = k * δ⁻
         push!(Φ, exp(d .* A))
-        P = Matrix{Float64}(ReachabilityAnalysis.Exponentiation.Φ₁(A, d, alg, false, nothing))
-        P_abs = Matrix{Float64}(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, d, alg, false, nothing))
-        push!(V, Zonotope(P * LazySets.center(U), Matrix(Diagonal(P_abs * radius))))
+        push!(V, input_bound(A, U, d, alg)) # the input's contribution over k δ⁻, which may vary in time
     end
     guards = [dense_projections(e.guard) for e in system.edges]
     jumps = [(Matrix{Float64}(e.jumpMatrix), e.jumpVector === nothing ? zeros(n) : Vector{Float64}(e.jumpVector)) for e in system.edges]
@@ -277,7 +272,7 @@ function reach_setup(system::EuclideanHybridSystem, p, δ⁻::Float64, δ⁺::Fl
     P2A_abs = ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, isinvertible(A), Φcache)
     invariant = hyperrectangle_to_HPolyhedron(system.statespace)
     U = system.input
-    max_input = linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, p, alg, false, nothing), U)
+    max_input = input_bound(A, U, p, alg)
     max_flow = exp(p .* A)
     guardProjVectors, guardProjBounds = getHalfSpaceProjections(system.edges[1].guard)
     invariantProjVectors, invariantProjBounds = getHalfSpaceProjections(invariant)

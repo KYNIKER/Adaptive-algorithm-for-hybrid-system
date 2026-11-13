@@ -2,7 +2,7 @@ using LazySets, LinearAlgebra, ReachabilityAnalysis, Dates
 # Expects ReACTedShielding.jl and PartitionUtilities.jl to be included first.
 
 # Event-driven (counter based) shield state for the online algorithm.
-# Instead of re-checking every computed cell each round (shield_step!), we keep a predecessor relation that grows as
+# Instead of re-checking every computed cell each round, we keep a predecessor relation that grows as
 # successors are computed, and push "bad" events backwards along it. Every edge is processed at most once.
 #
 #   flow_bad[k]      : not acting in k is unsafe (no flow successors, hit constraint, or a flow successor is dead)
@@ -10,8 +10,8 @@ using LazySets, LinearAlgebra, ReachabilityAnalysis, Dates
 #   n_ok[k]          : number of actions still safe in k
 #   k is dead        : flow_bad[k] && n_ok[k] == 0
 #
-# If act_needs_safe_flow is true an action is also invalidated when one of its successors becomes flow_bad (same rule as
-# shield_step!), i.e. after acting the system must be able to wait one period.
+# If act_needs_safe_flow is true an action is also invalidated when one of its successors becomes flow_bad, i.e. after
+# acting the system must be able to wait one period.
 mutable struct OnlinePredShieldState{N}
     dead::BitArray{N}
     flow_bad::BitArray{N}
@@ -148,8 +148,10 @@ function propagate_bad!(s::OnlinePredShieldState)
 end
 
 
-# Same reachability as ReACTed_reachable_cell_online, but the shield is computed with the event-driven predecessor
-# relation above instead of repeated shield_step! sweeps. Returns the same tuple so it can be swapped in ShieldSandbox.jl.
+# Online shield synthesis: computes cells from a frontier that starts at the guards, the constraint cells and (with
+# include_border_cells) the border, and grows around cells whose status changed. The shield is the event-driven
+# predecessor shield above. Returns grid, allowed, lost, info (see choice_bits), with info.act_bad and
+# info.shield_count_cover.
 function ReACTed_reachable_cell_online_pred(system::EuclideanHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, clustering=true, max_steps::Int64=100000; act_needs_safe_flow::Bool=true, include_border_cells::Bool=false, jump_hull::Bool=false)
     return _ReACTed_reachable_cell_online_pred(Grid(system.statespace, granularity), system, p, granularity, δ⁻, δ⁺, alg, maxOrder, reduceOrder, clustering, max_steps, act_needs_safe_flow, include_border_cells; jump_hull)
 end
@@ -178,7 +180,7 @@ function _ReACTed_reachable_cell_online_pred(grid::Grid{N}, system::EuclideanHyb
 
     invariant = hyperrectangle_to_HPolyhedron(system.statespace)
     U = system.input
-    max_input = linear_map(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, p, alg, false, nothing), U)
+    max_input = input_bound(system.flowMatrix, U, p, alg)
     max_flow = exp(p .* system.flowMatrix)
 
     guardProjVectors, guardProjBounds = getHalfSpaceProjections(system.edges[1].guard)

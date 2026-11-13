@@ -67,14 +67,10 @@ function ModalDynamics(A::Matrix{Float64}, U, steps::Int, δ⁻::Float64, δ⁺:
     P2A_abs = Matrix{Float64}(ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, isinvertible(A), Φcache))
     Φ = Matrix{Float64}[Matrix{Float64}(I, n, n)]
     V = [Zonotope(zeros(n), zeros(n, n))]
-    # The centre of the input is constant, so its solution is exact. Its generators may change over time, so they are bounded with |A|.
-    radius = vec(sum(abs, genmat(U); dims=2))
     for k in 1:steps
         d = k * δ⁻
         push!(Φ, exp(d .* A))
-        P = Matrix{Float64}(ReachabilityAnalysis.Exponentiation.Φ₁(A, d, alg, false, nothing))
-        P_abs = Matrix{Float64}(ReachabilityAnalysis.Exponentiation.Φ₁(A_abs, d, alg, false, nothing))
-        push!(V, Zonotope(P * LazySets.center(U), Matrix(Diagonal(P_abs * radius))))
+        push!(V, input_bound(A, U, d, alg)) # the input's contribution over k δ⁻, which may vary in time
     end
     return ModalDynamics(A, phiDict, tPhiDict, inputDict, P2A_abs, Φ, V, Zonotope(zeros(n), zeros(size(genmat(inputDict[δ⁻])))))
 end

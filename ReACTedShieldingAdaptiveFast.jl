@@ -1,7 +1,19 @@
 using LazySets, LinearAlgebra, ReachabilityAnalysis, Dates
-# Expects PartitionUtilities.jl, ReACTedShielding.jl, ReACTedShieldingPred.jl and ReACTedShieldingAdaptive.jl to be included first.
+# Expects PartitionUtilities.jl and ReACTedShielding.jl to be included first.
 #
-# ReACTed_reachable_cell_adaptive with the same exploration, refinement and shield, but faster:
+# Adaptive (multi-resolution) online shield synthesis. The state space is partitioned into leaves of a cell tree: level
+# 0 is the grid at max_granularity, and a leaf at level l can be split into the cells covering it at level l+1
+# (granularity halved; zero-width axes are never split). The shield over the active leaves has the rules of
+# ReACTed_reachable_cell_online_pred:
+#   flow is bad   : no flow successors (hit a constraint), none at all, or a flow successor is dead
+#   action is ok  : the leaf touches the action's guard and every successor is alive (and, if act_needs_safe_flow, can wait)
+#   leaf is dead  : flow is bad and no action is ok
+# Only leaves reached by the frontier are computed and the others are assumed safe; constraint leaves are dead and never
+# computed. Every leaf's successors over-approximate its own reach set, so any mix of levels gives a valid shield and
+# splitting only changes permissiveness. With all leaves on one level it computes the same shield as
+# ReACTed_reachable_cell_online_pred at that granularity.
+#
+# How it is kept fast:
 #   - Action guard and constraint masks are built top-down: level 0 tests its cells, and a finer level only tests the
 #     children of touching cells that are not inside the polyhedron. Cells are tested with dot products against the
 #     halfspaces, and only cells cut by two or more halfspaces fall back to the LP of isdisjoint.
@@ -151,7 +163,7 @@ function compute_leaf!(ctx::AdaptiveFastContext, id::Int32)
     return id
 end
 
-# neighbour_leaves with the dense cell-to-leaf maps.
+# Active leaves next to any of ids (sharing a face or corner), on every level, with the dense cell-to-leaf maps.
 function neighbour_leaves(ctx::AdaptiveFastContext{N}, ids::Vector{Int32}) where N
     leaves = ctx.leaves
     levels_used = findall(>(0), leaves.n_active)
@@ -234,7 +246,8 @@ function init_leaves_online!(ctx::AdaptiveFastContext, level::Int, include_borde
     return s, n
 end
 
-# split_leaves_online! on flat leaves. The shield state is rebuilt in place.
+# Splits the leaves to_split into their children, recomputes the children and the leaves whose successors were split,
+# rebuilds the shield state in place and explores from what changed.
 function split_leaves_online!(ctx::AdaptiveFastContext, s::FlatShieldState, to_split::AbstractVector{Int32})
     leaves = ctx.leaves
     succ = leaves.succ
@@ -326,8 +339,8 @@ function flat_predecessors(leaves::FlatLeaves, ai::Int, usable)
     return start, list
 end
 
-# adaptive_shield on flat leaves: same rules and processing order, so the same dead leaves and the same death order,
-# which the refinement uses to pick the latest-dying leaves.
+# The shield over all active leaves from scratch, returning the dead leaves and the order they died in, which the
+# refinement uses to pick the latest-dying leaves.
 function adaptive_shield(leaves::FlatLeaves; act_needs_safe_flow::Bool=true, computed::AbstractVector{Bool})
     n = length(leaves.level)
     succ = leaves.succ
@@ -402,9 +415,12 @@ end
 adaptive_allowed(ctx::AdaptiveFastContext, s::FlatShieldState) = leaf_choices(cellshape(ctx.levels[end].grid), length(ctx.system.Act),
     ctx.leaves, ctx.L, ctx.factor, s, store_enabled(ctx.leaves.succ), store_acted(ctx.leaves.succ))
 
-# ReACTed_reachable_cell_adaptive with the faster setup and flat storage. Returns grid, allowed, lost, info on the
-# finest grid (see choice_bits), with the context as info.ctx.
-# on_round(ctx, dead, round, leaf_computations) is called after every round, as in ReACTed_reachable_cell_adaptive.
+# Computes the online shield at max_granularity (level 0, as ReACTed_reachable_cell_online_pred, including
+# include_border_cells), then refines in rounds up to granularity_steps halvings: every round splits the refine_fraction
+# latest-dying dead leaves, recomputes what changed and continues the exploration. Stops when nothing is left to split,
+# after `patience` rounds in a row that revive nothing, or after max_steps rounds. Returns grid, allowed, lost, info on
+# the finest grid (see choice_bits), with the context as info.ctx. on_round(ctx, dead, round, leaf_computations) is
+# called after every round, e.g. for experiments.
 function ReACTed_reachable_cell_adaptive_fast(system::EuclideanHybridSystem, p, max_granularity, granularity_steps::Int64, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, max_steps::Int64=1000; include_border_cells::Bool=false, refine_fraction::Float64=0.4, patience::Int=1, act_needs_safe_flow::Bool=true, sweep_factor::Int=20, on_round=(ctx, dead, r, computed) -> nothing, jump_hull::Bool=false)
     recorderTimeStart = time_ns()
     ctx = AdaptiveFastContext(system, p, Float64(max_granularity), granularity_steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder, sweep_factor; jump_hull)

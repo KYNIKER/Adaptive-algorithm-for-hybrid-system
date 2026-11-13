@@ -16,13 +16,13 @@ using LazySets
 # fluctuation. The clocks stay in the input. allowed then has the axes (t, v, l, x₄, layer).
 const OILPUMP_OFF_FREE, OILPUMP_OFF_LOCKED, OILPUMP_ON_FREE, OILPUMP_ON_LOCKED = 1, 2, 3, 4
 
-function loadOilPumpModal(; period=0.2, latency_reset=2.0 - 1e-3, latency_top=2.0, outflow_in_A::Bool=false)
+function loadOilPumpModal(; period=0.2, latency_reset=2.0 - 1e-4, latency_top=2.0, outflow_in_A::Bool=false)
     time_axis, volume_axis, latency_axis, one_axis = 1, 2, 3, 4
     n = outflow_in_A ? 4 : 3
     V_min, V_max = 4.9, 25.1
     inflow = 2.2
     fluctuation = 0.1 # l/s, only when the consumption rate is not 0
-    margin = max(0.6, 3 * period) # more than the largest change in volume over a period (2.6 l/s), so no reach set leaves the grid
+    margin = min(0.6, 2.7 * period) # more than the largest change in volume over a period (2.6 l/s), so no reach set leaves the grid
     # Consumption pieces (start, end, rate)
     pieces = [(0.0, 2.0, 0.0), (2.0, 4.0, 1.2), (4.0, 8.0, 0.0), (8.0, 10.0, 1.2), (10.0, 12.0, 2.5), (12.0, 14.0, 0.0), (14.0, 16.0, 1.7), (16.0, 18.0, 0.5), (18.0, 20.0, 0.0)]
     cycle = 20.0
@@ -59,11 +59,102 @@ function loadOilPumpModal(; period=0.2, latency_reset=2.0 - 1e-3, latency_top=2.
         push!(locations, ModalLocation(layer, HPolyhedron(region_faces), A, U, edges, actions))
     end
 
-    unsafe = [HPolyhedron([LazySets.HalfSpace(e(volume_axis), V_min - tol)]), HPolyhedron([LazySets.HalfSpace(-e(volume_axis), -(V_max + tol))])]
+    unsafe = [HPolyhedron([LazySets.HalfSpace(e(volume_axis), V_min)]), HPolyhedron([LazySets.HalfSpace(-e(volume_axis), -(V_max))])]
     low_corner = [0.0, V_min - margin, 0.0, ones(n - 3)...]
     high_corner = [cycle, V_max + margin, latency_top, ones(n - 3)...]
     S = Hyperrectangle((low_corner .+ high_corner) ./ 2, (high_corner .- low_corner) ./ 2)
     return ModalHybridSystem(S, unsafe, locations), period
+end
+
+function plot_oil_pump(grid, shield, allowed, lost, info)
+    unsafe = []
+    jumping = []
+    noAct = []
+
+    actDict = Dict()
+
+    act_translation = Dict()
+    for (i, act) in pairs(euclideanHybridSystem.Act)
+        act_translation[act.id] = 2#^(i-1)
+    end
+
+    for act in euclideanHybridSystem.Act
+        actDict[act.id] = []
+    end
+
+
+    invalid_cells = []
+
+    no_allowed = reduce(&, allowed; dims=[3, 4])
+    @show size(allowed)
+    @show allowed[10, 10, 2, 1]
+    heatmap_matrix = zeros(Int64, size(view(no_allowed, :, :, 1, 1))...)
+
+    on_allowed = (allowed[:, :, 1, OILPUMP_OFF_FREE] .& 0x02 .> 0) .&& (allowed[:, :, 1, OILPUMP_ON_FREE] .& 0x01 .> 0) .&& (all(i -> i != 0, allowed[:, :, :, OILPUMP_ON_LOCKED]; dims=3))
+    off_allowed = (allowed[:, :, 1, OILPUMP_ON_FREE] .& 0x04 .> 0) .&& ((allowed[:, :, 1, OILPUMP_OFF_FREE] .& 0x01 .> 0)) .&& (all(i -> i != 0, allowed[:, :, :, OILPUMP_OFF_LOCKED]; dims=3))
+    both_allowed = (allowed[:, :, 1, OILPUMP_ON_FREE] .& 0x01 .> 0) .&& (allowed[:, :, 1, OILPUMP_OFF_FREE] .& 0x01 .> 0)
+    dead = (allowed[:, :, 1, OILPUMP_ON_LOCKED] .== 0) .|| (allowed[:, :, 1, OILPUMP_OFF_LOCKED] .== 0)
+
+    for idx in CartesianIndices(heatmap_matrix)
+        #layer1 = allowed[car2vec(idx)..., 1]
+        acts = 0
+        if dead[idx] == 0
+            heatmap_matrix[idx] = 0
+            #continue
+        end
+
+
+        if on_allowed[idx]
+            acts = acts | 0x01
+        end
+        if off_allowed[idx]
+            acts = acts | 0x02
+        end
+        if both_allowed[idx]
+            acts = 0x03
+        end
+        #=for i in 1:4
+            if allowed[car2vec(idx)..., 1, OILPUMP_OFF_FREE]  .== 0x02
+
+            end
+        end=#
+
+        heatmap_matrix[idx] = acts#collapsed_allowed[car2vec(idx)..., 1, 1] #allowed[car2vec(idx)..., 1, 4]#
+        #=
+        if (layer1 .& 0x01) .!= 0
+            heatmap_matrix[idx] = 1
+        end
+
+        if layer1 == 1 && lost[car2vec(idx)..., 1] > 1
+            heatmap_matrix[idx] = 3
+        elseif layer1 > 1 && heatmap_matrix[idx] != 1
+            heatmap_matrix[idx] = 2
+        end
+        =#
+    end
+
+    lower_offset = grid.lower .+ (granularity/2)
+
+    println("amount of dead cells: $(length(findall(==(0), heatmap_matrix))/foldl(*, grid.numCells))")
+    println("amount of blocked cells: $(length(findall(==(2), heatmap_matrix))/foldl(*, grid.numCells))")
+    @show shield.upper, shield.lower
+    y_n = floor(abs(shield.upper[2] - shield.lower[2]))
+    y_nt = collect(fld(shield.numCells[2], y_n) * i for i in 1:y_n)
+    y_st = collect(string(round(shield.lower[2] + (i * (abs(shield.lower[2]) + abs(shield.upper[2])) / y_n))) for i in 1:y_n)
+    x_n = floor(abs(shield.lower[1]) + abs(shield.upper[1]))
+    x_nt = collect(fld(shield.numCells[1], x_n) * i for i in 1:2:x_n)
+    x_st = collect(string(round(shield.lower[1] + (i * (abs(shield.lower[1]) + abs(shield.upper[1])) / x_n))) for i in 1:2:x_n)
+    hm = heatmap(transpose(heatmap_matrix), c=cgrad([:black, :yellow, :purple, :white], 4, categorical=true), clim=(0, 3), colorbar=true, xlabel="t", ylabel="V", xticks=(x_nt, x_st), yticks=([1.0, shield.numCells[2]], [string(round(shield.lower[2]; digits=2)), string(round(shield.upper[2]; digits=2))]))
+    #Plots.translate!(hm.shape(), 0, 0, -15)
+    fig = Plots.plot(hm; colorbar_ticks=([0.0, 1.0, 2.0, 3.0, 4.0], ["dead", "no action", "act1", "act2", "act1 + act2"]))
+    color_labels = ["{}", "{on}", "{off}", "{on, off}"]
+    for (color, label) in zip(cgrad([:black, :purple, :yellow, :white]), color_labels)
+        Plots.plot!(Float64[], Float64[], seriestype=:shape,   # The Float typing has been added to avoid a weird warning
+            label=label, color=color)
+    end
+    Plots.xlims!(1.0, shield.numCells[1])
+    Plots.ylims!(1.0, shield.numCells[2])
+    display(fig)
 end
 
 # Automatic Synthesis of Robust and Optimal Controllers – An Industrial Case Study

@@ -6,33 +6,40 @@ include("PartitionUtilities.jl")
 include("plotFuncs/plotFuncHelper.jl")
 include("Utilities.jl")
 include("models/bouncingBall.jl")
+include("models/oilpump.jl")
 include("ReACTedShielding.jl")
 include("ReACTedShieldingPred.jl")
+include("ReACTedShieldingAdaptiveFast.jl")
+include("ReACTedShieldingPredFast.jl")
+include("ReACTedShieldingModal.jl")
 
 fresh_grid = false
-make_plot = true
+make_plot = false
 granularity::Float64 = 0.02  # Example granularity
 grid_name = "ball" * string(granularity)
 savefile = grid_name * ".jld2"
 
 euclideanHybridSystem, timePeriod = loadBouncingBallShieldedWithInput()
+OPsys, tp = loadOilPumpModal(; period=1.0)
 
 cscheme = palette(:matter, 2^length(euclideanHybridSystem.Act)+1; rev=true)
 
 δ⁻ = 0.001
 
-include("ReACTedShieldingAdaptiveFast.jl")
-include("ReACTedShieldingPredFast.jl")
 #@time grid, allowed, lost, info = ReACTed_reachable_cell_t(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 #@time grid, allowed, lost, info = ReACTed_reachable_cell_online_pred(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
 #@time grid, allowed, lost, info = ReACTed_reachable_cell_online_pred_fast(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻; jump_hull=false)
-@time grid, allowed, lost, info = ReACTed_reachable_cell_adaptive_fast(euclideanHybridSystem, timePeriod, granularity, 1, δ⁻, 2^5 * δ⁻, patience=0)
+#@time grid, allowed, lost, info = ReACTed_reachable_cell_adaptive_fast(euclideanHybridSystem, timePeriod, granularity, 1, δ⁻, 2^5 * δ⁻, patience=0)
 
 #can_wait = (allowed .& 0x01) .!= 0
 #can_act(ai) = ((allowed .>> ai) .& 0x01) .!= 0   # ai is the position in Act
 # Every shield returns grid, allowed, lost, info (see choice_bits in ReACTedShieldingFlat.jl); info holds what only that shield has, here info.act_bad and info.shield_count_cover
-shield = grid
 
+@time grid, allowed, lost, info = ReACTed_reachable_cell_modal(OPsys, tp, 0.1, 0.2, 1.6; online=true)
+
+
+shield = grid
+plot_oil_pump(grid, shield, allowed, lost, info)
 #grid = grid_p
 #display(plot(heatmap(transpose(shield_cover_matrix))))
 
@@ -121,3 +128,4 @@ if make_plot
     display(fig)
     #savefig(fig, "plots/shield.pdf")
 end
+

@@ -808,8 +808,13 @@ function phi_input_dict(A, U, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityA
     #E_ψ = SymmetricIntervalHull(LinearMap(P2A_abs, SymmetricIntervalHull(A * U)))
     #P = overapproximate(minkowski_sum(dU, E_ψ), Zonotope) #
 
-    P = linear_map(pis, U)
-    #@show P
+    # The input's contribution over δ⁻ and its doublings. u(t) ∈ U may vary in time, so only U's centre c is constant: its
+    # part is exact (Φ₁ c, and c_2d = c_d + Φ_d c_d). The part of U's generators is bounded like dU ⊕ E_ψ above, and the
+    # input in [d, 2d] is independent of the input in [0, d], so the doubling is a Minkowski sum, P_d ⊕ Φ_d P_d, reduced
+    # to reduceOrder above maxOrder. Without generators the input is constant and P is Φ₁ U, composed with plus.
+    G = genmat(U)
+    constant = iszero(G)
+    P = constant ? linear_map(pis, U) : Zonotope(pis * LazySets.center(U), hcat(δ⁻ .* G, Matrix(Diagonal(P2A_abs * vec(sum(abs, A * G; dims=2))))))
     d = δ⁻
     while d < δ⁺
 
@@ -817,8 +822,15 @@ function phi_input_dict(A, U, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityA
         TphiDict[d] = copy(permutedims(ϕ))
         inputDiscritezationDict[d] = copy(P)
 
-        P = plus(P, LazySets.linear_map(phiDict[d], P))
-        #@show P
+        if constant
+            P = plus(P, LazySets.linear_map(phiDict[d], P))
+        else
+            P = Zonotope(LazySets.center(P) + phiDict[d] * LazySets.center(P), hcat(genmat(P), phiDict[d] * genmat(P)))
+            if maxOrder > 0 && LazySets.order(P) > maxOrder
+                P = reduce_order(P, reduceOrder)
+                P = Zonotope(Vector{Float64}(LazySets.center(P)), Matrix{Float64}(genmat(P)))
+            end
+        end
 
 
         mul!(tempM, ϕ, ϕ)
@@ -833,6 +845,20 @@ function phi_input_dict(A, U, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityA
     TphiDict[d] = copy(permutedims(ϕ))
 
     return phiDict, TphiDict, inputDiscritezationDict
+end
+
+# Bound on the input's contribution over [0, t], ∫₀ᵗ e^{Ar} u(t - r) dr, when u ∈ U may vary in time. U's centre c gives
+# Φ₁(A, t) c exactly. For the rest, w = u - c ∈ U₀ (U's generators G), split e^{Ar} = I + (e^{Ar} - I): ∫ w dr lies in
+# t U₀ by convexity, and since e^{Ar} - I = Σ_k A^k r^{k+1}/(k+1)! A, the remainder is at most Φ₂(|A|, t) |A G| 1
+# elementwise, with Φ₂(M, t) = Σ_k M^k t^{k+2}/(k+2)! (Le Guernic and Girard's E_ψ). Without generators the input is
+# constant and the bound is Φ₁(A, t) U.
+function input_bound(A, U, t, alg)
+    P = Matrix{Float64}(ReachabilityAnalysis.Exponentiation.Φ₁(A, t, alg, false, nothing))
+    G = Matrix{Float64}(genmat(U))
+    c = P * LazySets.center(U)
+    iszero(G) && return Zonotope(c, P * G)
+    P2_abs = Matrix{Float64}(ReachabilityAnalysis.Exponentiation.Φ₂(ReachabilityAnalysis.Exponentiation.elementwise_abs(A), t, alg, false, nothing))
+    return Zonotope(c, hcat(t .* G, Matrix(Diagonal(P2_abs * vec(sum(abs, A * G; dims=2))))))
 end
 
 plus(z1::Zonotope, z2::Zonotope) = Zonotope(z1.center + z2.center, z1.generators + z2.generators)

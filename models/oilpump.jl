@@ -15,16 +15,17 @@ using LazySets
 # axis, so a single cell) with v' = -rate x₄ in A, so the input on v is only the pump flow and the consumption's time-varying
 # fluctuation. The clocks stay in the input. allowed then has the axes (t, v, l, x₄, layer).
 const OILPUMP_OFF_FREE, OILPUMP_OFF_LOCKED, OILPUMP_ON_FREE, OILPUMP_ON_LOCKED = 1, 2, 3, 4
+# Consumption pieces (start, end, rate)
+const OILPUMP_PIECES = [(0.0, 2.0, 0.0), (2.0, 4.0, 1.2), (4.0, 8.0, 0.0), (8.0, 10.0, 1.2), (10.0, 12.0, 2.5), (12.0, 14.0, 0.0), (14.0, 16.0, 1.7), (16.0, 18.0, 0.5), (18.0, 20.0, 0.0)]
 
-function loadOilPumpModal(; period=0.2, latency_reset=2.0 - 1e-4, latency_top=2.0, outflow_in_A::Bool=false)
+function loadOilPumpModal(; period=0.2, latency_reset=2.0 - 1e-6, latency_top=2.0, outflow_in_A::Bool=false)
     time_axis, volume_axis, latency_axis, one_axis = 1, 2, 3, 4
     n = outflow_in_A ? 4 : 3
     V_min, V_max = 4.9, 25.1
     inflow = 2.2
     fluctuation = 0.1 # l/s, only when the consumption rate is not 0
-    margin = min(0.6, 2.7 * period) # more than the largest change in volume over a period (2.6 l/s), so no reach set leaves the grid
-    # Consumption pieces (start, end, rate)
-    pieces = [(0.0, 2.0, 0.0), (2.0, 4.0, 1.2), (4.0, 8.0, 0.0), (8.0, 10.0, 1.2), (10.0, 12.0, 2.5), (12.0, 14.0, 0.0), (14.0, 16.0, 1.7), (16.0, 18.0, 0.5), (18.0, 20.0, 0.0)]
+    margin = max(0.6, 2.7 * period) # more than the largest change in volume over a period (2.6 l/s), so no reach set leaves the grid
+    pieces = OILPUMP_PIECES
     cycle = 20.0
     # By default switching sets l just below the latency of 2 s. Decisions are period apart, so the pump is free at exactly
     # the same decision, and the value stays strictly inside a cell of the grid instead of on the border between two.
@@ -66,95 +67,46 @@ function loadOilPumpModal(; period=0.2, latency_reset=2.0 - 1e-4, latency_top=2.
     return ModalHybridSystem(S, unsafe, locations), period
 end
 
+# Which switches the shield allows at a free decision (l = 0): turning the pump on (bit 1 of the pump-off layer) and turning it
+# off (bit 2 of the pump-on layer). Contours mark where switching is forced because waiting is unsafe in that pump state. The
+# locked layers have no choice, so they are left out.
 function plot_oil_pump(grid, shield, allowed, lost, info)
-    unsafe = []
-    jumping = []
-    noAct = []
+    g = shield.granularity
+    off, on = allowed[:, :, 1, OILPUMP_OFF_FREE], allowed[:, :, 1, OILPUMP_ON_FREE]
+    may_on, may_off = off .& 0x02 .!= 0, on .& 0x04 .!= 0
+    must_on, must_off = may_on .& (off .& 0x01 .== 0), may_off .& (on .& 0x01 .== 0)
+    # 0 dead, 1 keep as is, 2 may turn on, 3 may turn off, 4 may turn on or off
+    m = ifelse.((off .== 0) .& (on .== 0), 0, 1 .+ may_on .+ 2 .* may_off)
+    colors = [:black, :steelblue, :yellow, :purple, :white]
+    labels = ["dead", "keep as is", "may turn on", "may turn off", "may turn on or off"]
+    println(join(("$l $(count(==(i - 1), m))" for (i, l) in enumerate(labels)), ", "), " of $(length(m)) cells; must turn on $(count(must_on)), must turn off $(count(must_off))")
 
-    actDict = Dict()
-
-    act_translation = Dict()
-    for (i, act) in pairs(euclideanHybridSystem.Act)
-        act_translation[act.id] = 2#^(i-1)
+    # The heatmap's axes are cell indices: cell i spans [i - 0.5, i + 0.5], so a value x on axis a is at (x - lower)/g + 0.5
+    at(x, a) = (x .- shield.lower[a]) ./ g .+ 0.5
+    seconds = ceil(shield.lower[1]):2:floor(shield.upper[1])
+    liters = ceil(shield.lower[2]):floor(shield.upper[2])
+    t_steps = [[p[1] for p in OILPUMP_PIECES]; OILPUMP_PIECES[end][2]]
+    rates = [[p[3] for p in OILPUMP_PIECES]; OILPUMP_PIECES[end][3]]
+    xlims = (0.5, shield.numCells[1] + 0.5)
+    ylims = (0.5, shield.numCells[2] + 0.5)
+    fig = heatmap(transpose(m); c=cgrad(colors, 5, categorical=true), clim=(0, 4), colorbar=false, title="Oil pump shield: allowed switches at a free decision",
+        xlabel="t (s)", ylabel="V (l)", xticks=(at(seconds, 1), string.(Int.(seconds))), yticks=(at(liters[1:2:end], 2), string.(Int.(liters[1:2:end]))),
+        xlims, ylims, legend_position=:topleft, size=(1000, 650), left_margin=3Plots.mm, right_margin=3Plots.mm)
+    vline!(fig, at(seconds, 1); color=:gray, lw=0.5, alpha=0.6, label=false)
+    hline!(fig, at(liters, 2); color=:gray, lw=0.5, alpha=0.6, label=false)
+    for (color, label) in zip(colors, labels)
+        plot!(fig, Float64[], Float64[]; seriestype=:shape, label, color)   # Float64[] avoids a warning
     end
-
-    for act in euclideanHybridSystem.Act
-        actDict[act.id] = []
+    for (must, color, label) in ((must_on, :orange, "must turn on (if off)"), (must_off, :magenta, "must turn off (if on)"))
+        contour!(fig, 1:size(m, 1), 1:size(m, 2), transpose(Float64.(must)); levels=[0.5], c=[color, color], lw=1.5, colorbar=false)
+        plot!(fig, Float64[], Float64[]; color, lw=1.5, label)
     end
-
-
-    invalid_cells = []
-
-    no_allowed = reduce(&, allowed; dims=[3, 4])
-    @show size(allowed)
-    @show allowed[10, 10, 2, 1]
-    heatmap_matrix = zeros(Int64, size(view(no_allowed, :, :, 1, 1))...)
-
-    on_allowed = (allowed[:, :, 1, OILPUMP_OFF_FREE] .& 0x02 .> 0) .&& (allowed[:, :, 1, OILPUMP_ON_FREE] .& 0x01 .> 0) .&& (all(i -> i != 0, allowed[:, :, :, OILPUMP_ON_LOCKED]; dims=3))
-    off_allowed = (allowed[:, :, 1, OILPUMP_ON_FREE] .& 0x04 .> 0) .&& ((allowed[:, :, 1, OILPUMP_OFF_FREE] .& 0x01 .> 0)) .&& (all(i -> i != 0, allowed[:, :, :, OILPUMP_OFF_LOCKED]; dims=3))
-    both_allowed = (allowed[:, :, 1, OILPUMP_ON_FREE] .& 0x01 .> 0) .&& (allowed[:, :, 1, OILPUMP_OFF_FREE] .& 0x01 .> 0)
-    dead = (allowed[:, :, 1, OILPUMP_ON_LOCKED] .== 0) .|| (allowed[:, :, 1, OILPUMP_OFF_LOCKED] .== 0)
-
-    for idx in CartesianIndices(heatmap_matrix)
-        #layer1 = allowed[car2vec(idx)..., 1]
-        acts = 0
-        if dead[idx] == 0
-            heatmap_matrix[idx] = 0
-            #continue
-        end
-
-
-        if on_allowed[idx]
-            acts = acts | 0x01
-        end
-        if off_allowed[idx]
-            acts = acts | 0x02
-        end
-        if both_allowed[idx]
-            acts = 0x03
-        end
-        #=for i in 1:4
-            if allowed[car2vec(idx)..., 1, OILPUMP_OFF_FREE]  .== 0x02
-
-            end
-        end=#
-
-        heatmap_matrix[idx] = acts#collapsed_allowed[car2vec(idx)..., 1, 1] #allowed[car2vec(idx)..., 1, 4]#
-        #=
-        if (layer1 .& 0x01) .!= 0
-            heatmap_matrix[idx] = 1
-        end
-
-        if layer1 == 1 && lost[car2vec(idx)..., 1] > 1
-            heatmap_matrix[idx] = 3
-        elseif layer1 > 1 && heatmap_matrix[idx] != 1
-            heatmap_matrix[idx] = 2
-        end
-        =#
-    end
-
-    lower_offset = grid.lower .+ (granularity/2)
-
-    println("amount of dead cells: $(length(findall(==(0), heatmap_matrix))/foldl(*, grid.numCells))")
-    println("amount of blocked cells: $(length(findall(==(2), heatmap_matrix))/foldl(*, grid.numCells))")
-    @show shield.upper, shield.lower
-    y_n = floor(abs(shield.upper[2] - shield.lower[2]))
-    y_nt = collect(fld(shield.numCells[2], y_n) * i for i in 1:y_n)
-    y_st = collect(string(round(shield.lower[2] + (i * (abs(shield.lower[2]) + abs(shield.upper[2])) / y_n))) for i in 1:y_n)
-    x_n = floor(abs(shield.lower[1]) + abs(shield.upper[1]))
-    x_nt = collect(fld(shield.numCells[1], x_n) * i for i in 1:2:x_n)
-    x_st = collect(string(round(shield.lower[1] + (i * (abs(shield.lower[1]) + abs(shield.upper[1])) / x_n))) for i in 1:2:x_n)
-    hm = heatmap(transpose(heatmap_matrix), c=cgrad([:black, :yellow, :purple, :white], 4, categorical=true), clim=(0, 3), colorbar=true, xlabel="t", ylabel="V", xticks=(x_nt, x_st), yticks=([1.0, shield.numCells[2]], [string(round(shield.lower[2]; digits=2)), string(round(shield.upper[2]; digits=2))]))
-    #Plots.translate!(hm.shape(), 0, 0, -15)
-    fig = Plots.plot(hm; colorbar_ticks=([0.0, 1.0, 2.0, 3.0, 4.0], ["dead", "no action", "act1", "act2", "act1 + act2"]))
-    color_labels = ["{}", "{on}", "{off}", "{on, off}"]
-    for (color, label) in zip(cgrad([:black, :purple, :yellow, :white]), color_labels)
-        Plots.plot!(Float64[], Float64[], seriestype=:shape,   # The Float typing has been added to avoid a weird warning
-            label=label, color=color)
-    end
-    Plots.xlims!(1.0, shield.numCells[1])
-    Plots.ylims!(1.0, shield.numCells[2])
+    # The consumption rate on a second axis with ticks on the right border, scaled by 5: a rate c sits 5c liters above the
+    # bottom of the plot.
+    plot!(twinx(fig), at(t_steps, 1), rates; seriestype=:steppost, color=:red, lw=1.5, label=false, xlims, xticks=false,
+        ylims=(0.0, (ylims[2] - ylims[1]) * g / 5), ylabel="consumption (l/s)")
     display(fig)
+    return fig
 end
 
 # Automatic Synthesis of Robust and Optimal Controllers – An Industrial Case Study

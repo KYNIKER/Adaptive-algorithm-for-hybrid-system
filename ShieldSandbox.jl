@@ -7,6 +7,7 @@ include("plotFuncs/plotFuncHelper.jl")
 include("Utilities.jl")
 include("models/bouncingBall.jl")
 include("models/oilpump.jl")
+include("models/cruise.jl")
 include("ReACTedShielding.jl")
 include("ReACTedShieldingPred.jl")
 include("ReACTedShieldingAdaptiveFast.jl")
@@ -20,8 +21,8 @@ grid_name = "ball" * string(granularity)
 savefile = grid_name * ".jld2"
 
 euclideanHybridSystem, timePeriod = loadBouncingBallShieldedWithInput()
-OPsys, tp = loadOilPumpModal(; period=1.0)
-
+OPsys, tp = loadOilPumpModal(; period=0.2)
+CCsys, tc = loadCruiseControl()
 cscheme = palette(:matter, 2^length(euclideanHybridSystem.Act)+1; rev=true)
 
 δ⁻ = 0.001
@@ -35,7 +36,8 @@ cscheme = palette(:matter, 2^length(euclideanHybridSystem.Act)+1; rev=true)
 #can_act(ai) = ((allowed .>> ai) .& 0x01) .!= 0   # ai is the position in Act
 # Every shield returns grid, allowed, lost, info (see choice_bits in ReACTedShieldingFlat.jl); info holds what only that shield has, here info.act_bad and info.shield_count_cover
 
-@time grid, allowed, lost, info = ReACTed_reachable_cell_modal(OPsys, tp, 0.1, 0.2, 1.6; online=true)
+@time grid, allowed, lost, info = ReACTed_reachable_cell_modal(OPsys, tp, 0.1, 0.2, 0.8; online=true)
+#@time grid, allowed, lost, info = ReACTed_reachable_cell_modal(CCsys, tc, 0.5, 0.125, 0.5; online=true)
 
 
 shield = grid

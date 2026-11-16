@@ -3,7 +3,6 @@
 #using ReachabilityAnalysis: add_dimension
 using LazySets
 
-include("../Utilities.jl")
 
 
 const EGO_NEUTRAL_FRONT_NEUTRAL, EGO_NEUTRAL_FRONT_ACCELERATE, EGO_NEUTRAL_FRONT_DECELERATE,
@@ -136,7 +135,7 @@ end
 const CRUISE_DECELERATE, CRUISE_NEUTRAL, CRUISE_ACCELERATE = 1, 2, 3
 
 # The adaptive cruise control of "SOS: Safe, Optimal and Small Strategies for Hybrid Markov Decision Processes" as a
-# ModalHybridSystem (ReACTedShieldingModal.jl). Returns the system and the decision period.
+# ModalHybridSystem (modal.jl). Returns the system and the decision period.
 # Continuous state: (d, v_ego, v_front) = distance to the front car and the speeds of the two cars, with d' = v_front - v_ego.
 # Layers: the ego's acceleration (decelerate, neutral, accelerate). The controller picks it every period with the action of
 # the same id, and waiting keeps it. At its speed limit the ego stops accelerating: an edge sets the speed just inside the

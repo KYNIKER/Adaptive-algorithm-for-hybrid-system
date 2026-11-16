@@ -3,7 +3,7 @@
 #using ReachabilityAnalysis: add_dimension
 using LazySets
 
-include("../Utilities.jl")
+include("../src/core/utilities.jl")
 
 function loadBouncingBallShielded()
 

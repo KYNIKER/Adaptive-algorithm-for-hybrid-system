@@ -3,7 +3,6 @@ using ReachabilityAnalysis.ReachabilityBase.Arrays: SingleEntryVector
 using ReachabilityAnalysis: add_dimension
 using LazySets
 
-include("../Utilities.jl")
 
 function loadBouncingBall()
     A = [0.0 1.0 0.0; 0.0 0.0 -(9.82/ℯ); 0. 0. 0.]

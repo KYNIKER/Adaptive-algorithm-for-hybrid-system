@@ -165,7 +165,7 @@ function loadCruiseControlModal(; period=1.0, acceleration=2.0, v_ego_min=-10.0,
     A[distance, v_front] = 1.0
 
     modes = ((CRUISE_DECELERATE, -1.0), (CRUISE_NEUTRAL, 0.0), (CRUISE_ACCELERATE, 1.0))
-    # The front car's choices: (sign of its acceleration, region where it may pick it)
+    # The front car's choices: (sign of its acceleration, region where it may pick it). 
     change = acceleration * period
     fronts = [(-1.0, HPolyhedron([LazySets.HalfSpace(-e(v_front), -(v_front_min + change))])), (0.0, nothing),
         (1.0, HPolyhedron([LazySets.HalfSpace(e(v_front), v_front_max - change)]))]
@@ -178,9 +178,68 @@ function loadCruiseControlModal(; period=1.0, acceleration=2.0, v_ego_min=-10.0,
         edges = Edge[]
         sign > 0 && push!(edges, Edge(location_id(CRUISE_NEUTRAL, f), HPolyhedron([LazySets.HalfSpace(-e(v_ego), -v_ego_max)]), keep_all_but(v_ego), (v_ego_max - tol) .* e(v_ego)))
         sign < 0 && push!(edges, Edge(location_id(CRUISE_NEUTRAL, f), HPolyhedron([LazySets.HalfSpace(e(v_ego), v_ego_min)]), keep_all_but(v_ego), (v_ego_min + tol) .* e(v_ego)))
+        # This one should actually be setting the speed of v_front to be in [v_ego_min, v_ego]
         push!(edges, Edge(location_id(mode, f), HPolyhedron([LazySets.HalfSpace(-e(distance), -sensor_range)]), keep_all_but(distance), far_reset .* e(distance)))
+
         actions = [ModalAction(Action(m, nothing, keep_all, zeros(n)), location_id(m, f)) for (m, _) in modes if m != mode]
+        @show mode, sign, front_sign, actions
         push!(locations, ModalLocation(mode, region, A, U, edges, actions))
+    end
+
+    unsafe = [HPolyhedron([LazySets.HalfSpace(e(distance), d_unsafe)])]
+    low_corner = [0.0, v_ego_min, v_front_min]
+    high_corner = [sensor_range, v_ego_max, v_front_max]
+    S = Hyperrectangle((low_corner .+ high_corner) ./ 2, (high_corner .- low_corner) ./ 2)
+    return ModalHybridSystem(S, unsafe, locations), period
+end
+
+function loadCruiseControlModal_t(; period=1.0, acceleration=2.0, v_ego_min=-10.0, v_ego_max=20.0, v_front_min=-8.0, v_front_max=20.0, d_unsafe=5.0, sensor_range=200.0)
+    n = 3
+    distance, v_ego, v_front = 1, 2, 3
+    e(i) = [j == i ? 1.0 : 0.0 for j in 1:n]
+    keep_all = Matrix{Float64}(I, n, n)
+    keep_all_but(i) = diagm([j == i ? 0.0 : 1.0 for j in 1:n])
+    tol = 1e-2
+    A = zeros(n, n)
+    A[distance, v_ego] = -1.0
+    A[distance, v_front] = 1.0
+
+    modes = ((CRUISE_DECELERATE, -1.0), (CRUISE_NEUTRAL, 0.0), (CRUISE_ACCELERATE, 1.0))
+    # The front car's choices: (sign of its acceleration, region where it may pick it). 
+    change = acceleration * period
+    fronts = [(-1.0, HPolyhedron([LazySets.HalfSpace(-e(v_front), -(v_front_min + change))])), (0.0, nothing),
+        (1.0, HPolyhedron([LazySets.HalfSpace(e(v_front), v_front_max - change)]))]
+    location_id(mode, f) = (mode - 1) * length(fronts) + f
+    far_reset = sensor_range - (v_front_max - v_ego_min) * period
+
+    locations = ModalLocation[]
+    speed_regulation = keep_all_but(v_ego)
+    speed_regulation[v_front, v_ego] = 1.0
+    for (mode, sign) in modes, (f, (front_sign, region)) in enumerate(fronts)
+        if sign != 0 || front_sign != 0
+            U = Zonotope([0.0, sign * acceleration, front_sign * acceleration], zeros(n, 1))
+            edges = Edge[]
+            sign > 0 && push!(edges, Edge(location_id(CRUISE_NEUTRAL, f), HPolyhedron([LazySets.HalfSpace(-e(v_ego), -v_ego_max)]), keep_all_but(v_ego), (v_ego_max - tol) .* e(v_ego)))
+            sign < 0 && push!(edges, Edge(location_id(CRUISE_NEUTRAL, f), HPolyhedron([LazySets.HalfSpace(e(v_ego), v_ego_min)]), keep_all_but(v_ego), (v_ego_min + tol) .* e(v_ego)))
+            # This one should actually be setting the speed of v_front to be in [v_ego_min, v_ego]
+
+            push!(edges, Edge(location_id(mode, 2), HPolyhedron([LazySets.HalfSpace(-e(distance), -sensor_range)]), speed_regulation, far_reset .* e(distance)))
+
+            actions = []#[ModalAction(Action(m, nothing, keep_all, zeros(n)), location_id(m, f)) for (m, _) in modes if m != mode]
+            #@show mode, sign, front_sign, actions
+            push!(locations, ModalLocation(mode, region, A, U, edges, actions))
+        else
+            U = Zonotope([0.0, sign * acceleration, front_sign * acceleration], zeros(n, 1))
+            edges = Edge[]
+            #sign > 0 && push!(edges, Edge(location_id(CRUISE_NEUTRAL, f), HPolyhedron([LazySets.HalfSpace(-e(v_ego), -v_ego_max)]), keep_all_but(v_ego), (v_ego_max - tol) .* e(v_ego)))
+            #sign < 0 && push!(edges, Edge(location_id(CRUISE_NEUTRAL, f), HPolyhedron([LazySets.HalfSpace(e(v_ego), v_ego_min)]), keep_all_but(v_ego), (v_ego_min + tol) .* e(v_ego)))
+            # This one should actually be setting the speed of v_front to be in [v_ego_min, v_ego]
+            #push!(edges, Edge(location_id(mode, f), HPolyhedron([LazySets.HalfSpace(-e(distance), -sensor_range)]), keep_all_but(distance), far_reset .* e(distance)))
+
+            actions = [ModalAction(Action(m, nothing, keep_all, zeros(n)), location_id(m, fi)) for (m, _) in modes, (fi, _) in enumerate(fronts) if m != 2 || fi != 2]
+            #@show mode, sign, front_sign, actions
+            push!(locations, ModalLocation(mode, region, A, U, edges, actions))
+        end
     end
 
     unsafe = [HPolyhedron([LazySets.HalfSpace(e(distance), d_unsafe)])]

@@ -377,7 +377,7 @@ function adaptive_shield(leaves::FlatLeaves; act_needs_safe_flow::Bool=true, com
     function invalidate_into!(v)
         for ai in 1:n_acts
             start, list = act_preds[ai]
-            for i in start[v]:start[v+1]-1
+            for i in start[v]:(start[v+1]-1)
                 k = list[i]
                 if act_ok[ai][k]
                     act_ok[ai][k] = false
@@ -397,7 +397,7 @@ function adaptive_shield(leaves::FlatLeaves; act_needs_safe_flow::Bool=true, com
         while hd <= length(queue_dead)
             v = queue_dead[hd]
             hd += 1
-            for i in flow_start[v]:flow_start[v+1]-1
+            for i in flow_start[v]:(flow_start[v+1]-1)
                 set_flow_bad!(flow_list[i])
             end
             invalidate_into!(v)

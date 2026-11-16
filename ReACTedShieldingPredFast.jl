@@ -24,7 +24,7 @@ function _ReACTed_reachable_cell_online_pred_fast(grid::Grid{N}, system::Euclide
     block_reach = CellReach(reach, grid, sweep)
     fast_cells = falses(cellshape(grid))
     for b in CartesianIndices(ntuple(i -> 1:fld(grid.numCells[i], sweep[i]), N))
-        is_fast_block(system, reach, block_reach, b) && (fast_cells[ntuple(i -> (1+(b[i]-1)*sweep[i]):(b[i]*sweep[i]), N)...] .= true)
+        is_fast_block(system, reach, block_reach, b) && (fast_cells[ntuple(i->(1+(b[i]-1)*sweep[i]):(b[i]*sweep[i]), N)...] .= true)
     end
     cell_reach = CellReach(reach, grid)
     fast_covers, act_covers = reach_covers(system, reach, cell_reach.Z, [grid.granularity / 2], Val(N))
@@ -111,7 +111,7 @@ function _ReACTed_reachable_cell_online_pred_fast(grid::Grid{N}, system::Euclide
             if s.dead[k] && !succ.flow_none[k] && shield_count_cover[k] == 0.0
                 range = successor_range(succ, 0, k)
                 n_dead = count(i -> s.dead[succ.pool[i]], range)
-                shield_count_cover[k] = length(range) == max(1, n_dead) ? 1.0 : 0.5
+                shield_count_cover[k] = length(range) == max(1, n_dead) ? -shield_count : shield_count
             end
         end
         shield_count += 1
@@ -143,6 +143,7 @@ function _ReACTed_reachable_cell_online_pred_fast(grid::Grid{N}, system::Euclide
         Reachability: $(reachability_time / 10^9)
         Shield: $(shield_time / 10^9)")
     println("Shield rounds: $shield_count, cells computed: $cells_computed")
+    #foreach(shield_count_cover)
     return grid, allowed, lost, (; act_bad, shield_count_cover)
 end
 

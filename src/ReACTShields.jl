@@ -43,6 +43,6 @@ export ReACTed_reachable_cell_t, ReACTed_reachable_cell_online_pred_fast, ReACTe
 export Grid, Edge, Action, EuclideanHybridSystem, ModalHybridSystem, ModalLocation, ModalAction
 export loadBouncingBallShielded, loadBouncingBallShieldedWithInput, loadBouncingBallNoEdges
 export loadOilPumpModal, plot_oil_pump, OILPUMP_OFF_FREE, OILPUMP_OFF_LOCKED, OILPUMP_ON_FREE, OILPUMP_ON_LOCKED, OILPUMP_PIECES
-export loadCruiseControl, loadCruiseControlModal, loadCruiseControlModal_t, CRUISE_DECELERATE, CRUISE_NEUTRAL, CRUISE_ACCELERATE
+export loadCruiseControl, loadCruiseControlModal, loadCruiseControlModal_t, plot_cruise, CRUISE_DECELERATE, CRUISE_NEUTRAL, CRUISE_ACCELERATE
 
 end

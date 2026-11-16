@@ -212,17 +212,19 @@ function loadCruiseControlModal_t(; period=1.0, acceleration=2.0, v_ego_min=-10.
     far_reset = sensor_range - (v_front_max - v_ego_min) * period
 
     locations = ModalLocation[]
-    speed_regulation = keep_all_but(v_ego)
-    speed_regulation[v_front, v_ego] = 1.0
+    # Beyond the sensor range: the distance is set just below the range, the front car gets the ego's speed and brakes
+    # (the front-braking location of the same ego mode), so the distance stops growing and the edge does not fire again.
+    at_range = zeros(n, n)
+    at_range[v_ego, v_ego] = 1.0
+    at_range[v_front, v_ego] = 1.0
+    sensor_edge(mode) = Edge(location_id(mode, 1), HPolyhedron([LazySets.HalfSpace(-e(distance), -sensor_range)]), at_range, (sensor_range - tol) .* e(distance))
     for (mode, sign) in modes, (f, (front_sign, region)) in enumerate(fronts)
         if sign != 0 || front_sign != 0
             U = Zonotope([0.0, sign * acceleration, front_sign * acceleration], zeros(n, 1))
             edges = Edge[]
             sign > 0 && push!(edges, Edge(location_id(CRUISE_NEUTRAL, f), HPolyhedron([LazySets.HalfSpace(-e(v_ego), -v_ego_max)]), keep_all_but(v_ego), (v_ego_max - tol) .* e(v_ego)))
             sign < 0 && push!(edges, Edge(location_id(CRUISE_NEUTRAL, f), HPolyhedron([LazySets.HalfSpace(e(v_ego), v_ego_min)]), keep_all_but(v_ego), (v_ego_min + tol) .* e(v_ego)))
-            # This one should actually be setting the speed of v_front to be in [v_ego_min, v_ego]
-
-            push!(edges, Edge(location_id(mode, 2), HPolyhedron([LazySets.HalfSpace(-e(distance), -sensor_range)]), speed_regulation, far_reset .* e(distance)))
+            push!(edges, sensor_edge(mode))
 
             actions = []#[ModalAction(Action(m, nothing, keep_all, zeros(n)), location_id(m, f)) for (m, _) in modes if m != mode]
             #@show mode, sign, front_sign, actions
@@ -232,8 +234,7 @@ function loadCruiseControlModal_t(; period=1.0, acceleration=2.0, v_ego_min=-10.
             edges = Edge[]
             #sign > 0 && push!(edges, Edge(location_id(CRUISE_NEUTRAL, f), HPolyhedron([LazySets.HalfSpace(-e(v_ego), -v_ego_max)]), keep_all_but(v_ego), (v_ego_max - tol) .* e(v_ego)))
             #sign < 0 && push!(edges, Edge(location_id(CRUISE_NEUTRAL, f), HPolyhedron([LazySets.HalfSpace(e(v_ego), v_ego_min)]), keep_all_but(v_ego), (v_ego_min + tol) .* e(v_ego)))
-            # This one should actually be setting the speed of v_front to be in [v_ego_min, v_ego]
-            #push!(edges, Edge(location_id(mode, f), HPolyhedron([LazySets.HalfSpace(-e(distance), -sensor_range)]), keep_all_but(distance), far_reset .* e(distance)))
+            push!(edges, sensor_edge(mode))
 
             actions = [ModalAction(Action(m, nothing, keep_all, zeros(n)), location_id(m, fi)) for (m, _) in modes, (fi, _) in enumerate(fronts) if m != 2 || fi != 2]
             #@show mode, sign, front_sign, actions
@@ -246,4 +247,54 @@ function loadCruiseControlModal_t(; period=1.0, acceleration=2.0, v_ego_min=-10.
     high_corner = [sensor_range, v_ego_max, v_front_max]
     S = Hyperrectangle((low_corner .+ high_corner) ./ 2, (high_corner .- low_corner) ./ 2)
     return ModalHybridSystem(S, unsafe, locations), period
+end
+
+# What the shield allows at a given ego speed, as the front car's speed (x) against the distance (y), with one panel per
+# mode the ego is in now (its layer). Each cell is coloured by the modes the ego may be in next period: waiting keeps the
+# current mode, and an action switches to its mode. The colours are those of plot_oil_pump, by the same bit order
+# (bit 0 brake, bit 1 coast, bit 2 accelerate), with black for a dead cell.
+function plot_cruise(grid, allowed, info; v_ego=0.0)
+    g = grid.granularity
+    ids = info.ctx.action_ids # action position -> mode
+    j = floor(Int, (v_ego - grid.lower[2]) / g) + 1
+    v_lo = grid.lower[2] + (j - 1) * g
+    function next_modes(bits, current)
+        bits == 0 && return 0
+        m = (bits & 0x01) != 0 ? 1 << (current - 1) : 0
+        for (ai, id) in enumerate(ids)
+            (bits >> ai) & 0x01 != 0 && (m |= 1 << (id - 1))
+        end
+        return m
+    end
+    colors = [:black, :steelblue, :darkgoldenrod, :yellow, :orchid4, :orchid, :gray60, :white]
+    labels = ["dead", "brake", "coast", "brake or coast", "accelerate", "brake or accelerate", "coast or accelerate", "any"]
+    modes = ["braking", "coasting", "accelerating"]
+
+    # The heatmap's axes are cell indices: cell i spans [i - 0.5, i + 0.5], so a value x on axis a is at (x - lower)/g + 0.5
+    at(x, a) = (x .- grid.lower[a]) ./ g .+ 0.5
+    speeds = ceil(grid.lower[3]):4:floor(grid.upper[3])
+    distances = ceil(grid.lower[1]):(grid.upper[1] - grid.lower[1] > 100 ? 20 : 10):floor(grid.upper[1])
+    xlims = (0.5, size(allowed, 3) + 0.5)
+    ylims = (0.5, size(allowed, 1) + 0.5)
+    panels = []
+    present = Set{Int}()
+    for layer in axes(allowed, 4)
+        m = [next_modes(allowed[i, j, k, layer], layer) for i in axes(allowed, 1), k in axes(allowed, 3)]
+        union!(present, m)
+        println("currently $(modes[layer]): ", join(("$(labels[c+1]) $(count(==(c), m))" for c in 0:7 if any(==(c), m)), ", "))
+        fig = heatmap(m; c=cgrad(colors, length(colors), categorical=true), clim=(0, length(colors) - 1), colorbar=false,
+            title="Currently $(modes[layer])", xlabel="front car speed (m/s)", ylabel="distance (m)", titlefontsize=10,
+            xticks=(at(speeds, 3), string.(Int.(speeds))), yticks=(at(distances, 1), string.(Int.(distances))), xlims, ylims, legend=false)
+        vline!(fig, at(speeds, 3); color=:gray, lw=0.5, alpha=0.6, label=false)
+        hline!(fig, at(distances, 1); color=:gray, lw=0.5, alpha=0.6, label=false)
+        push!(panels, fig)
+    end
+    legend = plot(; framestyle=:none, legend=:left, foreground_color_legend=nothing)
+    for c in sort(collect(present))
+        plot!(legend, Float64[], Float64[]; seriestype=:shape, color=colors[c+1], linecolor=:gray60, label=labels[c+1])   # Float64[] avoids a warning
+    end
+    fig = plot(panels..., legend; layout=@layout([a b c d{0.14w}]), size=(1500, 650), left_margin=8Plots.mm, bottom_margin=6Plots.mm,
+        plot_title="Cruise control shield: allowed next mode, ego speed in [$v_lo, $(v_lo + g)) m/s", plot_titlefontsize=11)
+    display(fig)
+    return fig
 end

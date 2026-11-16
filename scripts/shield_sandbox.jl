@@ -26,13 +26,13 @@ cscheme = palette(:matter, 2^length(euclideanHybridSystem.Act)+1; rev=true)
 #can_act(ai) = ((allowed .>> ai) .& 0x01) .!= 0   # ai is the position in Act
 # Every shield returns grid, allowed, lost, info (see choice_bits in src/shields/flat.jl); info holds what only that shield has, here info.act_bad and info.shield_count_cover
 
-@time grid, allowed, lost, info = ReACTed_reachable_cell_modal(OPsys, tp, 0.2, 0.1, 0.2; online=true)
-#@time grid, allowed, lost, info = ReACTed_reachable_cell_modal(CCsys, tc, 0.5, 0.5, 0.5; online=false)
+#@time grid, allowed, lost, info = ReACTed_reachable_cell_modal(OPsys, tp, 0.2, 0.1, 0.2; online=true)
+@time grid, allowed, lost, info = ReACTed_reachable_cell_modal(CCsys, tc, 0.5, 0.125, 0.25; online=false)
 
 
 shield = grid
 plot_oil_pump(grid, shield, allowed, lost, info)
-
+CCfig = plot_cruise(grid, allowed, info)
 #grid = grid_p
 #=
 y_n = floor(abs(shield.lower[2]) + abs(shield.upper[2]))

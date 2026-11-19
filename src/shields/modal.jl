@@ -50,37 +50,9 @@ function ModalHybridSystem(system::EuclideanHybridSystem)
     return ModalHybridSystem(system.statespace, system.globalConstraints, [location])
 end
 
-# Everything needed to flow a set under one (A, U). Φ[k+1] and V[k+1] solve the dynamics exactly for k*δ⁻.
-struct ModalDynamics
-    A::Matrix{Float64}
-    phiDict::Dict{Float64,Matrix{Float64}}
-    tPhiDict::Dict{Float64,Matrix{Float64}}
-    inputDict::Dict{Float64,Zonotope}
-    P2A_abs::Matrix{Float64}
-    Φ::Vector{Matrix{Float64}}
-    V::Vector{Zonotope{Float64,Vector{Float64},Matrix{Float64}}}
-    zero_input::Zonotope{Float64,Vector{Float64},Matrix{Float64}}
-end
-
-function ModalDynamics(A::Matrix{Float64}, U, steps::Int, δ⁻::Float64, δ⁺::Float64, alg, maxOrder::Int, reduceOrder::Int)
-    n = size(A, 1)
-    phiDict, tPhiDict, inputDict = phi_input_dict(A, U, δ⁻, δ⁺, alg, maxOrder, reduceOrder)
-    A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(A)
-    Φcache = A == A_abs ? phiDict[δ⁻] : nothing
-    P2A_abs = Matrix{Float64}(ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, isinvertible(A), Φcache))
-    Φ = Matrix{Float64}[Matrix{Float64}(I, n, n)]
-    V = [Zonotope(zeros(n), zeros(n, n))]
-    for k in 1:steps
-        d = k * δ⁻
-        push!(Φ, exp(d .* A))
-        push!(V, input_bound(A, U, d, alg)) # the input's contribution over k δ⁻, which may vary in time
-    end
-    return ModalDynamics(A, phiDict, tPhiDict, inputDict, P2A_abs, Φ, V, Zonotope(zeros(n), zeros(size(genmat(inputDict[δ⁻])))))
-end
-
 # Everything location-specific. Polyhedra are kept as the (directions, bounds) of getHalfSpaceProjections.
 struct ModalLocationData{D}
-    dynamics::ModalDynamics # shared between locations with the same (A, U)
+    dynamics::Dynamics # shared between locations with the same (A, U)
     layer::Int
     starts::Bool
     region::Union{Tuple{Vector{Vector{Float64}},Vector{Float64}},Nothing}
@@ -139,44 +111,6 @@ Base.iterate(s::LocationSet, m::UInt64=s.mask) = m == 0 ? nothing : (s.ids[trail
 Base.length(s::LocationSet) = count_ones(s.mask)
 Base.isempty(s::LocationSet) = s.mask == 0
 Base.eltype(::Type{LocationSet}) = Int
-
-# Step at which the flowpipe of disc first touches any of the sets, or steps if it touches none within that many steps of δ⁻.
-function first_touch(dyn::ModalDynamics, disc, sets, steps::Int, δ⁻::Float64, δ⁺::Float64, identity_matrix)
-    k0 = steps
-    for (vectors, bounds) in sets
-        reachtime, _, _, flag = ReACT_guards_t(δ⁻, δ⁺, [0.0, steps * δ⁻], identity_matrix, zeros(4), dyn.zero_input, copy(vectors), bounds, 2, dyn.phiDict, dyn.tPhiDict, disc, dyn.inputDict)
-        if flag != 0
-            k0 = min(k0, round(Int, reachtime / δ⁻))
-        end
-    end
-    return k0
-end
-
-# Over-approximates the part of Z in the polyhedron with one strip intersection per halfspace that cuts it.
-# Returns nothing if Z misses a halfspace.
-function clip_to_guard(Z, guard)
-    res = Z
-    for (a, b) in zip(guard...)
-        hi = ρ(a, res)
-        if hi > b
-            lo = -ρ(-a, res)
-            lo > b && return nothing
-            res = zonotopeStripIntersection(res, a, (lo + b) / 2, (b - lo) / 2)
-        end
-    end
-    return res
-end
-
-function apply_jump(Z, M::Matrix{Float64}, j::Vector{Float64}, maxOrder::Int, reduceOrder::Int)
-    res = remove_zero_generators(Zonotope(M * LazySets.center(Z) + j, M * genmat(Z)))
-    if size(genmat(res), 2) == 0
-        return Zonotope(LazySets.center(res), zeros(length(j), 1))
-    end
-    if maxOrder > 0 && LazySets.order(res) > maxOrder
-        res = reduce_order(res, reduceOrder)
-    end
-    return Zonotope(Vector{Float64}(LazySets.center(res)), Matrix{Float64}(genmat(res)))
-end
 
 # Exact interval at the end of the period on the clock axes of a location, for X flowing `steps` steps of δ⁻.
 function clock_end(rate::Vector{Float64}, X, steps::Int, δ⁻::Float64)
@@ -239,7 +173,7 @@ function left_statespace(ctx::ModalContext, loc::ModalLocationData, X, D::Int, t
             tracked = !isnan(lo[axis])
             value = tracked ? (a[axis] > 0 ? a[axis] * hi[axis] : a[axis] * lo[axis]) : ρ(a, final)
             value > b + MODAL_TOL || continue
-            beyond = clip_to_guard(final, ([-a], [-b]))
+            beyond = clip_to_polyhedron(final, ([-a], [-b]))
             if beyond === nothing
                 tracked && return true # the interval is exact, the set is not
                 continue
@@ -273,14 +207,14 @@ function modal_reach!(out::Vector{ModalEndSet}, ctx::ModalContext, li::Int, X, D
             all_jumped = false
             for (e, guard) in zip(ctx.system.locations[li].edges, loc.guards)
                 someinside(piece, guard...) || continue
-                clipped = clip_to_guard(piece, guard)
+                clipped = clip_to_polyhedron(piece, guard)
                 clipped === nothing && continue
                 # A state in this piece has spent between k and k + 1 steps here, and had between D and D + W left at the start.
                 D′ = max(D - k - 1, 0)
                 W′ = total - k - D′
                 clocks = clock_after_jump(lo, hi, guard, e.jumpMatrix, e.jumpVector, loc.clock_rate, ctx.locations[e.targetLoc].clock_rate, D′, W′, ctx.δ⁻)
                 clocks === nothing && continue
-                jumped = apply_jump(clipped, e.jumpMatrix, e.jumpVector, ctx.maxOrder, ctx.reduceOrder)
+                jumped = jump_set(clipped, e.jumpMatrix, e.jumpVector, ctx.maxOrder, ctx.reduceOrder)
                 modal_reach!(out, ctx, e.targetLoc, jumped, D′, W′, exit_bad, clocks..., depth + 1) || return false
                 all_jumped = all_jumped || allunder(piece, guard...)
             end
@@ -328,13 +262,13 @@ function _ModalContext(grid::Grid{D}, ::Val{N}, system, p::Float64, δ⁻, δ⁺
     action_ids = sort!(unique(a.action.id for loc in system.locations for a in loc.actions))
     identity_matrix = Matrix{Float64}(I, D, D)
 
-    shared = Dict{Tuple{Matrix{Float64},Vector{Float64},Matrix{Float64}},ModalDynamics}()
+    shared = Dict{Tuple{Matrix{Float64},Vector{Float64},Matrix{Float64}},Dynamics}()
     sweep = sweep_factor isa Integer ? [min(sweep_factor, n) for n in grid.numCells] : [min(s, n) for (s, n) in zip(sweep_factor, grid.numCells)]
     G_big = Matrix{Float64}(genmat(remove_zero_generators(Zonotope(zeros(D), diagm(map((n, s) -> n == 1 ? 0.0 : g * (s / 2), grid.numCells, sweep))))))
 
     locations = ModalLocationData{D}[]
     for loc in system.locations
-        dyn = get!(() -> ModalDynamics(loc.A, loc.U, steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder), shared, (loc.A, LazySets.center(loc.U), genmat(loc.U)))
+        dyn = get!(() -> Dynamics(loc.A, loc.U, steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder), shared, (loc.A, LazySets.center(loc.U), genmat(loc.U)))
         guards = [getHalfSpaceProjections(e.guard) for e in loc.edges]
         targets = vcat(guards, unsafe, exits)
         region = loc.region === nothing ? nothing : getHalfSpaceProjections(loc.region)
@@ -367,7 +301,7 @@ function _ModalContext(grid::Grid{D}, ::Val{N}, system, p::Float64, δ⁻, δ⁺
         li = length(locations) + 1
         incoming_edges = [(src, e) for (src, l) in enumerate(system.locations) for e in l.edges if e.targetLoc == li]
         incoming_actions = [(src, a.action) for (src, l) in enumerate(system.locations) for a in l.actions if a.target == li]
-        bordered = [any(((v, w),) -> any(i -> isapprox(v[i], -a; atol=MODAL_TOL) && isapprox(w[i], -b; atol=MODAL_TOL), eachindex(v)), guards) for (a, b) in zip(statespace...)]
+        bordered = [bordered_by(guards, a, b; atol=MODAL_TOL) for (a, b) in zip(statespace...)]
         push!(locations, ModalLocationData{D}(dyn, loc.layer, loc.starts, region, guards, fast, fast_cover, clock_rate, flow_lo, flow_hi, incoming_edges, incoming_actions, bordered))
     end
 
@@ -510,7 +444,7 @@ function action_successors(ctx::ModalContext{D,N}, layer::Int, c::CartesianIndex
         # Several actions with this id in one location are one choice with several outcomes: all of them are successors
         for a in ctx.system.locations[li].actions
             a.action.id == ctx.action_ids[ai] || continue
-            jumped = apply_jump(Z, a.action.jumpMatrix, a.action.jumpVector, ctx.maxOrder, ctx.reduceOrder)
+            jumped = jump_set(Z, a.action.jumpMatrix, a.action.jumpVector, ctx.maxOrder, ctx.reduceOrder)
             lo, hi = clock_end(ctx.locations[a.target].clock_rate, jumped, ctx.steps, ctx.δ⁻)
             # A jump onto another cell that is fast in the target location: its precomputed cover, as for the flow
             shift = cell_shift(a.action.jumpMatrix, a.action.jumpVector, ctx.grid)

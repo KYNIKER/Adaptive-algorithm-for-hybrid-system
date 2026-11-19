@@ -8,15 +8,49 @@
 
 dense_zonotope(Z::Zonotope) = Zonotope(Vector{Float64}(LazySets.center(Z)), Matrix{Float64}(genmat(Z)))
 
-struct JumpReach
+# Everything needed to flow a set under one (A, U). Φ[k+1] and V[k+1] solve the dynamics exactly for k*δ⁻.
+struct Dynamics
+    A::Matrix{Float64}
     phiDict::Dict{Float64,Matrix{Float64}}
     tPhiDict::Dict{Float64,Matrix{Float64}}
     inputDict::Dict{Float64,Zonotope}
-    A::Matrix{Float64}
     P2A_abs::Matrix{Float64}
-    Φ::Vector{Matrix{Float64}} # Φ[k+1] = exp(k δ⁻ A)
-    V::Vector{Zonotope{Float64,Vector{Float64},Matrix{Float64}}} # V[k+1]: the input's contribution over k δ⁻
+    Φ::Vector{Matrix{Float64}}
+    V::Vector{Zonotope{Float64,Vector{Float64},Matrix{Float64}}}
     zero_input::Zonotope{Float64,Vector{Float64},Matrix{Float64}}
+end
+
+function Dynamics(A::Matrix{Float64}, U, steps::Int, δ⁻::Float64, δ⁺::Float64, alg, maxOrder::Int, reduceOrder::Int)
+    n = size(A, 1)
+    phiDict, tPhiDict, inputDict = phi_input_dict(A, U, δ⁻, δ⁺, alg, maxOrder, reduceOrder)
+    A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(A)
+    Φcache = A == A_abs ? phiDict[δ⁻] : nothing
+    P2A_abs = Matrix{Float64}(ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, isinvertible(A), Φcache))
+    Φ = Matrix{Float64}[Matrix{Float64}(I, n, n)]
+    V = [Zonotope(zeros(n), zeros(n, n))]
+    for k in 1:steps
+        d = k * δ⁻
+        push!(Φ, exp(d .* A))
+        push!(V, input_bound(A, U, d, alg)) # the input's contribution over k δ⁻, which may vary in time
+    end
+    return Dynamics(A, phiDict, tPhiDict, inputDict, P2A_abs, Φ, V, Zonotope(zeros(n), zeros(size(genmat(inputDict[δ⁻])))))
+end
+
+# Step at which the flowpipe of disc first touches any of the sets, or steps if it touches none within that many steps of δ⁻.
+function first_touch(dyn::Dynamics, disc, sets, steps::Int, δ⁻::Float64, δ⁺::Float64, identity_matrix)
+    k0 = steps
+    for (vectors, bounds) in sets
+        reachtime, _, _, flag = ReACT_guards_t(δ⁻, δ⁺, [0.0, steps * δ⁻], identity_matrix, zeros(4), dyn.zero_input, copy(vectors), bounds, dyn.phiDict, dyn.tPhiDict, disc, dyn.inputDict)
+        if flag != 0
+            k0 = min(k0, round(Int, reachtime / δ⁻))
+        end
+    end
+    return k0
+end
+
+
+struct JumpReach
+    dyn::Dynamics
     guards::Vector{Tuple{Vector{Vector{Float64}},Vector{Float64}}} # per edge
     jumps::Vector{Tuple{Matrix{Float64},Vector{Float64}}} # per edge: jump matrix and vector
     exit_faces::Tuple{Vector{Vector{Float64}},Vector{Float64}} # state-space faces a ⋅ x <= b whose complement is not a halfspace of a guard
@@ -33,30 +67,20 @@ end
 
 dense_projections(P) = ((v, b)=getHalfSpaceProjections(P); ([Vector{Float64}(a) for a in v], Vector{Float64}(b)))
 
-function JumpReach(system::EuclideanHybridSystem, p, δ⁻::Float64, δ⁺::Float64, phiDict, tPhiDict, inputDict, P2A_abs, alg, maxOrder::Int, reduceOrder::Int; max_depth::Int=16, jump_hull::Bool=false)
-    steps = round(Int, p / δ⁻)
-    isapprox(steps * δ⁻, p; atol=1e-9) || throw(ArgumentError("The period $p must be a multiple of δ⁻ = $δ⁻"))
-    A = Matrix{Float64}(system.flowMatrix)
-    n = size(A, 1)
-    U = system.input
-    Φ = Matrix{Float64}[Matrix{Float64}(I, n, n)]
-    V = [Zonotope(zeros(n), zeros(n, n))]
-    for k in 1:steps
-        d = k * δ⁻
-        push!(Φ, exp(d .* A))
-        push!(V, input_bound(A, U, d, alg)) # the input's contribution over k δ⁻, which may vary in time
-    end
+function JumpReach(system::EuclideanHybridSystem, dyn::Dynamics, δ⁻::Float64, δ⁺::Float64, alg, maxOrder::Int, reduceOrder::Int; max_depth::Int=16, jump_hull::Bool=false)
+    n = size(dyn.A, 1)
     guards = [dense_projections(e.guard) for e in system.edges]
     jumps = [(Matrix{Float64}(e.jumpMatrix), e.jumpVector === nothing ? zeros(n) : Vector{Float64}(e.jumpVector)) for e in system.edges]
     # A face a ⋅ x <= b is bordered by a guard with the halfspace -a ⋅ x <= -b, such as p >= 0 by the bounce guard's p <= 0.
     # This assumes a state can only cross a bordered face inside that guard, as for the ball.
     statespace = dense_projections(hyperrectangle_to_HPolyhedron(system.statespace))
-    bordered(a, b) = any(((v, w),) -> any(i -> isapprox(v[i], -a; atol=1e-12) && isapprox(w[i], -b; atol=1e-12), eachindex(v)), guards)
-    keep = [i for i in eachindex(statespace[1]) if !bordered(statespace[1][i], statespace[2][i])]
+    keep = [i for i in eachindex(statespace[1]) if !bordered_by(guards, statespace[1][i], statespace[2][i]; atol=1e-12)]
     exit_faces = (statespace[1][keep], statespace[2][keep])
-    zero_input = Zonotope(zeros(n), zeros(size(genmat(inputDict[δ⁻]))))
-    return JumpReach(phiDict, tPhiDict, inputDict, A, Matrix{Float64}(P2A_abs), Φ, V, zero_input, guards, jumps, exit_faces, steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder, max_depth, jump_hull, Matrix{Float64}(I, n, n))
+    return JumpReach(dyn, guards, jumps, exit_faces, length(dyn.Φ) - 1, δ⁻, δ⁺, alg, maxOrder, reduceOrder, max_depth, jump_hull, Matrix{Float64}(I, n, n))
 end
+
+# True if a guard has the halfspace -a ⋅ x <= -b, so it borders the state-space face a ⋅ x <= b.
+bordered_by(guards, a, b; atol) = any(((v, w),) -> any(i -> isapprox(v[i], -a; atol) && isapprox(w[i], -b; atol), eachindex(v)), guards)
 
 # Over-approximates the part of Z in the polyhedron with one strip intersection per halfspace that cuts it.
 # Returns nothing if Z misses a halfspace.
@@ -89,6 +113,7 @@ end
 # all of them, instead of each piece jumping with its own window. Fewer flows, but a larger set over a longer window.
 function reach_jumps!(out::Vector{Zonotope{Float64,Vector{Float64},Matrix{Float64}}}, jr::JumpReach, X, disc, D::Int, W::Int, depth::Int=0)
     depth > jr.max_depth && return false
+    dyn = jr.dyn
     total = D + W
     if total == 0
         push!(out, X)
@@ -97,23 +122,17 @@ function reach_jumps!(out::Vector{Zonotope{Float64,Vector{Float64},Matrix{Float6
     δ⁺ = jr.δ⁺
     if disc === nothing
         δ⁺ = min(jr.δ⁺, jr.δ⁻ * 2^floor(Int, log2(total)))
-        disc = newReACTDiscretizePlus(X, jr.δ⁻, δ⁺, jr.A, jr.P2A_abs, jr.phiDict, jr.inputDict, jr.alg, jr.maxOrder, jr.reduceOrder)
+        disc = newReACTDiscretizePlus(X, jr.δ⁻, δ⁺, dyn.A, dyn.P2A_abs, dyn.phiDict, dyn.inputDict, jr.alg, jr.maxOrder, jr.reduceOrder)
     end
-    # First step at which the flowpipe touches a guard
-    k0 = total
-    for (vectors, bounds) in jr.guards
-        reachtime, _, _, flag = ReACT_guards_t(jr.δ⁻, δ⁺, [0.0, total * jr.δ⁻], jr.identity_matrix, zeros(4), jr.zero_input, copy(vectors), bounds, 2, jr.phiDict, jr.tPhiDict, disc, jr.inputDict)
-        flag != 0 && (k0 = min(k0, round(Int, reachtime / jr.δ⁻)))
-    end
+    k0 = first_touch(dyn, disc, jr.guards, total, jr.δ⁻, δ⁺, jr.identity_matrix)
     # jump_hull: per guard, the hull of the clipped pieces and the first and last step they came from
     hulls = jr.jump_hull ? Union{Nothing,Zonotope{Float64,Vector{Float64},Matrix{Float64}}}[nothing for _ in jr.guards] : nothing
     kfirst = jr.jump_hull ? fill(total, length(jr.guards)) : nothing
     klast = jr.jump_hull ? fill(-1, length(jr.guards)) : nothing
     all_jumped = false
     # Pieces from the first touch on, and the pieces that end the period when the time left varies
-    #push!(out, minkowski_sum(linear_map(jr.Φ[k0], disc[jr.δ⁻]), jr.V[k0]))
     for k in min(k0, W==0 ? total : D):(total-1)
-        piece = minkowski_sum(linear_map(jr.Φ[k+1], disc[jr.δ⁻]), jr.V[k+1])
+        piece = minkowski_sum(linear_map(dyn.Φ[k+1], disc[jr.δ⁻]), dyn.V[k+1])
         if k >= k0
             for (gi, (guard, (M, j))) in enumerate(zip(jr.guards, jr.jumps))
                 someinside(piece, guard...) || continue
@@ -121,8 +140,7 @@ function reach_jumps!(out::Vector{Zonotope{Float64,Vector{Float64},Matrix{Float6
                 clipped === nothing && continue
                 all_jumped = all_jumped || allunder(piece, guard...)
                 if jr.jump_hull
-                    #h = hulls[gi] === nothing ? clipped : zonotope_hull(hulls[gi], clipped)
-                    h = k == k0 ? zonotope_hull(minkowski_sum(linear_map(jr.Φ[k0], disc[jr.δ⁻]), jr.V[k0]), clipped) : zonotope_hull(hulls[gi], clipped)
+                    h = k == k0 ? zonotope_hull(minkowski_sum(linear_map(dyn.Φ[k0], disc[jr.δ⁻]), dyn.V[k0]), clipped) : zonotope_hull(hulls[gi], clipped)
                     jr.maxOrder > 0 && LazySets.order(h) > jr.maxOrder && (h = reduce_order(h, jr.reduceOrder))
                     hulls[gi] = dense_zonotope(h)
                     kfirst[gi] = min(kfirst[gi], k)
@@ -140,27 +158,21 @@ function reach_jumps!(out::Vector{Zonotope{Float64,Vector{Float64},Matrix{Float6
         W > 0 && k >= D && push!(out, piece)
     end
     if jr.jump_hull
-        #push!(out, collect(clip_to_polyhedron(hulls[gi], guard) for (gi, guard) in enumerate(jr.guards) if hulls[gi] !== nothing)...)
         for (gi, (M, j)) in enumerate(jr.jumps)
             hulls[gi] === nothing && continue
             # A state in the hull has spent between kfirst and klast + 1 steps
             D′ = max(D - klast[gi] - 1, 0)
             W′ = total - kfirst[gi] - D′
-            #@show D′, W′, kfirst[gi], klast[gi], total
-            #push!(out, hulls[gi])
             # TODO - Determine whether the hull needs to get bloated by Phi2 
-            reach_jumps!(out, jr, jump_set(zonotope_hull(minkowski_sum(linear_map(jr.Φ[k0], X), jr.V[k0]), minkowski_sum(linear_map(jr.Φ[klast[gi]+1], X), jr.V[klast[gi]+1])), M, j, jr.maxOrder, jr.reduceOrder), nothing, total-kfirst[gi]-1, 1, depth + 1) || return false
-            #reach_jumps!(out, jr, jump_set(hulls[gi], M, j, jr.maxOrder, jr.reduceOrder), nothing, D′+W′-1, 1, depth + 1) || return false
-            #reach_jumps!(out, jr, jump_set(hulls[gi], M, j, jr.maxOrder, jr.reduceOrder), nothing, total-kfirst[gi]-1, 1, depth + 1) || return false
+            reach_jumps!(out, jr, jump_set(zonotope_hull(minkowski_sum(linear_map(dyn.Φ[k0], X), dyn.V[k0]), minkowski_sum(linear_map(dyn.Φ[klast[gi]+1], X), dyn.V[klast[gi]+1])), M, j, jr.maxOrder, jr.reduceOrder), nothing, total-kfirst[gi]-1, 1, depth + 1) || return false
         end
-        #@show size(out)
     end
     all_jumped && return true
     # The sets at the shortest and longest time left are flowed without jumps, so states that jumped appear in them as if
     # they had not. Beyond a face that a guard borders are only such states (and the bloat of the sets around the jump).
     # Beyond any other face, a part inside a guard has jumped too; any other part has left the state space.
     for k in unique((D, total))
-        final = minkowski_sum(linear_map(jr.Φ[k+1], X), jr.V[k+1])
+        final = minkowski_sum(linear_map(dyn.Φ[k+1], X), dyn.V[k+1])
         for (a, b) in zip(jr.exit_faces...)
             ρ(a, final) > b || continue
             beyond = clip_to_polyhedron(final, ([-a], [-b]))
@@ -168,7 +180,7 @@ function reach_jumps!(out::Vector{Zonotope{Float64,Vector{Float64},Matrix{Float6
             any(guard -> allunder(beyond, guard...), jr.guards) || return false
         end
     end
-    W == 0 && push!(out, minkowski_sum(linear_map(jr.Φ[D+1], X), jr.V[D+1]))
+    W == 0 && push!(out, minkowski_sum(linear_map(dyn.Φ[D+1], X), dyn.V[D+1]))
     return true
 end
 
@@ -195,11 +207,11 @@ end
 # whole-period flow and input used by fast cells, the projections propagate_set_check_hybrid_jump needs for the
 # fast-cell sweep, and the JumpReach of propagate_set_jumps.
 function reach_setup(system::EuclideanHybridSystem, p, δ⁻::Float64, δ⁺::Float64, alg, maxOrder::Int, reduceOrder::Int, ::Val{N}; jump_hull::Bool=false) where N
-    phiDict, tPhiDict, inputDict = phi_input_dict(system.flowMatrix, system.input, δ⁻, δ⁺, alg, maxOrder, reduceOrder)
-    A = system.flowMatrix
-    A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(A)
-    Φcache = A == A_abs ? phiDict[δ⁻] : nothing
-    P2A_abs = ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, isinvertible(A), Φcache)
+    steps = round(Int, p / δ⁻)
+    isapprox(steps * δ⁻, p; atol=1e-9) || throw(ArgumentError("The period $p must be a multiple of δ⁻ = $δ⁻"))
+    A = Matrix{Float64}(system.flowMatrix)
+    dyn = Dynamics(A, system.input, steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder)
+    (; phiDict, tPhiDict, inputDict, P2A_abs) = dyn
     invariant = hyperrectangle_to_HPolyhedron(system.statespace)
     U = system.input
     max_input = input_bound(A, U, p, alg)
@@ -210,5 +222,5 @@ function reach_setup(system::EuclideanHybridSystem, p, δ⁻::Float64, δ⁺::Fl
     return (; p=Float64(p), δ⁻, δ⁺, alg, maxOrder, reduceOrder, phiDict, tPhiDict, inputDict, A, P2A_abs, U, max_input, max_flow,
         guardProjVectors, guardProjBounds, invariantProjVectors, invariantProjBounds, guard_invariant_intersection,
         identity_matrix=diagm(ones(N)), attempt_recorder=zeros(4), center=zeros(N),
-        jump_reach=JumpReach(system, p, δ⁻, δ⁺, phiDict, tPhiDict, inputDict, P2A_abs, alg, maxOrder, reduceOrder; jump_hull))
+        jump_reach=JumpReach(system, dyn, δ⁻, δ⁺, alg, maxOrder, reduceOrder; jump_hull))
 end

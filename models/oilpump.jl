@@ -3,7 +3,6 @@ using ReachabilityAnalysis.ReachabilityBase.Arrays: SingleEntryVector
 using ReachabilityAnalysis: add_dimension
 using LazySets
 
-
 # The oil pump as a ModalHybridSystem (modal.jl). Returns the system and the decision period.
 # Continuous state: (t, v, l) = time in the consumption cycle, oil volume, time left of the pump latency.
 # Layers: pump off/on x latency free/locked. Each layer has one location per piece of the consumption profile, with

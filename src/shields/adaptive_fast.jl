@@ -34,10 +34,7 @@ struct AdaptiveFastLevel{N,CR,F}
 end
 
 function AdaptiveFastLevel(system::EuclideanHybridSystem, reach, grid::Grid{N}, grid0::Grid{N}, L::Int, sweep_factor::Int, may_act, must_act, constraint) where N
-    sweep = [min(sweep_factor, n) for n in grid.numCells]
-    nblocks = ntuple(i -> fld(grid.numCells[i], sweep[i]), N)
-    block_reach = CellReach(reach, grid, sweep)
-    fast = LazyFastCells(cellshape(grid), Tuple(sweep), nblocks, falses(nblocks), falses(nblocks), b -> is_fast_block(system, reach, block_reach, b))
+    fast = LazyFastCells(system, reach, grid, sweep_factor)
     cell_reach = CellReach(reach, grid)
     fast_covers, act_covers = reach_covers(system, reach, cell_reach.Z, [grid0.granularity / 2^m / 2 for m in 0:L], Val(N))
     return AdaptiveFastLevel(grid, cell_reach, fast, fast_covers, act_covers, may_act, must_act, constraint)
@@ -126,40 +123,20 @@ end
 # Successors of leaf id against the current active leaves, stored in the leaves' SuccessorStore.
 function compute_leaf!(ctx::AdaptiveFastContext, id::Int32)
     (; leaves, reach, levels, buffer) = ctx
-    succ = leaves.succ
     lev = levels[leaves.level[id]+1]
     c = leaves.cell[id]
 
-    empty!(buffer)
-    if lev.fast[c]
-        fast_cell_center!(reach.center, reach.max_flow, reach.max_input.center, lev.grid, c)
-        cover_leaves!(buffer, ctx, lev.fast_covers, reach.center)
-        succ.flow_none[id] = false
-    else
-        z, f = cell_flow(reach, lev.cell_reach, c)
-        succ.flow_none[id] = f == 1
-        if f != 1
-            for m in 0:ctx.L
-                leaves.n_active[m+1] == 0 && continue
-                ids = leaves.ids[m+1]
-                for cc in get_touching_cell_idxs_lz(levels[m+1].grid, z, ctx.covers)
-                    ids[cc] != 0 && push!(buffer, ids[cc])
-                end
+    cover!(buf, covers, center) = cover_leaves!(buf, ctx, covers, center)
+    function touching!(buf, z)
+        for m in 0:ctx.L
+            leaves.n_active[m+1] == 0 && continue
+            ids = leaves.ids[m+1]
+            for cc in get_touching_cell_idxs_lz(levels[m+1].grid, z, ctx.covers)
+                ids[cc] != 0 && push!(buf, ids[cc])
             end
         end
     end
-    set_successors!(succ, 0, id, buffer)
-
-    for (ai, act) in enumerate(ctx.system.Act)
-        empty!(buffer)
-        if succ.act_enabled[ai][id]
-            act_center!(reach.center, reach, lev.cell_reach, act, c)
-            cover_leaves!(buffer, ctx, lev.act_covers[ai], reach.center)
-            lev.must_act[ai][c] || add_waiting!(buffer, succ, id)
-        end
-        set_successors!(succ, ai, id, buffer)
-    end
-    return id
+    return compute_successors!(leaves.succ, buffer, ctx.system, reach, lev.cell_reach, lev.grid, c, id, lev.fast[c], lev.fast_covers, lev.act_covers, lev.must_act, cover!, touching!)
 end
 
 # Active leaves next to any of ids (sharing a face or corner), on every level, with the dense cell-to-leaf maps.

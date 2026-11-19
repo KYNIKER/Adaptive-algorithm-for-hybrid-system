@@ -18,7 +18,6 @@ end
 
 Base.show(io::Core.IO, e::Edge) = print(io, "Edge going to: ", e.targetLoc)
 
-
 struct Location
     id::Int64
     invarient::Union{HPolyhedron,Nothing}
@@ -31,9 +30,7 @@ struct Location
     # constraints::Vector{Union{HPolyhedron,LazySets.HalfSpace}}
 end
 
-
 Base.show(io::Core.IO, l::Location) = print(io, "Location: ", l.id, "\n invariant? ", !isnothing(l.invarient), "\n edges: ", length(l.edges))
-
 
 mutable struct HybridSystemV2
     locations::Vector{Location}
@@ -66,14 +63,11 @@ struct EuclideanHybridSystem{S<:LazySet,U<:LazySet,C<:LazySet,M<:AbstractMatrix}
     Act::Vector{Action}
 end
 
-
-
 function getHalfSpaceProjections(H::HPolyhedron)
     getHalfSpaceProjections(H.constraints) # Convert to halfspace list
 end
 
 function getHalfSpaceProjections(halfspaces::Vector{<:LazySets.HalfSpace}) # Any subtype of halfspace
-    #projVectors = map(x -> x.a, halfspaces)
     projVectors = map(x -> Vector(x.a), halfspaces)
     projBounds = ρ.(projVectors, halfspaces)
     return projVectors, projBounds
@@ -116,16 +110,6 @@ function system(locations, edges, guards, invariants, flows, jumps, init)
     return HybridSystem(locations, E, G, invariants, flows, J, init)
 end
 
-#=function intersection(Z, H)
-    return Z, H
-    #=agenSum = reduce(+, abs.(genmat(Z) .* H.a))
-    acenSum = dot(Vector(H.a), Z.center)
-    if (acenSum - agenSum <= H.b) & (H.b <= acenSum + agenSum)
-    else
-        return nothing
-    end=#
-end=#
-
 function intersects(Z::Zonotope, H::LazySets.HalfSpace)
     agenSum = reduce(+, abs.(genmat(Z) .* H.a))
     acenSum = dot(Vector(H.a), Z.center)
@@ -142,8 +126,6 @@ function intersects(Z::Zonotope, H::Vector{N}) where N
     return sen
 end
 
-
-
 function intersects(Z::Zonotope, H::Any)
     return isnothing(H) ? true : !isdisjoint(Z, H)
 end
@@ -152,7 +134,6 @@ function isSubSet(Z::Zonotope, H::LazySets.HalfSpace)
     agenSum = reduce(+, abs.(genmat(Z) .* H.a))
     acenSum = dot(Vector(H.a), Z.center)
     return (acenSum + agenSum <= H.b)
-    #return (acenSum - agenSum <= H.b) & (acenSum + agenSum <= H.b)
 end
 
 function isSubSet(Z::Zonotope, H::HPolyhedron)
@@ -161,7 +142,6 @@ function isSubSet(Z::Zonotope, H::HPolyhedron)
         agenSum = reduce(+, abs.(genmat(Z) .* h.a))
         acenSum = dot(Vector(h.a), Z.center)
         sen = sen & (ρ(h.a, Z) <= h.b) #(acenSum + agenSum <= h.b)
-        #sen = sen & (acenSum - agenSum <= h.b) & (acenSum + agenSum <= h.b)
     end
     return sen
 end
@@ -169,7 +149,6 @@ end
 function isSubSet(Z::Zonotope, H::Any)
     return ⊆(Z, H, false) # Do not return a witness, just boolean
 end
-
 
 function overapproximateIntervalReachset(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, δ⁻, δ⁺, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing) where {N}
     XDim, _ = size(genmat(X0))
@@ -181,7 +160,6 @@ function overapproximateIntervalReachset(A, X0::Zonotope{N,Vector{N},Matrix{N}},
     end
 
     U = concretize(U)
-
 
     d = δ⁻
     dia::Matrix{Float64} = diagm(ones(XDim))
@@ -271,11 +249,6 @@ function overapproximateIntervalReachset(A, X0::Zonotope{N,Vector{N},Matrix{N}},
     return discritezationDict, inputDiscritezationDict, phiDict
 end
 
-
-
-
-
-
 function produceDirections(n)
     # Produce one hot encodings. 
     #TODO: Could be smarter directions?
@@ -360,7 +333,6 @@ function GirardGuernicAlgorithm(Z::Zonotope, line::Float64)
     return m, M
 end
 
-
 # Zonotope intersection with hyperplane
 # Gets the area where we meet the intersection.
 function lineIntersection(Z::Zonotope, H::LazySets.HalfSpace)
@@ -385,16 +357,13 @@ function lineIntersection(Z::Zonotope, H::LazySets.HalfSpace)
     push!(constraints, LazySets.HalfSpace(n, val))
     push!(constraints, LazySets.HalfSpace(-n, -val))
 
-
     HpolyRep = HPolyhedron(constraints)
     box = overapproximate(HpolyRep, Hyperrectangle)
     Zrep = convert(Zonotope, box)
     return Zrep
 end
 
-
 function getBoxIntersection(Z::Zonotope, H_intersection::LazySets.HalfSpace)
-    #println("Ever used? ")
     S = Z ∩ H_intersection
     if !isempty(S)
         box = box_approximation(S)
@@ -421,7 +390,6 @@ function getBoxIntersection(Z::Zonotope, H_intersections::Vector{N}) where N
 end
 
 function getBoxIntersection(Z::Zonotope, H_intersections::Any)
-    #S1 = foldr((x, y) -> ∩(x, y), H_intersections; init=Z)
     S = ∩(H_intersections, Z)
     if !isempty(S)
         box = overapproximate(S, Hyperrectangle)#box_approximation(S)#
@@ -471,51 +439,29 @@ end
 
 #   Based on Alamo et al. "Guaranteed state estimation by zonotopes" (2005)
 function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HyperplaneModule.Hyperplane, σ::Float64)
-    #@show isSubSet(Z, H)
-    #if isSubSet(Z, H)
-    #    return Z
-    #end
 
     G = genmat(Z)
     c = Z.center
-    #b = H.a
-    #d = H.b
-    # GG = G * transpose(G)
-    # GGb = GG * b
     tb = transpose(H.a)
     GGb = G * (transpose(G) * H.a)
-    #dotProduct = dot(tb, GGb) + σ^2
     # λ = GGB / (transpose(b) * GGb + σ^2)
     # λ = (G * transpose(G) * b) / (transpose(b) * G * transpose(G) * b + σ^2)
     λ = GGb / (dot(tb, GGb) + σ^2)
     ĉ = c + λ * (H.b - tb * c)
-    #upper = ((I - λ * tb) * G)
-    #lower = (σ * λ)
     Ĝ::Matrix{eltype(G)} = hcat(((I - λ * tb) * G), (σ * λ))
     return Zonotope(ĉ, Ĝ)
 end
 
 function zonotopeStripIntersection(Z::Zonotope, a, b, σ::Float64)
-    #@show isSubSet(Z, H)
-    #if isSubSet(Z, H)
-    #    return Z
-    #end
 
     G = genmat(Z)
     c = Z.center
-    #b = H.a
-    #d = H.b
-    # GG = G * transpose(G)
-    # GGb = GG * b
     tb = transpose(a)
     GGb = G * (transpose(G) * a)
-    #dotProduct = dot(tb, GGb) + σ^2
     # λ = GGB / (transpose(b) * GGb + σ^2)
     # λ = (G * transpose(G) * b) / (transpose(b) * G * transpose(G) * b + σ^2)
     λ = GGb / (dot(tb, GGb) + σ^2)
     ĉ = c + λ * (b - tb * c)
-    #upper = ((I - λ * tb) * G)
-    #lower = (σ * λ)
     Ĝ::Matrix{eltype(G)} = hcat(((I - λ * tb) * G), (σ * λ))
     return Zonotope(ĉ, Ĝ)
 end
@@ -533,12 +479,7 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
     HSG = stack([x.a for x in HalfSpaces]; dims=1)
     res = copy(Z)
     if rank(HSG) < size(HSG, 1)
-        #println("Collinear")
-        #collinear = []
-        #remidx = stack([false for x in HalfSpaces])
-        # remidx = falses(length(HalfSpaces))
         collinear = Vector{LazySets.HalfSpaceModule.HalfSpace{Float64,Vector{Float64}}}()
-
 
         amountOfHalfspaces = length(HalfSpaces)
         remidx = falses(amountOfHalfspaces)
@@ -558,13 +499,8 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
 
         HalfSpaces = deleteat!(HalfSpaces, remidx)
 
-
-
         for hs in HalfSpaces
             centerOfStrip = (hs.b - ρ(-hs.a, res)) / 2
-            #@show centerOfStrip
-            #@show ρ(-hs.a, res)
-            #@show hs.b
             #σ = abs(x + hs.b) / 2
             σ = abs(centerOfStrip - hs.b)# / 2
 
@@ -573,7 +509,6 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
 
         end
         while !isempty(collinear)
-            #temphs = []
             temphs = Vector{LazySets.HalfSpaceModule.HalfSpace{Float64,Vector{Float64}}}()
             push!(temphs, pop!(collinear))
             cols = any(i -> rank([i.a temphs[1].a]) <= 1, collinear, dims=2)
@@ -585,16 +520,10 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
             end
 
             collinear = deleteat!(collinear, cols)
-            #minDists = map(x -> x.b, temphs)
 
-            # minminDists = minimum(minDists)
-            # maxminDists = maximum(minDists)
             maxDist = min(temphs[1].b, ρ(temphs[1].a, res))
             minDist = min(temphs[2].b, ρ(-temphs[1].a, res))
 
-
-            #a = temphs[1].a
-            # diff = norm((minminDists * temphs[1].a + maxminDists * temphs[1].a) / 2 - minminDists * temphs[1].a)
             diff = maxDist - (maxDist + minDist) / 2 #norm((minminDists * temphs[1].a + maxminDists * temphs[1].a) / 2 - minminDists * temphs[1].a)
             #σ = maxminDists - diff
             σ = maxDist - diff
@@ -603,7 +532,6 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
             res = zonotopeStripIntersection(res, temphs[1].a, diff, σ)
         end
     else
-        #println("Linear independent")
         for hs in HalfSpaces
 
             centerOfStrip = (hs.b - ρ(-hs.a, res)) / 2
@@ -617,29 +545,12 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
     return res
 end
 
-function zonotopeStripIntersecitonSplit(Z, ax, bx)
-    res = Z
-    for (a, b) in zip(ax, bx)
-        hi = ρ(a, res)
-        if hi > b
-            lo = -ρ(-a, res)
-            lo > b && return nothing
-            res = zonotopeStripIntersection(res, a, (lo + b) / 2, (b - lo) / 2)
-        end
-    end
-    return res
-end
-
 function getUFromInputUncertainty(A, μ, δ⁻, P₁)
     ANorm = norm(A, Inf)
     β = (exp(ANorm * (δ⁻)) - 1) * μ / ANorm
-    #println("original area ballβ: ", area(Zonotope(zeros(dim(P₁)), ((exp(ANorm*(initialTimeStep))-1)*μ/ANorm)*I(dim(P₁)))))
     u = Zonotope(zeros(LazySets.dim(P₁)), β * I(LazySets.dim(P₁)))
     return u
 end
-
-
-
 
 function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination, alpha=1)
     fig = Plots.plot(xlabel="dim: " * string(dim1), ylabel="dim: " * string(dim2), ε=1e-6)
@@ -653,7 +564,6 @@ function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination, alpha=1)
         projectionMatrix[dim1, dim1] = 1.0
         projectionMatrix[dim2, dim2] = 1.0
 
-
         for (x, y) in flowpipe
 
             println(y)
@@ -662,9 +572,6 @@ function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination, alpha=1)
                 G = genmat(r)
                 c = r.center
 
-                # projectedG = projectionMatrix * G
-                # projectGDim1s = mapreduce(x -> sign(x[dim1]) * x, +, eachcol(projectedG))
-                # projectGDim2s = mapreduce(x -> sign(x[dim2]) * x, +, eachcol(projectedG))
                 _, genAmount = size(G)
                 projectGDim1s = sum(abs(G[dim1, i]) for i in 1:genAmount)
                 projectGDim2s = sum(abs(G[dim2, i]) for i in 1:genAmount)
@@ -681,17 +588,13 @@ function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination, alpha=1)
                 maxcor2 = c[dim2] + projectGDim2
                 mincor2 = c[dim2] - projectGDim2
 
-                #Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="", alpha=0.1)
-                #Plots.plot!(Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], maxcor1s[dim2], maxcor2s[dim2], mincor2s[dim2]]), c=cpallete[i], lab="") # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
                 if sen
                     Plots.plot!(Shape([(mincor1s[dim1], mincor1s[dim2]), (mincor2s[dim1], mincor2s[dim2]), (maxcor1s[dim1], maxcor1s[dim2]), (maxcor2s[dim1], maxcor2s[dim2])]), c=cpallete[i], lab="S" * string(i), linealpha=0) # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
                     sen = false
                 else
                     Plots.plot!(Shape([(mincor1s[dim1], mincor1s[dim2]), (mincor2s[dim1], mincor2s[dim2]), (maxcor1s[dim1], maxcor1s[dim2]), (maxcor2s[dim1], maxcor2s[dim2])]), c=cpallete[i], lab="", linealpha=0) # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
                 end
-                #plot!(r, c=cpallete[i], alpha=0.2)
             end
-            #Plots.plot!(c=cpallete[i], lab=string(i))
             i += 1
 
         end
@@ -703,12 +606,8 @@ function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination, alpha=1)
             for (r, t) in x
                 G = abs.(genmat(r))
                 c = r.center
-                #projectGDim1 = reduce(+, reduce(+, G, dims=dim1))
                 _, genAmount = size(G)
                 projectGDim2 = sum(abs(G[dim2, i]) for i in 1:genAmount)
-                #projectGDim2 = reduce(+, reduce(+, G, dims=dim2))
-                #maxcor1 = c[dim1] + projectGDim1
-                #mincor1 = c[dim1] - projectGDim1
                 maxcor2 = c[dim2] + projectGDim2
                 mincor2 = c[dim2] - projectGDim2
                 if sen
@@ -717,11 +616,8 @@ function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination, alpha=1)
                 else
                     Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], leg=false, linealpha=0)
                 end
-                #Plots.plot!(Shape([mincor1, maxcor1, maxcor1, mincor1], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
 
-                #plot!(r, c=cpallete[i], alpha=0.2)
             end
-            #plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="", alpha=0.8)
             i += 1
 
         end
@@ -745,20 +641,15 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1)
 
             println(y)
             for (d, t) in x
-                #@show d
 
-                #d = [-ρ(sparsevec([dim2], [-1.0], ndim), r), ρ(sparsevec([dim2], [1.0], ndim), r)] #r[dim2]
                 if sen
                     Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], leg=false, linealpha=1)
                     sen = false
                 else
                     Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [d[1], d[1], -d[2], -d[2]]), c=cpallete[i], leg=false, linealpha=1)
                 end
-                #Plots.plot!(Shape([mincor1, maxcor1, maxcor1, mincor1], [mincor2, mincor2, maxcor2, maxcor2]), c=cpallete[i], lab="")
 
-                #plot!(r, c=cpallete[i], alpha=0.2)
             end
-            #plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="", alpha=0.8)
             i += 1
         end
     elseif amountOfDims == 2
@@ -772,44 +663,18 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1)
             println(y)
             sen = true
             for (r, t) in x
-                #=
-                G = genmat(r)
-                c = r.center
-
-                projectedG = projectionMatrix * G
-                projectGDim1s = mapreduce(x -> sign(x[dim1]) * x, +, eachcol(projectedG))
-                projectGDim2s = mapreduce(x -> sign(x[dim2]) * x, +, eachcol(projectedG))
-
-                maxcor1s = c + projectGDim1s
-                mincor1s = c - projectGDim1s
-                maxcor2s = c + projectGDim2s
-                mincor2s = c - projectGDim2s
-
-                projectGDim1 = reduce(+, reduce(+, G, dims=dim1))
-                projectGDim2 = reduce(+, reduce(+, G, dims=dim2))
-                maxcor1 = c[dim1] + projectGDim1
-                mincor1 = c[dim1] - projectGDim1
-                maxcor2 = c[dim2] + projectGDim2
-                mincor2 = c[dim2] - projectGDim2
-                =#
-                #Plots.plot!(Shape([t[1], t[2], t[2], t[1]], [mincor, mincor, maxcor, maxcor]), c=cpallete[i], lab="", alpha=0.1)
-                #Plots.plot!(Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], maxcor1s[dim2], maxcor2s[dim2], mincor2s[dim2]]), c=cpallete[i], lab="") # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
                 d1 = [r[1], -r[2]]#[ρ(sparsevec([dim1], [-1.0], ndim), r), ρ(sparsevec([dim1], [1.0], ndim), r)]
                 d2 = [r[3], -r[4]]#[ρ(sparsevec([dim2], [-1.0], ndim), r), ρ(sparsevec([dim2], [1.0], ndim), r)]
 
                 if sen
                     Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=cpallete[i], leg=false, linealpha=0)
 
-                    #Plots.plot!(Shape([(d1[1], d1[1]), (d2[1], d2[1]), (d1[2], d1[2]), (d2[2], d2[2])]), c=cpallete[i], lab="S" * string(i), linealpha=0) # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
                     sen = false
                 else
                     Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=cpallete[i], leg=false, linealpha=0)
 
-                    #Plots.plot!(Shape([(d1[1], d1[1]), (d2[1], d2[1]), (d1[2], d1[2]), (d2[2], d2[2])]), c=cpallete[i], lab="", linealpha=0) # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
                 end
-                #plot!(r, c=cpallete[i], alpha=0.2)
             end
-            #Plots.plot!(c=cpallete[i], lab=string(i))
             i += 1
         end
     else
@@ -827,14 +692,10 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁻, currentTime, reduce
     precomputedLargestStep = (length(inputDict) - 2)#log2(δ⁺ / δ⁻)#
     largestTimeStepSize = δ⁻ * 2^precomputedLargestStep
 
-    #@show (log2(δ⁺ / δ⁻), length(inputDict))
     totalSteps = Int(round(currentTime / δ⁻))  # Steps we need to take. We round cause floats make small errors
-
 
     # Convert to bits 
     listToInclude = digits(totalSteps, base=2) # Get bit map
-    #@show listToInclude
-    #println(string(totalSteps, base=2))
     largestInput = copy(inputDict[largestTimeStepSize])
     ϕ = phiDict[largestTimeStepSize]
     tempM = similar(ϕ)
@@ -846,20 +707,16 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁻, currentTime, reduce
         if precomputed
             if includeFlag == 1 # If we have to add
                 if sen
-                    #println("first")
                     outputInput = minkowski_sum(outputInput, inputDict[2^i*δ⁻])#copy(inputDict[2^i*δ⁻])#
                     sen = false
                 else
-                    #println("second")
 
                     outputInput = minkowski_sum(linear_map(phiDict[2^i*δ⁻], outputInput), inputDict[2^i*δ⁻])
                 end
             end
 
-            #println("true")
             # Check if next step is also precomputed
             if !(i < precomputedLargestStep)
-                #println("false")
 
                 precomputed = false
             end
@@ -884,12 +741,6 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁻, currentTime, reduce
         i += 1
     end
 
-    # if maxOrder > 0
-    #     if LazySets.order(outputInput) > maxOrder
-    #         outputInput = reduce_order(outputInput, reduceOrder)
-    #     end
-    # end
-    #@show LazySets.API.high(outputInput)
     return outputInput
 end
 
@@ -912,13 +763,5 @@ function decomposed_zonotope_convex_hull(c, G, A)
     G´ = hcat(G .+ GM, copy(c - A * c), G .- GM) * 0.5
     return c´, G´
 end
-
-
-
-
-
-
-
-
 
 Base.:+(z1::Zonotope, z2::Zonotope) = Zonotope(z1.center + z2.center, z1.generators + z2.generators)

@@ -3,8 +3,6 @@
 #using ReachabilityAnalysis: add_dimension
 using LazySets
 
-
-
 const EGO_NEUTRAL_FRONT_NEUTRAL, EGO_NEUTRAL_FRONT_ACCELERATE, EGO_NEUTRAL_FRONT_DECELERATE,
 EGO_ACCELERATE_FRONT_NEUTRAL, EGO_ACCELERATE_FRONT_ACCELERATE, EGO_ACCELERATE_FRONT_DECELERATE,
 EGO_DECELERATE_FRONT_NEUTRAL, EGO_DECELERATE_FRONT_ACCELERATE, EGO_DECELERATE_FRONT_DECELERATE = 1:9
@@ -90,8 +88,6 @@ function loadCruiseControl()
         Al[v_front] = fr * 2.0
         if eg == 0 && fr == 0
 
-
-
             eg > 0 && push!(edges, Edge(lookupDict[(0, fr)], maxspeedlimit_ego, dia, zeros(dims)))
             eg < 0 && push!(edges, Edge(lookupDict[(0, fr)], minspeedlimit_ego, dia, zeros(dims)))
             fr > 0 && push!(edges, Edge(lookupDict[(eg, 0)], maxspeedlimit_front, dia, zeros(dims)))
@@ -101,9 +97,6 @@ function loadCruiseControl()
                 push!(actions, ModalAction(Action(j, speedlimit_ego, dia, zeros(dims)), lookupDict[(0, j)]))
             end
         else
-
-
-
 
             eg > 0 && push!(edges, Edge(lookupDict[(0, fr)], maxspeedlimit_ego, dia, zeros(dims)))
             eg < 0 && push!(edges, Edge(lookupDict[(0, fr)], minspeedlimit_ego, dia, zeros(dims)))
@@ -120,12 +113,6 @@ function loadCruiseControl()
         push!(locations, ModalLocation(i, nothing, Al, zero_input, edges, actions))
     end
     #edges::Vector{Edge} = [Edge(1, guard, jumpMatrix, zeros(3))]
-    #constraint = LazySets.API.intersection(constraint, S)
-
-
-    #Act = [backwards, forwards]
-
-    #H = EuclideanHybridSystem(S, Zonotope(zeros(3), zeros(3, 3)), [constraint], A, edges, Act)
 
     T = 1.0
 

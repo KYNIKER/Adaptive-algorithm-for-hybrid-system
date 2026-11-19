@@ -19,15 +19,10 @@ function _ReACTed_reachable_cell_online_pred_fast(grid::Grid{N}, system::Euclide
     reach = reach_setup(system, p, δ⁻, δ⁺, alg, maxOrder, reduceOrder, Val(N); jump_hull)
     covers = CoverCache{N}()
 
-    # Fast cells, decided per block of sweep cells per dimension
-    sweep = [min(sweep_factor, n) for n in grid.numCells]
-    block_reach = CellReach(reach, grid, sweep)
-    fast_cells = falses(cellshape(grid))
-    for b in CartesianIndices(ntuple(i -> 1:fld(grid.numCells[i], sweep[i]), N))
-        is_fast_block(system, reach, block_reach, b) && (fast_cells[ntuple(i->(1+(b[i]-1)*sweep[i]):(b[i]*sweep[i]), N)...] .= true)
-    end
+    fast_cells = LazyFastCells(system, reach, grid, sweep_factor) # decided per block of sweep_factor cells per dimension
     cell_reach = CellReach(reach, grid)
     fast_covers, act_covers = reach_covers(system, reach, cell_reach.Z, [grid.granularity / 2], Val(N))
+    act_covs = [covs[1] for covs in act_covers]
 
     n_acts = length(system.Act)
     shape = Tuple(cellshape(grid))
@@ -44,6 +39,8 @@ function _ReACTed_reachable_cell_online_pred_fast(grid::Grid{N}, system::Euclide
     succ = SuccessorStore(n, [BitVector(vec(m)) for m in may_act])
     s = reset!(FlatShieldState(n_acts, act_needs_safe_flow), n)
     buf = Int32[]
+    cover!(out, cov, center) = cover_ids!(out, ids, grid, cov, center)
+    touching!(out, z) = foreach(cc -> push!(out, ids[cc]), get_touching_cell_idxs_lz(grid, z, covers))
 
     frontier = CartesianIndex{N}[]
     for edge in system.edges
@@ -76,30 +73,7 @@ function _ReACTed_reachable_cell_online_pred_fast(grid::Grid{N}, system::Euclide
             k = ids[c]
             s.computed[k] && continue
             cells_computed += 1
-            empty!(buf)
-            if fast_cells[c]
-                fast_cell_center!(reach.center, reach.max_flow, reach.max_input.center, grid, c)
-                cover_ids!(buf, ids, grid, fast_covers[1], reach.center)
-                succ.flow_none[k] = false
-            else
-                z, f = cell_flow(reach, cell_reach, c)
-                succ.flow_none[k] = f == 1
-                if f != 1
-                    for cc in get_touching_cell_idxs_lz(grid, z, covers)
-                        push!(buf, ids[cc])
-                    end
-                end
-            end
-            set_successors!(succ, 0, k, buf)
-            for (ai, act) in enumerate(system.Act)
-                empty!(buf)
-                if succ.act_enabled[ai][k]
-                    act_center!(reach.center, reach, cell_reach, act, c)
-                    cover_ids!(buf, ids, grid, act_covers[ai][1], reach.center)
-                    must_act[ai][c] || add_waiting!(buf, succ, k)
-                end
-                set_successors!(succ, ai, k, buf)
-            end
+            compute_successors!(succ, buf, system, reach, cell_reach, grid, c, k, fast_cells[c], fast_covers[1], act_covs, must_act, cover!, touching!)
             register_successors!(succ, s, k)
         end
         lap!(timer, "Reachability")
@@ -120,19 +94,6 @@ function _ReACTed_reachable_cell_online_pred_fast(grid::Grid{N}, system::Euclide
         empty!(s.changed)
         lap!(timer, "Shield")
     end
-
-    # Actions of cells never computed whose jump (without the flow after it) lands on a computed dead cell
-    #act_bad = falses(shape)
-    #=for (ai, act) in enumerate(system.Act)
-        ActZonotope = remove_zero_generators(Zonotope(copy(act.jumpVector), act.jumpMatrix*diagm(fill(grid.granularity/2, N))))
-        for c in findall(may_act[ai])
-            s.computed[ids[c]] && continue
-            of = act.jumpMatrix * cell_offset(cell_reach, c)
-            LazySets.API.translate!(ActZonotope, of)
-            any(cc -> s.computed[ids[cc]] && s.dead[ids[cc]], get_touching_cell_idxs_lz(grid, ActZonotope, covers)) && (succ.act_enabled[ai][ids[c]] = false)
-            LazySets.API.translate!(ActZonotope, -of)
-        end
-    end=#
 
     allowed, lost = cell_choices(shape, n_acts, s, store_enabled(succ), store_acted(succ), store_noop(succ))
     grid.deadCells .= allowed .== 0

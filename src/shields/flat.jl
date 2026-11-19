@@ -45,6 +45,14 @@ end
 
 Base.size(A::LazyFastCells) = A.dims
 
+# The fast cells of grid, in blocks of sweep_factor cells per dimension (see is_fast_block).
+function LazyFastCells(system, reach, grid::Grid{N}, sweep_factor::Int) where N
+    sweep = ntuple(i -> min(sweep_factor, grid.numCells[i]), N)
+    nblocks = ntuple(i -> fld(grid.numCells[i], sweep[i]), N)
+    block_reach = CellReach(reach, grid, collect(sweep))
+    return LazyFastCells(Tuple(cellshape(grid)), sweep, nblocks, falses(nblocks), falses(nblocks), b -> is_fast_block(system, reach, block_reach, b))
+end
+
 # Check whether we know that the lazy cell is fast or not. If it is not in a full block for the sweep, then it will always be false, as that the hybrid jump check fails for those intitially.
 function Base.getindex(A::LazyFastCells{N}, I::Vararg{Int,N}) where N
     b = CartesianIndex(ntuple(i -> fld(I[i] - 1, A.sweep[i]) + 1, N))
@@ -162,6 +170,34 @@ function cover_ids!(out::Vector{Int32}, ids::Array{Int32,N}, grid::Grid{N}, cov:
         end
     end
     return out
+end
+
+# Stores the successors of cell c of grid as id in succ: waiting, then each action (see choice_bits). A fast cell and the
+# actions use the precomputed covers fast_cov and act_covs[ai] through cover!(buf, cov, centre); a cell that is not fast
+# gets the cells its end-of-period sets touch through touching!(buf, sets). buf is scratch space.
+function compute_successors!(succ, buf::Vector{Int32}, system, reach, cr::CellReach, grid::Grid, c::CartesianIndex, id::Integer,
+                             is_fast::Bool, fast_cov, act_covs, must_act, cover!::C, touching!::T) where {C,T}
+    empty!(buf)
+    if is_fast
+        fast_cell_center!(reach.center, reach.max_flow, reach.max_input.center, grid, c)
+        cover!(buf, fast_cov, reach.center)
+        succ.flow_none[id] = false
+    else
+        z, f = cell_flow(reach, cr, c)
+        succ.flow_none[id] = f == 1
+        f == 1 || touching!(buf, z)
+    end
+    set_successors!(succ, 0, id, buf)
+    for (ai, act) in enumerate(system.Act)
+        empty!(buf)
+        if succ.act_enabled[ai][id]
+            act_center!(reach.center, reach, cr, act, c)
+            cover!(buf, act_covs[ai], reach.center)
+            must_act[ai][c] || add_waiting!(buf, succ, id)
+        end
+        set_successors!(succ, ai, id, buf)
+    end
+    return id
 end
 
 # ---------------------------------------------------------------------------------------------------------------------

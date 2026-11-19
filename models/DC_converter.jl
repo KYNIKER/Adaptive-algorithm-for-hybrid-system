@@ -27,8 +27,6 @@ function loadBouncingBallShielded()
         LazySets.HalfSpace(sparsevec([2], [-1.], 3), 1e-5)  # v >= 1e-5
     ])
 
-    #constraint = LazySets.API.intersection(constraint, S)
-
     act1 = Action(1, HPolyhedron([
         LazySets.HalfSpace(sparsevec([1], [-1.], 3), -4.0), # p >= 4
         LazySets.HalfSpace(sparsevec([2], [1.], 3), 0.0),  # v <= 0

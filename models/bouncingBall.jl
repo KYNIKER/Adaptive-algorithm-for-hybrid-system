@@ -3,12 +3,9 @@ using ReachabilityAnalysis.ReachabilityBase.Arrays: SingleEntryVector
 using ReachabilityAnalysis: add_dimension
 using LazySets
 
-
 function loadBouncingBall()
     A = [0.0 1.0 0.0; 0.0 0.0 -(9.82/ℯ); 0. 0. 0.]
     c = [0.0, -9.82, 0.0]
-    #u = Zonotope(c, zeros(3, 1))
-    # u = overapproximate(u, Zonotope)
     u = Zonotope(zeros(3), zeros(3, 0))
 
     guard = HPolyhedron([
@@ -26,7 +23,6 @@ function loadBouncingBall()
     H = HybridSystemV2(locations, [])
 
     # These values are loosely based on Colas Le Guernic Reachability Analysis of Hybrid Systems with Lineara Continuous dynamics, 2009
-    #X0 = Zonotope([1., 0., -1.], [[0.0, 0.0, 0.0]])
     X0 = Zonotope([1., 0., 1.], zeros(3, 1))
 
     T = 10
@@ -55,8 +51,6 @@ function loadBouncingBallShielded()
         LazySets.HalfSpace(sparsevec([2], [-1.], 3), 1e-5)  # v >= 1e-5
     ])
 
-    #constraint = LazySets.API.intersection(constraint, S)
-
     act1 = Action(1, HPolyhedron([
         LazySets.HalfSpace(sparsevec([1], [-1.], 3), -4.0), # p >= 4
         LazySets.HalfSpace(sparsevec([2], [1.], 3), 0.0),  # v <= 0
@@ -81,10 +75,7 @@ function loadBouncingBallShieldedWithInput()
     A = [0.0 0.0; 1.0 0.0]
     c = [-9.81, 0.0]
     u = Zonotope(c, [zero(c)])
-    #u = Zonotope(zeros(2), [zero(c)])
     S = Hyperrectangle([0.0, 7.5], [15., 7.5]) # p: [-1, 16], v: [-15, 15], g: [1,1]. Should be [0.0, 5.0], [14., 5.0]
-    #S = Hyperrectangle([0.0, 3.5], [13., 3.5]) # p: [-1, 16], v: [-15, 15], g: [1,1]. Should be [0.0, 5.0], [14., 5.0]
-    #S = Hyperrectangle([0.0, 0.25], [3., 0.25]) # TEST 
 
     guard = HPolyhedron([
         LazySets.HalfSpace(sparsevec([2], [1.], 2), 0.0), # p <= 0
@@ -93,7 +84,6 @@ function loadBouncingBallShieldedWithInput()
     ])
 
     jumpMatrix = [-0.85 0.0; 0.0 0.]
-    #jumpMatrix = [-1. 0.0; 0.0 0.0]
 
     edges::Vector{Edge} = [Edge(1, guard, jumpMatrix, zeros(2))]
 
@@ -103,8 +93,6 @@ function loadBouncingBallShieldedWithInput()
         LazySets.HalfSpace(sparsevec([1], [1.], 2), 1.0),  # v <= 0
         LazySets.HalfSpace(sparsevec([1], [-1.], 2), 1.0)  # v >= 1e-5
     ])
-
-    #constraint = LazySets.API.intersection(constraint, S)
 
     act1 = Action(1, HPolyhedron([
         LazySets.HalfSpace(sparsevec([2], [-1.], 2), -4.0), # p >= 4
@@ -129,7 +117,6 @@ end
 function loadBouncingBallNoEdges()
     A = [0.0 -1.0; 0.0 9.81]
     c = [0.0, -9.81]
-    #u = Zonotope(c, [zero(c)])
     u = Zonotope(zeros(2), [zero(c)])
 
     guard = HPolyhedron([
@@ -141,8 +128,6 @@ function loadBouncingBallNoEdges()
     jumpMatrix = [1.0 0.0; 0.0 -0.89]
 
     edges::Vector{Edge} = [Edge(1, guard, jumpMatrix, zeros(2))]
-    #push!(edges,)
-    #locations = [Location(1, HPolyhedron([LazySets.HalfSpace(sparsevec([1], [-1.], 3), -0.0)]), A, I(3), u, nothing, edges, [])]
     locations = [Location(1, HPolyhedron([LazySets.HalfSpace(sparsevec([1], [-1.], 2), -0.0)]), A, I(2), u, nothing, edges, [])]
 
     H = HybridSystemV2(locations, [])
@@ -153,9 +138,3 @@ function loadBouncingBallNoEdges()
 
     return H, 1, X0, T
 end
-
-
-
-
-
-# loadBouncingBall()

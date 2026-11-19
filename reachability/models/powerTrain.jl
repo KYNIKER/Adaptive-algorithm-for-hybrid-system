@@ -1,10 +1,10 @@
-using SparseArrays: sparsevec 
+using SparseArrays: sparsevec
 using SparseArrays: spzeros
 using ReachabilityAnalysis.ReachabilityBase.Arrays: SingleEntryVector
 using ReachabilityAnalysis: add_dimension
 using LazySets
 
-include("../../src/core/utilities.jl")
+#include("../../src/core/utilities.jl")
 
 # This code is based on https://github.com/JuliaReach/ARCH2025_AFF_RE/tree/master/models/Powertrain
 # It is adapted to our framework
@@ -37,10 +37,10 @@ const k_D = 0.5  # [Nms²/rad]
 
 function print_dynamics(A, b, location_name)
     println("dynamics of location $location_name:")
-    for i in 1:size(A, 1)-1  # ignore the last dimension (time)
+    for i in 1:(size(A, 1)-1)  # ignore the last dimension (time)
         print("x_$i' = ")
-        for j in 1:size(A, 2)
-            if !iszero(A[i,j])
+        for j in axes(A, 2)
+            if !iszero(A[i, j])
                 print("$(A[i,j]) x_$j + ")
             end
         end
@@ -60,7 +60,7 @@ function get_dynamics(kₛ, α, u, n, θ)
     A[2, 2] = (-k_D / Jₘ - 1.0) / τ_eng
     A[2, 3] = k_I * γ / τ_eng
     A[2, 4] = k_P * γ / τ_eng
-    A[2, 7] = (-k_P + k_D * bₘ /Jₘ) / τ_eng
+    A[2, 7] = (-k_P + k_D * bₘ / Jₘ) / τ_eng
     A[2, 8] = -k_I * γ / τ_eng
 
     A[3, 4] = 1.0
@@ -151,13 +151,13 @@ function _inhomogPowertrain(; θ::Int=1, X0_scale::Float64=1.0)
     # push!(deadzoneEdges, Edge(3, HPolyhedron([LazySets.HalfSpace(sparsevec([1], [-1.], n), -α)]), I(n+1), zeros(n+1)))  # x1 >= α
     # push!(deadzoneEdges, Edge(1, HPolyhedron([LazySets.HalfSpace(sparsevec([1], [1.], n), -α)]), I(n+1), zeros(n+1))) # x1 <= -α
     # push!(posAngleEdges, Edge(2, HPolyhedron([LazySets.HalfSpace(sparsevec([1], [1.], n), α)]), I(n+1), zeros(n+1))) # x1 <= α
-    
+
     push!(initAngleEdges, Edge(1, HPolyhedron([LazySets.HalfSpace(sparsevec([n], [-1.], n), -t_init)]), I(n), zeros(n))) # t >= t_init
     push!(negAngleEdges, Edge(2, HPolyhedron([LazySets.HalfSpace(sparsevec([1], [-1.], n), α)]), I(n), zeros(n))) # x1 >= -α
     push!(deadzoneEdges, Edge(3, HPolyhedron([LazySets.HalfSpace(sparsevec([1], [-1.], n), -α)]), I(n), zeros(n)))  # x1 >= α
     #push!(deadzoneEdges, Edge(1, HPolyhedron([LazySets.HalfSpace(sparsevec([1], [1.], n), -α)]), I(n), zeros(n))) # x1 <= -α
     #push!(posAngleEdges, Edge(2, HPolyhedron([LazySets.HalfSpace(sparsevec([1], [1.], n), α)]), I(n), zeros(n))) # x1 <= α
-    
+
 
 
     locations = Vector{Location}()
@@ -175,7 +175,7 @@ function _inhomogPowertrain(; θ::Int=1, X0_scale::Float64=1.0)
     # deadzone
     A, b = get_dynamics(0., -α, u, n, θ)
     inv = HPolyhedron([LazySets.HalfSpace(sparsevec([1], [-1.], n), α),  # x1 >= -α
-                     LazySets.HalfSpace(sparsevec([1], [1.], n), α)])  # x1 <= α
+        LazySets.HalfSpace(sparsevec([1], [1.], n), α)])  # x1 <= α
     # Aext = add_dimension(A, 1)
     # Aext[1:n, n+1] .= b
     #m_deadzone = @system(x' = Aext * x, x ∈ X)
@@ -266,7 +266,7 @@ function _homogPowertrain(; θ::Int=1, X0_scale::Float64=1.0)
     # deadzone
     A, b = get_dynamics(0., -α, u, n, θ)
     inv = HPolyhedron([LazySets.HalfSpace(sparsevec([1], [-1.], n+1), α),  # x1 >= -α
-                     LazySets.HalfSpace(sparsevec([1], [1.], n+1), α)])  # x1 <= α
+        LazySets.HalfSpace(sparsevec([1], [1.], n+1), α)])  # x1 <= α
     Aext = add_dimension(A, 1)
     Aext[1:n, n+1] .= b
     #m_deadzone = @system(x' = Aext * x, x ∈ X)
@@ -316,7 +316,7 @@ function _homogPowertrain(; θ::Int=1, X0_scale::Float64=1.0)
 end
 
 
-function loadPowertrain(; θ::Int=1, X0_scale::Float64=1.0, homog::Bool = true)
+function loadPowertrain(; θ::Int=1, X0_scale::Float64=1.0, homog::Bool=true)
     if homog
         return _homogPowertrain(θ=θ, X0_scale=X0_scale)
     end

@@ -56,6 +56,7 @@ function plot_ball(grid, allowed, sys)
     present = sort(unique(allowed))
     colors = [:black, :steelblue, :darkgoldenrod, :yellow, :orchid4, :orchid, :gray60, :white]
     idx = Dict(b => i for (i, b) in enumerate(present))
+    map!(v -> v & 0x1 == 1 ? (v > 1 ? 3 : 1) : clamp(v, 0, 2), allowed)
     m = map(b -> idx[b], allowed)
     v = grid.lower[1] .+ grid.granularity .* ((1:size(allowed, 1)) .- 0.5)
     p = grid.lower[2] .+ grid.granularity .* ((1:size(allowed, 2)) .- 0.5)

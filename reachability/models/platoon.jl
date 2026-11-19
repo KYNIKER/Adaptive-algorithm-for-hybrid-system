@@ -3,7 +3,7 @@ using ReachabilityAnalysis.ReachabilityBase.Arrays: SingleEntryVector
 using ReachabilityAnalysis: add_dimension
 using LazySets
 
-include("../../src/core/utilities.jl")
+#include("../../src/core/utilities.jl")
 
 # Location 1
 function platoon_connected(; deterministic_switching::Bool=true,

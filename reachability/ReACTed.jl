@@ -1,6 +1,6 @@
 using LazySets, LinearAlgebra, ReachabilityAnalysis
 include("../src/core/discretize.jl")
-include("../src/core/utilities.jl")
+#include("../src/core/utilities.jl")
 
 export ReACTed, ReACTGuardsBrake
 
@@ -904,7 +904,7 @@ function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, constraint, dirs, 
                 changedTimeStep = false
 
                 if allunder(discritezationDict[currentTimeStep], Sρ, constraintProjVectors, constraintProjBounds) &&
-                   someunder(discritezationDict[currentTimeStep], Iρ, invarientProjVectors, invarientProjBounds)
+                    someunder(discritezationDict[currentTimeStep], Iρ, invarientProjVectors, invarientProjBounds)
 
                     if saveResult
                         push!(dirVals, (copy(dρ + map(x -> ρ(x, discritezationDict[currentTimeStep]), oldDirProjVectors)), [time, time + currentTimeStep]))

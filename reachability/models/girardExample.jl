@@ -3,7 +3,7 @@ using ReachabilityAnalysis.ReachabilityBase.Arrays: SingleEntryVector
 using ReachabilityAnalysis: add_dimension
 using LazySets
 
-include("../../src/core/utilities.jl")
+#include("../../src/core/utilities.jl")
 
 function loadGirardExample(δ⁻::Float64=0.01)
     A1 = [-1 -4; 4 -1]

@@ -112,7 +112,7 @@ function loadBouncingBallShieldedWithInput()
         LazySets.HalfSpace(sparsevec([1], [-1.], 2), 4.0)  # v > -4
     ]), diagm([0.0, 1.0]), [-4.0, 0.0])
 
-    act2 = Action(2, HPolyhedron([
+    act2 = Action(1, HPolyhedron([
         LazySets.HalfSpace(sparsevec([2], [-1.], 2), -4.0), # p >= 4
         LazySets.HalfSpace(sparsevec([1], [-1.], 2), 0.0)  # v >= 0
     ]), diagm([-0.9, 1.]), [-4.0, 0.0])

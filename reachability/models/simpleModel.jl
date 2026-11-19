@@ -3,7 +3,7 @@ using ReachabilityAnalysis.ReachabilityBase.Arrays: SingleEntryVector
 using ReachabilityAnalysis: add_dimension
 using LazySets
 
-include("../../src/core/utilities.jl")
+#include("../../src/core/utilities.jl")
 
 function loadExampleSystem()
     dampening = 0.5
@@ -44,16 +44,16 @@ function getRealExampleSystem()
 
     totalSteps = T * stepsPerSec
 
-    t = range(0, T, length = totalSteps)
+    t = range(0, T, length=totalSteps)
     x = zeros(totalSteps)
     v = zeros(totalSteps)
 
     x[1] = X0.center[1]
     v[1] = X0.center[2]
 
-    
 
-    for k in 1:totalSteps-1
+
+    for k in 1:(totalSteps-1)
         xNext = x[k] + 1/stepsPerSec * v[k]
         vNext = v[k] + 1/stepsPerSec * (x[k] * -1^2)
 

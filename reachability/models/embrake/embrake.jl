@@ -3,9 +3,9 @@ using ReachabilityAnalysis.ReachabilityBase.Arrays: SingleEntryVector
 using ReachabilityAnalysis: add_dimension
 using LazySets
 
-include("../../../src/core/utilities.jl")
+#include("../../../src/core/utilities.jl")
 
-function loadembrake(x0=0.05, Tsample = 1e-4, ζ = 1e-6)
+function loadembrake(x0=0.05, Tsample=1e-4, ζ=1e-6)
     # model's constants
     L = 1.e-3
     KP = 10000.0
@@ -18,9 +18,9 @@ function loadembrake(x0=0.05, Tsample = 1e-4, ζ = 1e-6)
 
     # state variables: [I, x, xe, xc]
     A = Matrix([-(R+K^2/drot)/L 0 KP/L KI/L;
-                K/i/drot        0 0    0;
-                0               0 0    0;
-                0               0 0    0])
+        K/i/drot 0 0 0;
+        0 0 0 0;
+        0 0 0 0])
     # reset map
     Ar = sparse([1, 2, 3, 4, 4], [1, 2, 2, 2, 4], [1.0, 1.0, -1.0, -Tsample, 1.0], 4, 4)
     br = sparsevec([3, 4], [x0, Tsample * x0], 4)
@@ -32,7 +32,7 @@ function loadembrake(x0=0.05, Tsample = 1e-4, ζ = 1e-6)
     #invariant = HPolyhedron([
     #    LazySets.HalfSpace(sparsevec([5], [1.], 5), Tsample+ζ) # T <= Tsample + ζ
     #])
-  
+
     #edge 
     #guard = HPolyhedron([LazySets.HalfSpace(SingleEntryVector(5, 5, -1.), Tsample-ζ)]) # T >= Tsample - ζ
     #guard = HPolyhedron([LazySets.HalfSpace(sparsevec([5], [-1.], ), -(Tsample-ζ))]) # T >= Tsample - ζ

@@ -3,7 +3,7 @@ using ReachabilityAnalysis.ReachabilityBase.Arrays: SingleEntryVector
 using ReachabilityAnalysis: add_dimension
 using LazySets
 
-include("../../src/core/utilities.jl")
+#include("../../src/core/utilities.jl")
 
 
 function loadGearBox(GRBX=1)
@@ -127,7 +127,7 @@ function loadGearBox(GRBX=1)
         LazySets.HalfSpace(sparsevec([px, py], [tan(θ), 1.], n), 0.),    # py <= -px * tan(θ)
         LazySets.HalfSpace(sparsevec([px, py], [tan(θ), -1.], n), 0.)])  # py >= px * tan(θ)
     Aext = add_dimension(A)
-    Aext[1:n-1, n] = b
+    Aext[1:(n-1), n] = b
 
 
     push!(locations, Location(1,                        # ID

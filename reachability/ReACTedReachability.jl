@@ -1,6 +1,6 @@
 using LazySets, LinearAlgebra, ReachabilityAnalysis
-include("../src/core/discretize.jl")
-include("../src/core/utilities.jl")
+#include("../src/core/discretize.jl")
+#include("../src/core/utilities.jl")
 
 export ReACTedFast
 
@@ -871,7 +871,7 @@ function ReACT(loc, δ⁻::Float64, δ⁺::Float64, interval, constraint, STRATE
 
 
                 if allunder(discritezationDict[currentTimeStep], Sρ, constraintProjVectors, constraintProjBounds) &&
-                   someunder(discritezationDict[currentTimeStep], Iρ, invarientProjVectors, invarientProjBounds)
+                    someunder(discritezationDict[currentTimeStep], Iρ, invarientProjVectors, invarientProjBounds)
 
 
 

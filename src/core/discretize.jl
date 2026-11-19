@@ -289,7 +289,7 @@ function newReACTDiscretizePlus(X0::Zonotope{N,Vector{N},Matrix{N}}, δ⁻::Floa
     #@show disc
     while d < δ⁺
         #@show disc.center
-        discritezationDictp[d] = copy(disc)
+        discritezationDictp[d] = disc # zonotope_hull below makes a new zonotope, so disc is not changed after this
         #=
         if maxOrder > 0
             if LazySets.order(disc) > maxOrder

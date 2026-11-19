@@ -192,54 +192,47 @@ function loadCruiseControlModal(; period=1.0, acceleration=2.0, v_ego_min=-10.0,
     return ModalHybridSystem(S, unsafe, locations), period
 end
 
+# The cruise control with a decision at the start of every period and no memory of the last one: a single layer. Waiting
+# coasts, action CRUISE_DECELERATE brakes and action CRUISE_ACCELERATE accelerates the ego for the period. For each choice
+# the front car (the adversary) brakes, coasts or accelerates, through overlapping locations as in loadCruiseControlModal.
+#   - Coasting: three locations that cells start in, one per front choice, restricted to the speeds where the front car
+#     may make it. They offer the two actions.
+#   - Braking and accelerating: three locations each that no cell starts in (starts = false), entered by the actions. A
+#     location coasting with front choice f sends the action to the location with the same f, so a cell gets every front
+#     choice its speed allows. Their periods end in the layer, so the next period is a decision again.
+# At its speed limit the ego coasts for the rest of the period: an edge sets the speed just inside the limit and goes to
+# the coasting location with the same front choice. The sensor range is handled as in loadCruiseControlModal.
 function loadCruiseControlModal_t(; period=1.0, acceleration=2.0, v_ego_min=-10.0, v_ego_max=20.0, v_front_min=-8.0, v_front_max=20.0, d_unsafe=5.0, sensor_range=200.0)
     n = 3
     distance, v_ego, v_front = 1, 2, 3
     e(i) = [j == i ? 1.0 : 0.0 for j in 1:n]
     keep_all = Matrix{Float64}(I, n, n)
     keep_all_but(i) = diagm([j == i ? 0.0 : 1.0 for j in 1:n])
-    tol = 1e-2
+    tol = 1e-6
     A = zeros(n, n)
     A[distance, v_ego] = -1.0
     A[distance, v_front] = 1.0
 
+    # The ego's choices: (mode, sign of its acceleration); coasting is waiting
     modes = ((CRUISE_DECELERATE, -1.0), (CRUISE_NEUTRAL, 0.0), (CRUISE_ACCELERATE, 1.0))
-    # The front car's choices: (sign of its acceleration, region where it may pick it). 
+    # The front car's choices: (sign of its acceleration, region where it may pick it)
     change = acceleration * period
     fronts = [(-1.0, HPolyhedron([LazySets.HalfSpace(-e(v_front), -(v_front_min + change))])), (0.0, nothing),
         (1.0, HPolyhedron([LazySets.HalfSpace(e(v_front), v_front_max - change)]))]
     location_id(mode, f) = (mode - 1) * length(fronts) + f
     far_reset = sensor_range - (v_front_max - v_ego_min) * period
+    layer = 1
 
     locations = ModalLocation[]
-    # Beyond the sensor range: the distance is set just below the range, the front car gets the ego's speed and brakes
-    # (the front-braking location of the same ego mode), so the distance stops growing and the edge does not fire again.
-    at_range = zeros(n, n)
-    at_range[v_ego, v_ego] = 1.0
-    at_range[v_front, v_ego] = 1.0
-    sensor_edge(mode) = Edge(location_id(mode, 1), HPolyhedron([LazySets.HalfSpace(-e(distance), -sensor_range)]), at_range, (sensor_range - tol) .* e(distance))
     for (mode, sign) in modes, (f, (front_sign, region)) in enumerate(fronts)
-        if sign != 0 || front_sign != 0
-            U = Zonotope([0.0, sign * acceleration, front_sign * acceleration], zeros(n, 1))
-            edges = Edge[]
-            sign > 0 && push!(edges, Edge(location_id(CRUISE_NEUTRAL, f), HPolyhedron([LazySets.HalfSpace(-e(v_ego), -v_ego_max)]), keep_all_but(v_ego), (v_ego_max - tol) .* e(v_ego)))
-            sign < 0 && push!(edges, Edge(location_id(CRUISE_NEUTRAL, f), HPolyhedron([LazySets.HalfSpace(e(v_ego), v_ego_min)]), keep_all_but(v_ego), (v_ego_min + tol) .* e(v_ego)))
-            push!(edges, sensor_edge(mode))
-
-            actions = []#[ModalAction(Action(m, nothing, keep_all, zeros(n)), location_id(m, f)) for (m, _) in modes if m != mode]
-            #@show mode, sign, front_sign, actions
-            push!(locations, ModalLocation(mode, region, A, U, edges, actions))
-        else
-            U = Zonotope([0.0, sign * acceleration, front_sign * acceleration], zeros(n, 1))
-            edges = Edge[]
-            #sign > 0 && push!(edges, Edge(location_id(CRUISE_NEUTRAL, f), HPolyhedron([LazySets.HalfSpace(-e(v_ego), -v_ego_max)]), keep_all_but(v_ego), (v_ego_max - tol) .* e(v_ego)))
-            #sign < 0 && push!(edges, Edge(location_id(CRUISE_NEUTRAL, f), HPolyhedron([LazySets.HalfSpace(e(v_ego), v_ego_min)]), keep_all_but(v_ego), (v_ego_min + tol) .* e(v_ego)))
-            push!(edges, sensor_edge(mode))
-
-            actions = [ModalAction(Action(m, nothing, keep_all, zeros(n)), location_id(m, fi)) for (m, _) in modes, (fi, _) in enumerate(fronts) if m != 2 || fi != 2]
-            #@show mode, sign, front_sign, actions
-            push!(locations, ModalLocation(mode, region, A, U, edges, actions))
-        end
+        U = Zonotope([0.0, sign * acceleration, front_sign * acceleration], zeros(n, 1))
+        edges = Edge[]
+        sign > 0 && push!(edges, Edge(location_id(CRUISE_NEUTRAL, f), HPolyhedron([LazySets.HalfSpace(-e(v_ego), -v_ego_max)]), keep_all_but(v_ego), (v_ego_max - tol) .* e(v_ego)))
+        sign < 0 && push!(edges, Edge(location_id(CRUISE_NEUTRAL, f), HPolyhedron([LazySets.HalfSpace(e(v_ego), v_ego_min)]), keep_all_but(v_ego), (v_ego_min + tol) .* e(v_ego)))
+        push!(edges, Edge(location_id(mode, f), HPolyhedron([LazySets.HalfSpace(-e(distance), -sensor_range)]), keep_all_but(distance), far_reset .* e(distance)))
+        coasting = mode == CRUISE_NEUTRAL
+        actions = coasting ? [ModalAction(Action(m, nothing, keep_all, zeros(n)), location_id(m, f)) for (m, _) in modes if m != CRUISE_NEUTRAL] : ModalAction[]
+        push!(locations, ModalLocation(layer, coasting ? region : nothing, A, U, edges, actions; starts=coasting))
     end
 
     unsafe = [HPolyhedron([LazySets.HalfSpace(e(distance), d_unsafe)])]
@@ -253,7 +246,8 @@ end
 # mode the ego is in now (its layer). Each cell is coloured by the modes the ego may be in next period: waiting keeps the
 # current mode, and an action switches to its mode. The colours are those of plot_oil_pump, by the same bit order
 # (bit 0 brake, bit 1 coast, bit 2 accelerate), with black for a dead cell.
-function plot_cruise(grid, allowed, info; v_ego=0.0)
+# For loadCruiseControlModal_t, which has a single layer where waiting coasts, pass wait_mode=CRUISE_NEUTRAL.
+function plot_cruise(grid, allowed, info; v_ego=0.0, wait_mode=nothing)
     g = grid.granularity
     ids = info.ctx.action_ids # action position -> mode
     j = floor(Int, (v_ego - grid.lower[2]) / g) + 1
@@ -266,24 +260,26 @@ function plot_cruise(grid, allowed, info; v_ego=0.0)
         end
         return m
     end
-    colors = [:black, :steelblue, :darkgoldenrod, :yellow, :orchid4, :orchid, :gray60, :white]
-    labels = ["dead", "brake", "coast", "brake or coast", "accelerate", "brake or accelerate", "coast or accelerate", "any"]
+    colors = [:black, :purple, :darkgoldenrod, :yellow, :orchid4, :orchid, :gray60, :white]
+    labels = ["dead", "{brake}", "{coast}", "{brake, coast}", "{accelerate}", "{brake, accelerate}", "{coast, accelerate}", "{brake, coast, accelerate}"]
     modes = ["braking", "coasting", "accelerating"]
 
     # The heatmap's axes are cell indices: cell i spans [i - 0.5, i + 0.5], so a value x on axis a is at (x - lower)/g + 0.5
     at(x, a) = (x .- grid.lower[a]) ./ g .+ 0.5
     speeds = ceil(grid.lower[3]):4:floor(grid.upper[3])
-    distances = ceil(grid.lower[1]):(grid.upper[1] - grid.lower[1] > 100 ? 20 : 10):floor(grid.upper[1])
+    distances = ceil(grid.lower[1]):(grid.upper[1]-grid.lower[1]>100 ? 20 : 10):floor(grid.upper[1])
     xlims = (0.5, size(allowed, 3) + 0.5)
     ylims = (0.5, size(allowed, 1) + 0.5)
     panels = []
     present = Set{Int}()
     for layer in axes(allowed, 4)
-        m = [next_modes(allowed[i, j, k, layer], layer) for i in axes(allowed, 1), k in axes(allowed, 3)]
+        current = wait_mode === nothing ? layer : wait_mode
+        m = [next_modes(allowed[i, j, k, layer], current) for i in axes(allowed, 1), k in axes(allowed, 3)]
         union!(present, m)
-        println("currently $(modes[layer]): ", join(("$(labels[c+1]) $(count(==(c), m))" for c in 0:7 if any(==(c), m)), ", "))
+        name = wait_mode === nothing ? "Currently $(modes[layer])" : "At a decision"
+        println("$name: ", join(("$(labels[c+1]) $(count(==(c), m))" for c in 0:7 if any(==(c), m)), ", "))
         fig = heatmap(m; c=cgrad(colors, length(colors), categorical=true), clim=(0, length(colors) - 1), colorbar=false,
-            title="Currently $(modes[layer])", xlabel="front car speed (m/s)", ylabel="distance (m)", titlefontsize=10,
+            title=name, xlabel="front car speed (m/s)", ylabel="distance (m)", titlefontsize=10,
             xticks=(at(speeds, 3), string.(Int.(speeds))), yticks=(at(distances, 1), string.(Int.(distances))), xlims, ylims, legend=false)
         vline!(fig, at(speeds, 3); color=:gray, lw=0.5, alpha=0.6, label=false)
         hline!(fig, at(distances, 1); color=:gray, lw=0.5, alpha=0.6, label=false)
@@ -293,8 +289,10 @@ function plot_cruise(grid, allowed, info; v_ego=0.0)
     for c in sort(collect(present))
         plot!(legend, Float64[], Float64[]; seriestype=:shape, color=colors[c+1], linecolor=:gray60, label=labels[c+1])   # Float64[] avoids a warning
     end
-    fig = plot(panels..., legend; layout=@layout([a b c d{0.14w}]), size=(1500, 650), left_margin=8Plots.mm, bottom_margin=6Plots.mm,
-        plot_title="Cruise control shield: allowed next mode, ego speed in [$v_lo, $(v_lo + g)) m/s", plot_titlefontsize=11)
+    k = length(panels)
+    width = 500 * k + 250 # the legend keeps 250 px
+    fig = plot(panels..., legend; layout=Plots.grid(1, k + 1, widths=[fill(500 / width, k); 250 / width]), size=(width, 650), left_margin=8Plots.mm, bottom_margin=6Plots.mm,
+        plot_title="v_ego in [$v_lo, $(v_lo + g)) m/s", plot_titlefontsize=11)
     display(fig)
     return fig
 end

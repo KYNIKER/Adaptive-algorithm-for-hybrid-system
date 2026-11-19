@@ -162,42 +162,74 @@ end
 # Cover for the zonotope with generator matrix G (N x m, full row rank), centred at the origin, with the given
 # interval-hull radius (used only to bound the candidate cells). The facets are enumerated directly instead of through
 # LazySets: every set of N-1 generators spanning a hyperplane gives a normal n (generalised cross product), and the
-# pair of facets +-n' y <= sum_j |n' g_j|. Parallel generators give duplicate facets, which are harmless.
+# pair of facets +-n' y <= sum_j |n' g_j|. A generator parallel to an earlier one only gives facets with the normal of
+# a facet that comes earlier (or none), so normals come from the first generator of each direction only, while every
+# offset still sums over all generators. Sets after a jump often have many parallel generators (28 with 19 parallel is
+# typical for the cruise control), so this cuts the facets about tenfold.
 function ConstantZonotopeCover(G::AbstractMatrix{Float64}, radius::NTuple{N,Float64}, ::Val{N}; tol::Float64=1e-7) where N
     m = size(G, 2)
-    normals = Vector{Float64}()
-    offsets = Vector{Float64}()
+    reps = Int[] # the first generator of each direction
+    for j in 1:m
+        nj = norm(view(G, :, j))
+        nj == 0.0 && continue
+        parallel = false
+        for i in reps
+            if abs(abs(dot(view(G, :, i), view(G, :, j))) - norm(view(G, :, i)) * nj) <= 1e-12 * norm(view(G, :, i)) * nj
+                parallel = true
+                break
+            end
+        end
+        parallel || push!(reps, j)
+    end
+    r = length(reps)
+    r < N - 1 && return ConstantZonotopeCover{N}(zeros(N, 0), Float64[], radius, tol)
+    pairs = binomial(r, N - 1)
+    normals = Matrix{Float64}(undef, N, 2pairs)
+    offsets = Vector{Float64}(undef, 2pairs)
+    count = 0
     n = zeros(N)
     minor = zeros(N - 1, N - 1)
     subset = collect(1:N-1)
     while true
         if N == 2
-            n[1] = G[2, subset[1]]
-            n[2] = -G[1, subset[1]]
+            n[1] = G[2, reps[subset[1]]]
+            n[2] = -G[1, reps[subset[1]]]
+        elseif N == 3
+            # the cross product of the two generators
+            i, j = reps[subset[1]], reps[subset[2]]
+            n[1] = G[2, i] * G[3, j] - G[2, j] * G[3, i]
+            n[2] = -(G[1, i] * G[3, j] - G[1, j] * G[3, i])
+            n[3] = G[1, i] * G[2, j] - G[1, j] * G[2, i]
         else
             # n_k = (-1)^(k+1) det(G[rows != k, subset])
             for k in 1:N
-                for (r, row) in enumerate(Iterators.filter(!=(k), 1:N)), (c, col) in enumerate(subset)
-                    minor[r, c] = G[row, col]
+                for c in 1:N-1, r in 1:N-1
+                    minor[r, c] = G[r < k ? r : r + 1, reps[subset[c]]]
                 end
                 n[k] = (isodd(k) ? 1.0 : -1.0) * det(minor)
             end
         end
         len = norm(n)
         if len > 1e-12
-            n ./= len
             b = 0.0
             for j in 1:m
-                b += abs(dot(n, view(G, :, j)))
+                s = 0.0
+                for r in 1:N
+                    s += (n[r] / len) * G[r, j]
+                end
+                b += abs(s)
             end
-            append!(normals, n)
-            push!(offsets, b)
-            append!(normals, -n)
-            push!(offsets, b)
+            for r in 1:N
+                normals[r, count+1] = n[r] / len
+                normals[r, count+2] = -(n[r] / len)
+            end
+            offsets[count+1] = b
+            offsets[count+2] = b
+            count += 2
         end
-        # Next (N-1)-combination of 1:m in lexicographic order.
+        # Next (N-1)-combination of 1:r in lexicographic order.
         i = N - 1
-        while i >= 1 && subset[i] == m - (N - 1) + i
+        while i >= 1 && subset[i] == r - (N - 1) + i
             i -= 1
         end
         if i < 1
@@ -208,7 +240,7 @@ function ConstantZonotopeCover(G::AbstractMatrix{Float64}, radius::NTuple{N,Floa
             subset[k] = subset[k-1] + 1
         end
     end
-    return ConstantZonotopeCover{N}(reshape(normals, N, :), offsets, radius, tol)
+    return ConstantZonotopeCover{N}(normals[:, 1:count], resize!(offsets, count), radius, tol)
 end
 
 # Number of facet pairs ConstantZonotopeCover(G, ...) enumerates for m generators in N dimensions.
@@ -244,17 +276,24 @@ end
 # Same cells as get_touching_cell_idxs_test(grid, Z, model, con_ref) for the translated zonotope Z with center c, using
 # the precomputed H-representation instead of an LP per candidate cell. A cell touches the reach set iff its centre
 # lies in the reach set bloated by half a cell, which is what cov represents.
-function get_touching_cell_idxs_cover(grid::Grid{N}, cov::ConstantZonotopeCover{N}, c::AbstractVector{Float64}) where N
+# keep_lo and keep_hi (cell indices per axis) limit the result to the cells in that box, as filtering it afterwards would,
+# without testing the cells outside it.
+function get_touching_cell_idxs_cover(grid::Grid{N}, cov::ConstantZonotopeCover{N}, c::AbstractVector{Float64},
+    keep_lo::NTuple{N,Int}=ntuple(_ -> 1, N), keep_hi::NTuple{N,Int}=cellshape(grid)) where N
     touching_cell_idxs = CartesianIndex{N}[]
-    lower_bounds = ntuple(i -> max(floor(Int, abs(clamp(c[i] - cov.radius[i], grid.lower[i], grid.upper[i]) - grid.lower[i]) / grid.granularity), 1), N)
-    upper_bounds = ntuple(i -> min(grid.numCells[i], ceil(Int, abs(clamp(c[i] + cov.radius[i], grid.lower[i], grid.upper[i]) - grid.lower[i]) / grid.granularity)), N)
+    full_lower = ntuple(i -> max(floor(Int, abs(clamp(c[i] - cov.radius[i], grid.lower[i], grid.upper[i]) - grid.lower[i]) / grid.granularity), 1), N)
+    full_upper = ntuple(i -> min(grid.numCells[i], ceil(Int, abs(clamp(c[i] + cov.radius[i], grid.lower[i], grid.upper[i]) - grid.lower[i]) / grid.granularity)), N)
 
-    sweeping_dim = argmax(upper_bounds[i] - lower_bounds[i] for i in 1:N)
-    next_sweep = argmax(i == sweeping_dim ? 0 : upper_bounds[i] - lower_bounds[i] for i in 1:N)
+    # The way to sweep depends on the full candidate box, so the result is the same with or without the limits.
+    sweeping_dim = argmax(full_upper[i] - full_lower[i] for i in 1:N)
+    next_sweep = argmax(i == sweeping_dim ? 0 : full_upper[i] - full_lower[i] for i in 1:N)
+    lower_bounds = ntuple(i -> max(full_lower[i], keep_lo[i]), N)
+    upper_bounds = ntuple(i -> min(full_upper[i], keep_hi[i]), N)
+    any(i -> lower_bounds[i] > upper_bounds[i], 1:N) && return touching_cell_idxs
 
-    if upper_bounds[next_sweep] == lower_bounds[next_sweep]
+    if full_upper[next_sweep] == full_lower[next_sweep]
         append!(touching_cell_idxs, CartesianIndices(ntuple(i -> lower_bounds[i]:upper_bounds[i], N)))
-    elseif upper_bounds[sweeping_dim] - lower_bounds[sweeping_dim] > 1
+    elseif full_upper[sweeping_dim] - full_lower[sweeping_dim] > 1
         # The cover is convex, so along each line in the sweeping dimension the touched cells form one interval:
         # find its first and last cell and fill in between.
         cartesian_offset = CartesianIndex(ntuple(i -> i == sweeping_dim ? 1 : 0, N))
@@ -311,8 +350,10 @@ end
 const CoverCache{N} = Dict{Matrix{Float64},ConstantZonotopeCover{N}}
 const MAX_CACHED_COVERS = 100_000
 
-# get_touching_cell_idxs_lz with the cover taken from, or added to, covers. Gives the same cells.
-function get_touching_cell_idxs_lz(grid::Grid{N}, convexSet::Zonotope{Float64,Vector{Float64},Matrix{Float64}}, covers::CoverCache{N}) where N
+# get_touching_cell_idxs_lz with the cover taken from, or added to, covers. Gives the same cells. keep_lo and keep_hi
+# limit the result to a box of cells, as in get_touching_cell_idxs_cover.
+function get_touching_cell_idxs_lz(grid::Grid{N}, convexSet::Zonotope{Float64,Vector{Float64},Matrix{Float64}}, covers::CoverCache{N},
+    keep_lo::NTuple{N,Int}=ntuple(_ -> 1, N), keep_hi::NTuple{N,Int}=cellshape(grid)) where N
     G = genmat(convexSet)
     nonzero = [j for j in axes(G, 2) if any(!iszero, view(G, :, j))]
     if cover_facet_pairs(length(nonzero) + N, N) > MAX_COVER_FACET_PAIRS
@@ -324,7 +365,7 @@ function get_touching_cell_idxs_lz(grid::Grid{N}, convexSet::Zonotope{Float64,Ve
         length(covers) >= MAX_CACHED_COVERS && empty!(covers)
         cov = covers[bloated] = ConstantZonotopeCover(bloated, ntuple(i -> sum(abs, view(G, i, :)), N), Val(N))
     end
-    return get_touching_cell_idxs_cover(grid, cov, convexSet.center)
+    return get_touching_cell_idxs_cover(grid, cov, convexSet.center, keep_lo, keep_hi)
 end
 
 function get_touching_cell_idxs_lz_lp(grid::Grid{N}, convexSet::Zonotope{Float64,Vector{Float64},Matrix{Float64}}) where N

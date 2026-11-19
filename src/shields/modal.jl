@@ -16,12 +16,16 @@ Clock axes: an axis whose row in A is zero and with no input generator (a clock,
   - Its interval at the end of the period is tracked exactly through jumps that keep it rigid (same rate on both sides, jump only translates it) or reset it (see clock_after_jump). The successors are filtered by that interval, so the bloat of the flowpipe pieces does not reach this axis.
 =#
 
-# Action taken in a location, landing in location `target`.
+# Action taken in a location, landing in location `target`. Several ModalActions with the same action id in one location
+# (and the same guard) are one choice with several outcomes, which the shield all takes as successors.
 struct ModalAction
     action::Action
     target::Int
 end
 
+# A location with starts = false is only entered by actions and edges: no cell starts a period in it, but what it reaches
+# at the end of the period lands in its layer. So a layer can be a decision point that every period starts from, with
+# the outcome of each choice in locations of their own (see loadCruiseControlModal_t).
 struct ModalLocation
     layer::Int
     region::Union{HPolyhedron,Nothing} # part of the continuous state this location covers, nothing = all of it
@@ -29,7 +33,9 @@ struct ModalLocation
     U::Zonotope{Float64,Vector{Float64},Matrix{Float64}}
     edges::Vector{Edge}
     actions::Vector{ModalAction}
+    starts::Bool
 end
+ModalLocation(layer, region, A, U, edges, actions; starts::Bool=true) = ModalLocation(layer, region, A, U, edges, actions, starts)
 
 struct ModalHybridSystem{S<:LazySet,C<:LazySet}
     statespace::S
@@ -76,6 +82,7 @@ end
 struct ModalLocationData{D}
     dynamics::ModalDynamics # shared between locations with the same (A, U)
     layer::Int
+    starts::Bool
     region::Union{Tuple{Vector{Vector{Float64}},Vector{Float64}},Nothing}
     guards::Vector{Tuple{Vector{Vector{Float64}},Vector{Float64}}}
     fast::BitArray{D}
@@ -85,6 +92,7 @@ struct ModalLocationData{D}
     flow_hi::Vector{Float64}
     incoming_edges::Vector{Tuple{Int,Edge}} # (source location, edge)
     incoming_actions::Vector{Tuple{Int,Action}} # (source location, action)
+    bordered::Vector{Bool} # per face of the state space: a guard of the location borders it (see left_statespace)
 end
 
 # A set covering part of the end of the period in a location. On axes with lo[i] not NaN, the states are exactly in [lo[i], hi[i]].
@@ -116,9 +124,21 @@ struct ModalContext{D,N,S}
     center::Vector{Float64}
     max_depth::Int
     covers::CoverCache{D}
+    layer_starts::Vector{Vector{Int}} # per layer, the locations cells start a period in
+    start_mask::Array{UInt64,N} # per (cell..., layer), bit j set if the cell starts in layer_starts[layer][j]
 end
 
 const MODAL_TOL = 1e-9
+
+# The locations a cell starts a period in, as a set bit per location of its layer: iterating it allocates nothing.
+struct LocationSet
+    ids::Vector{Int}
+    mask::UInt64
+end
+Base.iterate(s::LocationSet, m::UInt64=s.mask) = m == 0 ? nothing : (s.ids[trailing_zeros(m)+1], m & (m - 1))
+Base.length(s::LocationSet) = count_ones(s.mask)
+Base.isempty(s::LocationSet) = s.mask == 0
+Base.eltype(::Type{LocationSet}) = Int
 
 # Step at which the flowpipe of disc first touches any of the sets, or steps if it touches none within that many steps of δ⁻.
 function first_touch(dyn::ModalDynamics, disc, sets, steps::Int, δ⁻::Float64, δ⁺::Float64, identity_matrix)
@@ -210,10 +230,11 @@ end
 # Tracked clock axes use their exact interval: X may have been clipped to a guard, and that clip is not exact, so after a jump it can sit slightly outside on such an axis without any state being there.
 function left_statespace(ctx::ModalContext, loc::ModalLocationData, X, D::Int, total::Int, lo::Vector{Float64}, hi::Vector{Float64})
     dyn = loc.dynamics
-    for k in unique((D, total))
+    for (n, k) in enumerate((D, total))
+        n == 2 && k == D && break
         final = minkowski_sum(linear_map(dyn.Φ[k+1], X), dyn.V[k+1])
-        for (a, b) in zip(ctx.statespace...)
-            any(((v, w),) -> any(i -> isapprox(v[i], -a; atol=MODAL_TOL) && isapprox(w[i], -b; atol=MODAL_TOL), eachindex(v)), loc.guards) && continue
+        for (f, (a, b)) in enumerate(zip(ctx.statespace...))
+            loc.bordered[f] && continue
             axis = findfirst(!iszero, a)
             tracked = !isnan(lo[axis])
             value = tracked ? (a[axis] > 0 ? a[axis] * hi[axis] : a[axis] * lo[axis]) : ρ(a, final)
@@ -318,8 +339,11 @@ function _ModalContext(grid::Grid{D}, ::Val{N}, system, p::Float64, δ⁻, δ⁺
         targets = vcat(guards, unsafe, exits)
         region = loc.region === nothing ? nothing : getHalfSpaceProjections(loc.region)
         # Coarse sweep: a whole block is fast if its flowpipe touches nothing over the period.
+        # Cells start a period in the location, or land in it with an action at the start of one.
+        entered_at_start = loc.starts || any(a.target == length(locations) + 1 for l in system.locations for a in l.actions)
         fast = falses(cellshape(grid))
         for bidx in CartesianIndices(ntuple(i -> 1:fld(grid.numCells[i], sweep[i]), D))
+            entered_at_start || break
             center = grid.lower .+ g .* (sweep ./ 2) .+ (car2vec(bidx) .- 1) .* g .* sweep
             box_overlaps_region(region, center .- g .* (sweep ./ 2), center .+ g .* (sweep ./ 2)) || continue
             disc = newReACTDiscretizePlus(Zonotope(center, G_big), δ⁻, δ⁺, dyn.A, dyn.P2A_abs, dyn.phiDict, dyn.inputDict, alg, maxOrder, reduceOrder)
@@ -343,24 +367,45 @@ function _ModalContext(grid::Grid{D}, ::Val{N}, system, p::Float64, δ⁻, δ⁺
         li = length(locations) + 1
         incoming_edges = [(src, e) for (src, l) in enumerate(system.locations) for e in l.edges if e.targetLoc == li]
         incoming_actions = [(src, a.action) for (src, l) in enumerate(system.locations) for a in l.actions if a.target == li]
-        push!(locations, ModalLocationData{D}(dyn, loc.layer, region, guards, fast, fast_cover, clock_rate, flow_lo, flow_hi, incoming_edges, incoming_actions))
+        bordered = [any(((v, w),) -> any(i -> isapprox(v[i], -a; atol=MODAL_TOL) && isapprox(w[i], -b; atol=MODAL_TOL), eachindex(v)), guards) for (a, b) in zip(statespace...)]
+        push!(locations, ModalLocationData{D}(dyn, loc.layer, loc.starts, region, guards, fast, fast_cover, clock_rate, flow_lo, flow_hi, incoming_edges, incoming_actions, bordered))
     end
 
     # A location that does not offer an action has neither mask set for it, so the action does nothing there.
     may_act = [[falses(cellshape(grid)) for _ in action_ids] for _ in system.locations]
     must_act = [[falses(cellshape(grid)) for _ in action_ids] for _ in system.locations]
     for (li, loc) in enumerate(system.locations), a in loc.actions
+        same = [b.action.guard for b in loc.actions if b.action.id == a.action.id]
+        all(isequal(a.action.guard), same) || throw(ArgumentError("location $li has actions with id $(a.action.id) and different guards; the outcomes of one action share its guard"))
         ai = findfirst(==(a.action.id), action_ids)
         may_act[li][ai], must_act[li][ai] = guard_masks(grid, a.action.guard)
     end
 
-    return ModalContext{D,N,typeof(system)}(system, grid, steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder, locations, unsafe, statespace, cell_generators, action_ids, may_act, must_act, maximum(loc.layer for loc in system.locations), identity_matrix, zeros(D), max_depth, CoverCache{D}())
+    n_layers = maximum(loc.layer for loc in system.locations)
+    layer_starts = [[li for (li, loc) in enumerate(locations) if loc.layer == layer && loc.starts] for layer in 1:n_layers]
+    start_mask = zeros(UInt64, cellshape(grid)..., n_layers)
+    lo, hi = zeros(D), zeros(D)
+    for layer in 1:n_layers
+        ids = layer_starts[layer]
+        length(ids) <= 64 || throw(ArgumentError("layer $layer has $(length(ids)) locations that cells start in; at most 64 are supported"))
+        for c in CartesianIndices(cellshape(grid))
+            for i in 1:D
+                lo[i] = grid.lower[i] + (c[i] - 1) * g
+                hi[i] = lo[i] + g
+            end
+            m = UInt64(0)
+            for (j, li) in enumerate(ids)
+                box_overlaps_region(locations[li].region, lo, hi) && (m |= UInt64(1) << (j - 1))
+            end
+            start_mask[c, layer] = m
+        end
+    end
+
+    return ModalContext{D,N,typeof(system)}(system, grid, steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder, locations, unsafe, statespace, cell_generators, action_ids, may_act, must_act, n_layers, identity_matrix, zeros(D), max_depth, CoverCache{D}(), layer_starts, start_mask)
 end
 
-function cell_locations(ctx::ModalContext{D}, layer::Int, c::CartesianIndex{D}) where D
-    lo = ctx.grid.lower .+ (car2vec(c) .- 1) .* ctx.grid.granularity
-    return [li for (li, loc) in enumerate(ctx.locations) if loc.layer == layer && box_overlaps_region(loc.region, lo, lo .+ ctx.grid.granularity)]
-end
+# The locations a cell of the layer starts a period in, in increasing order.
+cell_locations(ctx::ModalContext{D}, layer::Int, c::CartesianIndex{D}) where D = LocationSet(ctx.layer_starts[layer], ctx.start_mask[c, layer])
 
 # True if the half-open cell overlaps the exact interval on every tracked axis. A point on a cell border belongs to the cell above it.
 function cell_in_clock_intervals(grid::Grid{D}, cell::CartesianIndex{D}, lo::Vector{Float64}, hi::Vector{Float64}) where D
@@ -384,13 +429,45 @@ function append_touching!(res::Vector{CartesianIndex{N}}, ctx::ModalContext{D,N}
                 c[i] = grid.lower[i] + 10 * MODAL_TOL
             end
         end
-        for cell in get_touching_cell_idxs_lz(grid, Zonotope(c, G), ctx.covers)
+        # Only the cells in the exact intervals of the clock axes are tested against the set
+        for cell in get_touching_cell_idxs_lz(grid, Zonotope(c, G), ctx.covers, clock_cell_box(grid, e.lo, e.hi)...)
             if cell_in_clock_intervals(grid, cell, e.lo, e.hi)
                 push!(res, CartesianIndex(cell, ctx.locations[e.location].layer))
             end
         end
     end
     return res
+end
+
+# The box of cells that overlap the exact intervals [lo, hi] on the clock axes (all cells on the other axes), as the
+# keep_lo and keep_hi of get_touching_cell_idxs_cover. The same cells as cell_in_clock_intervals accepts.
+function clock_cell_box(grid::Grid{D}, lo::Vector{Float64}, hi::Vector{Float64}) where D
+    keep_lo = ntuple(i -> isnan(lo[i]) ? 1 : floor(Int, (lo[i] - grid.lower[i]) / grid.granularity + MODAL_TOL) + 1, D)
+    keep_hi = ntuple(i -> isnan(lo[i]) ? grid.numCells[i] : max(ceil(Int, (hi[i] - grid.lower[i]) / grid.granularity - MODAL_TOL), keep_lo[i]), D)
+    return keep_lo, keep_hi
+end
+
+# Appends what a fast cell c of location li reaches at the end of the period, from the location's precomputed cover.
+function append_fast!(res::Vector{CartesianIndex{N}}, ctx::ModalContext{D,N}, li::Int, c::CartesianIndex{D}, lo::Vector{Float64}, hi::Vector{Float64}) where {D,N}
+    loc = ctx.locations[li]
+    fast_cell_center!(ctx.center, loc.dynamics.Φ[ctx.steps+1], LazySets.center(loc.dynamics.V[ctx.steps+1]), ctx.grid, c)
+    for cell in get_touching_cell_idxs_cover(ctx.grid, loc.fast_cover, ctx.center, clock_cell_box(ctx.grid, lo, hi)...)
+        if cell_in_clock_intervals(ctx.grid, cell, lo, hi)
+            push!(res, CartesianIndex(cell, loc.layer))
+        end
+    end
+    return res
+end
+
+# The offset in cells of a jump that maps every cell onto another cell (identity matrix, jump vector a whole number of
+# cells on every axis), or nothing.
+function cell_shift(M::Matrix{Float64}, j::Vector{Float64}, grid::Grid{D}) where D
+    for k in 1:D, i in 1:D
+        M[i, k] == (i == k ? 1.0 : 0.0) || return nothing
+    end
+    shift = ntuple(i -> j[i] / grid.granularity, D)
+    all(i -> abs(shift[i] - round(shift[i])) <= MODAL_TOL, 1:D) || return nothing
+    return CartesianIndex(ntuple(i -> round(Int, shift[i]), D))
 end
 
 # Flow successors of a cell, or nothing if flowing from it is bad.
@@ -402,12 +479,7 @@ function flow_successors(ctx::ModalContext{D,N}, layer::Int, c::CartesianIndex{D
         loc = ctx.locations[li]
         lo, hi = clock_end(loc.clock_rate, Z, ctx.steps, ctx.δ⁻)
         if loc.fast[c]
-            fast_cell_center!(ctx.center, loc.dynamics.Φ[ctx.steps+1], LazySets.center(loc.dynamics.V[ctx.steps+1]), ctx.grid, c)
-            for cell in get_touching_cell_idxs_cover(ctx.grid, loc.fast_cover, ctx.center)
-                if cell_in_clock_intervals(ctx.grid, cell, lo, hi)
-                    push!(res, CartesianIndex(cell, layer))
-                end
-            end
+            append_fast!(res, ctx, li, c, lo, hi)
         else
             empty!(out)
             modal_reach!(out, ctx, li, Z, ctx.steps, 0, true, lo, hi) || return nothing
@@ -435,13 +507,21 @@ function action_successors(ctx::ModalContext{D,N}, layer::Int, c::CartesianIndex
         end
         ctx.must_act[li][ai][c] || (also_flows = true)
         acts = true
-        actions = ctx.system.locations[li].actions
-        a = actions[findfirst(x -> x.action.id == ctx.action_ids[ai], actions)]
-        jumped = apply_jump(Z, a.action.jumpMatrix, a.action.jumpVector, ctx.maxOrder, ctx.reduceOrder)
-        empty!(out)
-        lo, hi = clock_end(ctx.locations[a.target].clock_rate, jumped, ctx.steps, ctx.δ⁻)
-        modal_reach!(out, ctx, a.target, jumped, ctx.steps, 0, exit_bad, lo, hi) || return nothing
-        append_touching!(res, ctx, out)
+        # Several actions with this id in one location are one choice with several outcomes: all of them are successors
+        for a in ctx.system.locations[li].actions
+            a.action.id == ctx.action_ids[ai] || continue
+            jumped = apply_jump(Z, a.action.jumpMatrix, a.action.jumpVector, ctx.maxOrder, ctx.reduceOrder)
+            lo, hi = clock_end(ctx.locations[a.target].clock_rate, jumped, ctx.steps, ctx.δ⁻)
+            # A jump onto another cell that is fast in the target location: its precomputed cover, as for the flow
+            shift = cell_shift(a.action.jumpMatrix, a.action.jumpVector, ctx.grid)
+            if shift !== nothing && checkbounds(Bool, ctx.locations[a.target].fast, c + shift) && ctx.locations[a.target].fast[c+shift]
+                append_fast!(res, ctx, a.target, c + shift, lo, hi)
+                continue
+            end
+            empty!(out)
+            modal_reach!(out, ctx, a.target, jumped, ctx.steps, 0, exit_bad, lo, hi) || return nothing
+            append_touching!(res, ctx, out)
+        end
     end
     acts || return nothing
     if also_flows
@@ -492,29 +572,64 @@ function jump_preimage(lo::Vector{Float64}, hi::Vector{Float64}, M::Matrix{Float
     return lo′, hi′
 end
 
-function queue_cells!(frontier::Vector{CartesianIndex{N}}, queued::BitArray{N}, grid::Grid{D}, layer::Int, lo::Vector{Float64}, hi::Vector{Float64}) where {D,N}
-    ranges = ntuple(i -> max(floor(Int, (lo[i] - grid.lower[i]) / grid.granularity) + 1, 1):min(ceil(Int, (hi[i] - grid.lower[i]) / grid.granularity), grid.numCells[i]), D)
-    for c in CartesianIndices(ranges)
+# What the online search has already done, so that it is not done again: queued cells are never unqueued, so a search or
+# a scan contained in an earlier one adds nothing. Up to MEMO_SIZE entries are kept per location and per layer, the
+# oldest replaced first; forgetting one only means a search is repeated.
+const MEMO_SIZE = 32
+struct FrontierMemo{D}
+    searched::Vector{Vector{Tuple{Int,Vector{Float64},Vector{Float64}}}} # per location: (depth, lo, hi) searched from
+    scanned::Vector{Vector{Tuple{NTuple{D,Int},NTuple{D,Int}}}} # per layer: (first, last) cell of a box of queued cells
+    next::Vector{Int} # per location, then per layer: the entry to replace next once the list is full
+end
+FrontierMemo{D}(n_locations::Int, n_layers::Int) where D = FrontierMemo{D}([Tuple{Int,Vector{Float64},Vector{Float64}}[] for _ in 1:n_locations],
+    [Tuple{NTuple{D,Int},NTuple{D,Int}}[] for _ in 1:n_layers], ones(Int, n_locations + n_layers))
+
+function remember!(list::Vector{T}, memo::FrontierMemo, slot::Int, entry::T) where T
+    if length(list) < MEMO_SIZE
+        push!(list, entry)
+    else
+        list[memo.next[slot]] = entry
+        memo.next[slot] = memo.next[slot] % MEMO_SIZE + 1
+    end
+end
+
+function queue_cells!(frontier::Vector{CartesianIndex{N}}, queued::BitArray{N}, grid::Grid{D}, layer::Int, lo::Vector{Float64}, hi::Vector{Float64}, memo::FrontierMemo{D}) where {D,N}
+    first = ntuple(i -> max(floor(Int, (lo[i] - grid.lower[i]) / grid.granularity) + 1, 1), D)
+    last = ntuple(i -> min(ceil(Int, (hi[i] - grid.lower[i]) / grid.granularity), grid.numCells[i]), D)
+    scanned = memo.scanned[layer]
+    for (f, l) in scanned
+        all(i -> f[i] <= first[i] && last[i] <= l[i], 1:D) && return
+    end
+    for c in CartesianIndices(ntuple(i -> first[i]:last[i], D))
         k = CartesianIndex(c, layer)
         if !queued[k]
             queued[k] = true
             push!(frontier, k)
         end
     end
+    remember!(scanned, memo, length(memo.searched) + layer, (first, last))
 end
 
 # Queues every cell that may reach the box [lo, hi] in location li within a period: cells flowing there in li, cells taking an action into li, and, through the edges into li, cells flowing there from other locations.
-function queue_predecessors!(frontier, queued, ctx::ModalContext, li::Int, lo::Vector{Float64}, hi::Vector{Float64}, depth::Int=0)
+# A search only adds cells to the queue, and one from a box inside an earlier box of the same location, at the same or a
+# greater depth, adds none the earlier one did not (memo). So it stops there: without that, a location with an edge to
+# itself (or a cycle of edges) is searched again at every depth, once per path, which grows exponentially with max_depth.
+function queue_predecessors!(frontier, queued, ctx::ModalContext, li::Int, lo::Vector{Float64}, hi::Vector{Float64}, memo::FrontierMemo, depth::Int=0)
+    searched = memo.searched[li]
+    for (d, slo, shi) in searched
+        d <= depth && all(i -> slo[i] <= lo[i] && hi[i] <= shi[i], eachindex(lo)) && return
+    end
+    remember!(searched, memo, li, (depth, copy(lo), copy(hi)))
     grid = ctx.grid
     g = grid.granularity
     loc = ctx.locations[li]
     from_lo, from_hi = lo .- loc.flow_hi .- g, hi .- loc.flow_lo .+ g
     clip_box!(from_lo, from_hi, loc.region, g) || return
-    queue_cells!(frontier, queued, grid, loc.layer, from_lo, from_hi)
+    loc.starts && queue_cells!(frontier, queued, grid, loc.layer, from_lo, from_hi, memo)
     for (src, act) in loc.incoming_actions
         box = jump_preimage(from_lo, from_hi, act.jumpMatrix, act.jumpVector, grid)
         box === nothing && continue
-        clip_box!(box..., ctx.locations[src].region, g) && queue_cells!(frontier, queued, grid, ctx.locations[src].layer, box...)
+        clip_box!(box..., ctx.locations[src].region, g) && queue_cells!(frontier, queued, grid, ctx.locations[src].layer, box..., memo)
     end
     depth >= ctx.max_depth && return
     for (src, e) in loc.incoming_edges
@@ -524,7 +639,7 @@ function queue_predecessors!(frontier, queued, ctx::ModalContext, li::Int, lo::V
         # A flowpipe piece can pass a guard by one step of δ⁻ before it is clipped to it.
         margin = g + maximum(max.(abs.(source.flow_lo), abs.(source.flow_hi))) / ctx.steps
         if clip_box!(box..., source.region, g) && clip_box!(box..., getHalfSpaceProjections(e.guard), margin)
-            queue_predecessors!(frontier, queued, ctx, src, box..., depth + 1)
+            queue_predecessors!(frontier, queued, ctx, src, box..., memo, depth + 1)
         end
     end
 end
@@ -560,10 +675,12 @@ function _ReACTed_reachable_cell_modal(ctx::ModalContext{D,N}, online::Bool, inc
     frontier = CartesianIndex{N}[]
     next_frontier = CartesianIndex{N}[]
 
+    memo = FrontierMemo{D}(length(ctx.locations), ctx.n_layers)
     function queue_predecessors_of!(c::CartesianIndex{D}, layer::Int)
         lo = grid.lower .+ (car2vec(c) .- 1) .* g
-        for li in cell_locations(ctx, layer, c)
-            queue_predecessors!(next_frontier, queued, ctx, li, lo, lo .+ g)
+        # Where a period can end in the cell: the locations it starts in, and those that no cell starts in
+        for li in Iterators.flatten((cell_locations(ctx, layer, c), (li for (li, loc) in enumerate(ctx.locations) if loc.layer == layer && !loc.starts)))
+            queue_predecessors!(next_frontier, queued, ctx, li, lo, lo .+ g, memo)
         end
     end
 

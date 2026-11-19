@@ -73,12 +73,12 @@ end
 function plot_oil_pump(grid, shield, allowed, lost, info)
     g = shield.granularity
     layers = [allowed[:, :, 1, L] for L in axes(allowed, 4)]
-    alive_and(bits...) = (alive = filter(!=(0), collect(bits)); isempty(alive) ? 0 : Int(reduce(&, alive)))
+    alive_and(bits...) = (alive=filter(!=(0), collect(bits)); isempty(alive) ? 0 : Int(reduce(&, alive)))
     # bit 0 wait, bit 1 turn on, bit 2 turn off. 8: alive, but no choice is safe in every layer where it is alive.
     m = alive_and.(layers...)
-    m[(m .== 0) .& .!all(l -> l == 0, cat(layers...; dims=3); dims=3)[:, :, 1]] .= 8
+    m[(m .== 0) .& .!all(l->l==0, cat(layers...; dims=3); dims=3)[:, :, 1]] .= 8
     colors = [:black, :steelblue, :darkgoldenrod, :yellow, :orchid4, :orchid, :gray60, :white, :red]
-    labels = ["dead in every layer", "wait", "must turn on", "wait or turn on", "must turn off", "wait or turn off",
+    labels = ["dead", "{}", "{on}", "{wait, on}", "{off}", "{wait, off}",
         "must turn on or off", "anything", "no choice safe in every live layer"]
     println(join(("$l $(count(==(i - 1), m))" for (i, l) in enumerate(labels)), ", "), " of $(length(m)) cells")
 
@@ -90,7 +90,7 @@ function plot_oil_pump(grid, shield, allowed, lost, info)
     rates = [[p[3] for p in OILPUMP_PIECES]; OILPUMP_PIECES[end][3]]
     xlims = (0.5, shield.numCells[1] + 0.5)
     ylims = (0.5, shield.numCells[2] + 0.5)
-    fig = heatmap(transpose(m); c=cgrad(colors, length(colors), categorical=true), clim=(0, length(colors) - 1), colorbar=false, title="Oil pump shield: choices allowed in every live layer (l = 0)",
+    fig = heatmap(transpose(m); c=cgrad(colors, length(colors), categorical=true), clim=(0, length(colors) - 1), colorbar=false, title="", #Oil pump shield: choices allowed in every live layer (l = 0)
         xlabel="t (s)", ylabel="V (l)", xticks=(at(seconds, 1), string.(Int.(seconds))), yticks=(at(liters[1:2:end], 2), string.(Int.(liters[1:2:end]))),
         xlims, ylims, legend_position=:topleft, size=(1000, 650), left_margin=3Plots.mm, right_margin=3Plots.mm)
     vline!(fig, at(seconds, 1); color=:gray, lw=0.5, alpha=0.6, label=false)

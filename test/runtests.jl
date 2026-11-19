@@ -14,9 +14,9 @@ digest(a) = bytes2hex(sha1(reinterpret(UInt8, vec(a))))[1:12]
         sys, p = loadBouncingBallShieldedWithInput()
         g, δ⁻ = 0.02, 0.001
         for (name, run, dead, sha) in [
-            ("plain", () -> ReACTed_reachable_cell_t(sys, p, g, δ⁻, 2^5 * δ⁻; verbose=false), 732669, "22051f1a40c6"),
-            ("pred_fast", () -> ReACTed_reachable_cell_online_pred_fast(sys, p, g, δ⁻, 2^5 * δ⁻; jump_hull=false, verbose=false), 231284, "18d122ec083e"),
-            ("adaptive_fast", () -> ReACTed_reachable_cell_adaptive_fast(sys, p, 2g, 1, δ⁻, 2^5 * δ⁻, patience=0, verbose=false), 753524, "23dcc443bf2b"),
+            ("plain", () -> ReACTed_reachable_cell_t(sys, p, g, δ⁻, 2^5 * δ⁻; verbose=false), 732669, "06cf1a99cab3"),
+            ("pred_fast", () -> ReACTed_reachable_cell_online_pred_fast(sys, p, g, δ⁻, 2^5 * δ⁻; jump_hull=false, verbose=false), 231284, "d10988da9134"),
+            ("adaptive_fast", () -> ReACTed_reachable_cell_adaptive_fast(sys, p, 2g, 1, δ⁻, 2^5 * δ⁻, patience=0, verbose=false), 753524, "b293994c2271"),
         ]
             @testset "$name" begin
                 _, allowed, _, _ = run()
@@ -36,8 +36,8 @@ digest(a) = bytes2hex(sha1(reinterpret(UInt8, vec(a))))[1:12]
         sys, p = loadOilPumpModal(; period=0.2)
         _, allowed, _, _ = ReACTed_reachable_cell_modal(sys, p, 0.2, 0.1, 0.2; online=true, verbose=false)
         @test size(allowed) == (100, 107, 10, 4)
-        @test count(==(0), allowed) == 54198
-        @test digest(allowed) == "c64849370d95"
+        @test count(==(0), allowed) == 57515
+        @test digest(allowed) == "920081310bff"
         # The pump cannot switch during the latency, so switching does nothing there and is allowed exactly when waiting is.
         for layer in (OILPUMP_OFF_LOCKED, OILPUMP_ON_LOCKED)
             @test all(b -> b == 0x00 || b == 0x07, allowed[:, :, :, layer])

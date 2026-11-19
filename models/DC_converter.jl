@@ -5,7 +5,7 @@ using LazySets
 
 include("../src/core/utilities.jl")
 
-function loadBouncingBallShielded()
+function loadDC_Converter()
 
     A = [0.0 1.0 0.0; 0.0 0.0 -9.82; 0. 0. 0.]
     S = Hyperrectangle([8.5, 0.0, 1.0], [8.5, 15.0, 0]) # p: [-1, 16], v: [-15, 15], g: [1,1]

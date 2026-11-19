@@ -54,13 +54,21 @@ function hyperrectangle_to_HPolyhedron(hyperrectangle)
     return HPolyhedron(hs)
 end
 
+# The cells on axis i whose closed box meets [lo, hi], as first:last index. A bound on a grid line meets the cells on
+# both sides of it, and CELL_BOUND_TOL (in cells) keeps a bound that rounding put just beside a grid line from losing
+# the cell past it. The cells' membership tests then decide among these candidates.
+const CELL_BOUND_TOL = 1e-9
+@inline function cell_range(grid::Grid, i::Int, lo::Real, hi::Real)
+    x_lo = (clamp(lo, grid.lower[i], grid.upper[i]) - grid.lower[i]) / grid.granularity
+    x_hi = (clamp(hi, grid.lower[i], grid.upper[i]) - grid.lower[i]) / grid.granularity
+    return max(ceil(Int, x_lo - CELL_BOUND_TOL), 1):min(floor(Int, x_hi + CELL_BOUND_TOL) + 1, grid.numCells[i])
+end
+
 function get_touching_cell_idxs_l(cgrid::Grid{N}, convexSet::LazySet) where N
     touching_cell_idxs = CartesianIndex{N}[]
 
-    lower_bounds, upper_bounds = clamp.(LazySets.low(convexSet), cgrid.lower, cgrid.upper), clamp.(LazySets.high(convexSet), cgrid.lower, cgrid.upper)
-    lower_bounds = Int.(max.(floor.(abs.(lower_bounds .- cgrid.lower) ./ cgrid.granularity), 1))
-
-    upper_bounds = min.(cgrid.numCells, Int.(ceil.(abs.(upper_bounds .- cgrid.lower) ./ cgrid.granularity))) # min guards against float round-off at the top edge #floor.(min.(upper_bounds, cgrid.upper) .- cgrid.lower) ./ cgrid.granularity
+    ranges = [cell_range(cgrid, i, l, h) for (i, l, h) in zip(1:N, LazySets.low(convexSet), LazySets.high(convexSet))]
+    lower_bounds, upper_bounds = first.(ranges), last.(ranges)
 
     sweeping_dim = argmax(upper_bounds[i]-lower_bounds[i] for i in 1:cgrid.dimension)
     hbox = Hyperrectangle(cgrid.lower .+ (cgrid.granularity/2), fill(cgrid.granularity/2, N))
@@ -274,8 +282,8 @@ end
 function get_touching_cell_idxs_cover(grid::Grid{N}, cov::ConstantZonotopeCover{N}, c::AbstractVector{Float64},
     keep_lo::NTuple{N,Int}=ntuple(_ -> 1, N), keep_hi::NTuple{N,Int}=cellshape(grid)) where N
     touching_cell_idxs = CartesianIndex{N}[]
-    full_lower = ntuple(i -> max(floor(Int, abs(clamp(c[i] - cov.radius[i], grid.lower[i], grid.upper[i]) - grid.lower[i]) / grid.granularity), 1), N)
-    full_upper = ntuple(i -> min(grid.numCells[i], ceil(Int, abs(clamp(c[i] + cov.radius[i], grid.lower[i], grid.upper[i]) - grid.lower[i]) / grid.granularity)), N)
+    full = ntuple(i -> cell_range(grid, i, c[i] - cov.radius[i], c[i] + cov.radius[i]), N)
+    full_lower, full_upper = map(first, full), map(last, full)
 
     # The way to sweep depends on the full candidate box, so the result is the same with or without the limits.
     sweeping_dim = argmax(full_upper[i] - full_lower[i] for i in 1:N)
@@ -364,9 +372,8 @@ end
 function get_touching_cell_idxs_lz_lp(grid::Grid{N}, convexSet::Zonotope{Float64,Vector{Float64},Matrix{Float64}}) where N
     touching_cell_idxs::Vector{CartesianIndex{N}} = CartesianIndex{N}[]
 
-    lower_bounds::Vector{Int64} = max.(floor.(abs.(clamp.(LazySets.low(convexSet), grid.lower, grid.upper) .- grid.lower) ./ grid.granularity), 1)
-
-    upper_bounds::Vector{Int64} = min.(grid.numCells, Int.(ceil.(abs.(clamp.(LazySets.high(convexSet), grid.lower, grid.upper) .- grid.lower) ./ grid.granularity))) # min guards against float round-off at the top edge #floor.(min.(upper_bounds, grid.upper) .- grid.lower) ./ grid.granularity
+    ranges = [cell_range(grid, i, l, h) for (i, l, h) in zip(1:N, LazySets.low(convexSet), LazySets.high(convexSet))]
+    lower_bounds::Vector{Int64}, upper_bounds::Vector{Int64} = first.(ranges), last.(ranges)
 
     sweeping_dim::Int64 = argmax(upper_bounds[i]-lower_bounds[i] for i in 1:grid.dimension)
     next_sweep = argmax(i == sweeping_dim ? 0 : upper_bounds[i]-lower_bounds[i] for i in 1:grid.dimension)

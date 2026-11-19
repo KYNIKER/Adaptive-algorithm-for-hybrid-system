@@ -121,15 +121,16 @@ act_center!(out, reach, cr::CellReach, act, c::CartesianIndex) = (out .= reach.m
 
 # Covers of what a cell of size Z reaches, bloated by each half-cell size in halves for the cover test on that grid.
 # A fast cell reaches max_flow * cell + max_input and acting reaches max_flow * (J * cell + j) + max_input, so both are
-# translates of one zonotope per cell size. The action covers are those get_touching_cell_idxs_lz builds: the nonzero
-# generators in the same order, with the radius of the unbloated set. Returns the fast covers per half-cell size and the
+# translates of one zonotope per cell size. Both bound their candidate cells by the radius of the unbloated set, as
+# get_touching_cell_idxs_lz does, and the action covers are the ones it builds: the nonzero generators in the same order.
+# Returns the fast covers per half-cell size and the
 # action covers per action and half-cell size.
 function reach_covers(system, reach, Z, halves::Vector{Float64}, ::Val{N}) where N
     (; max_flow, max_input) = reach
     G = hcat(genmat(max_input), genmat(linear_map(max_flow, Z)))
     fast = map(halves) do h
         Gh = hcat(G, diagm(fill(h, N)))
-        ConstantZonotopeCover(Gh, ntuple(i -> sum(abs, view(Gh, i, :)), N), Val(N))
+        ConstantZonotopeCover(Gh, ntuple(i -> sum(abs, view(G, i, :)), N), Val(N)) # candidates bounded by the unbloated set
     end
     act = map(system.Act) do a
         Ga = hcat(max_flow * (a.jumpMatrix * genmat(Z)), genmat(max_input))
@@ -143,8 +144,8 @@ end
 # Appends the ids in ids whose cell centre lies in the cover translated to c (0 = no id). Visits the same cells, in the
 # same order, as get_touching_cell_idxs_cover.
 function cover_ids!(out::Vector{Int32}, ids::Array{Int32,N}, grid::Grid{N}, cov::ConstantZonotopeCover{N}, c::AbstractVector{Float64}) where N
-    lower_bounds = ntuple(i -> max(floor(Int, abs(clamp(c[i] - cov.radius[i], grid.lower[i], grid.upper[i]) - grid.lower[i]) / grid.granularity), 1), N)
-    upper_bounds = ntuple(i -> min(grid.numCells[i], ceil(Int, abs(clamp(c[i] + cov.radius[i], grid.lower[i], grid.upper[i]) - grid.lower[i]) / grid.granularity)), N)
+    full = ntuple(i -> cell_range(grid, i, c[i] - cov.radius[i], c[i] + cov.radius[i]), N)
+    lower_bounds, upper_bounds = map(first, full), map(last, full)
     sweeping_dim = argmax(upper_bounds[i] - lower_bounds[i] for i in 1:N)
     next_sweep = argmax(i == sweeping_dim ? 0 : upper_bounds[i] - lower_bounds[i] for i in 1:N)
     emit(idx) = (id = ids[idx]; id != 0 && push!(out, id))
@@ -248,11 +249,8 @@ end
 # The candidate cells of get_touching_cell_idxs_l for P on a grid. Its bounds are clamped to the state space, so on a
 # grid that overhangs the state space they leave out cells there; each level's candidates lie in its parents' candidates.
 function touching_candidates(grid::Grid{N}, P) where N
-    lo = clamp.(low(P), grid.lower, grid.upper)
-    hi = clamp.(high(P), grid.lower, grid.upper)
-    l = Int.(max.(floor.(abs.(lo .- grid.lower) ./ grid.granularity), 1))
-    u = min.(grid.numCells, Int.(ceil.(abs.(hi .- grid.lower) ./ grid.granularity)))
-    return CartesianIndices(ntuple(i -> l[i]:max(u[i], l[i]), N))
+    lo, hi = low(P), high(P)
+    return CartesianIndices(ntuple(i -> cell_range(grid, i, lo[i], hi[i]), N))
 end
 
 # Masks of the cells of grid touching P (the same cells as get_touching_cell_idxs_l) and of those inside it, as the

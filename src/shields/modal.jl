@@ -285,9 +285,12 @@ function _ModalContext(grid::Grid{D}, ::Val{N}, system, p::Float64, δ⁻, δ⁺
                 fast[ntuple(i -> (1+(bidx[i]-1)*sweep[i]):(bidx[i]*sweep[i]), D)...] .= true
             end
         end
-        # All fast cells reach a translate of the same zonotope, bloated by half a cell for the cover test.
+        # All fast cells reach a translate of the same zonotope, bloated by half a cell for the cover test. As in
+        # get_touching_cell_idxs_lz, the candidate cells are bounded by the unbloated set, so a cell that only shares a face
+        # with the end set is not a successor, the same as for a cell flowed on its own.
         Vp = dyn.V[steps+1]
-        fast_cover = ConstantZonotopeCover(remove_zero_generators(Zonotope(LazySets.center(Vp), hcat(genmat(Vp), dyn.Φ[steps+1] * cell_generators, Matrix((g / 2) * I, D, D)))), Val(D))
+        G_fast = hcat(genmat(Vp), dyn.Φ[steps+1] * cell_generators)
+        fast_cover = ConstantZonotopeCover(hcat(G_fast, Matrix((g / 2) * I, D, D)), ntuple(i -> sum(abs, view(G_fast, i, :)), D), Val(D))
         clock_rate = [all(iszero, view(loc.A, i, :)) && all(iszero, view(genmat(loc.U), i, :)) ? LazySets.center(loc.U)[i] : NaN for i in 1:D]
         # How far any state of the grid can move on each axis at any time in the period, by interval arithmetic.
         flow_lo, flow_hi = fill(Inf, D), fill(-Inf, D)
@@ -581,11 +584,14 @@ end
 # Shield for a ModalHybridSystem. Computes every cell of every layer, or with online = true only the cells that may reach an unsafe cell or a cell that has become bad, the others being safe. Then pushes the bad events backwards.
 # include_border_cells also starts the online search from the border of the grid, for when leaving the state space should count as unsafe.
 # With exit_bad_for_actions = false an action may leave the state space, and only its successors inside the grid count.
+# Cells are tested for being fast in blocks of sweep_factor cells per dimension (an integer, or one per dimension). It only
+# changes the time: a fast cell has the same successors as when flowed on its own. On cruise control 20 finds no fast
+# cells, 5 and 2 are the fastest, and 1 is slower again because every cell is then checked on its own.
 # Returns grid, allowed, lost, info like every shield (see choice_bits in flat.jl). grid is the continuous
 # grid; allowed and lost are indexed by (continuous cell..., layer), and a cell is dead in a layer where allowed is 0.
 # Trying an action outside its guard or in a location that does not offer it does nothing, so there it is allowed exactly when waiting is (see action_successors).
 # A cell is enabled for an action when some location covering it can take the action there. info.ctx is the context.
-function ReACTed_reachable_cell_modal(system::ModalHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5; online::Bool=false, include_border_cells::Bool=false, act_needs_safe_flow::Bool=true, exit_bad_for_actions::Bool=true, sweep_factor=20, max_depth::Int=16, verbose::Bool=true)
+function ReACTed_reachable_cell_modal(system::ModalHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5; online::Bool=false, include_border_cells::Bool=false, act_needs_safe_flow::Bool=true, exit_bad_for_actions::Bool=true, sweep_factor=5, max_depth::Int=16, verbose::Bool=true)
     timer = PhaseTimer()
     ctx = ModalContext(system, p, Float64(granularity), δ⁻, δ⁺, alg, maxOrder, reduceOrder, sweep_factor, max_depth)
     return _ReACTed_reachable_cell_modal(ctx, online, include_border_cells, act_needs_safe_flow, exit_bad_for_actions, verbose, timer)

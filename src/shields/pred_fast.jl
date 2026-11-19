@@ -35,7 +35,10 @@ function _ReACTed_reachable_cell_online_pred_fast(grid::Grid{N}, system::Euclide
     n < typemax(Int32) || throw(ArgumentError("$n cells do not fit in Int32 ids"))
     ids = reshape(Int32.(1:n), shape) # cell -> id
     cells = CartesianIndices(shape) # id -> cell
-    may_act = [guard_masks(grid, act.guard)[1] for act in system.Act]
+    # An action does nothing outside its guard (see choice_bits), and only some states take it in a cell partly inside.
+    masks = [guard_masks(grid, act.guard) for act in system.Act]
+    may_act = [m[1] for m in masks]
+    must_act = [m[2] for m in masks]
     offset_list = offsets(grid)
 
     succ = SuccessorStore(n, [BitVector(vec(m)) for m in may_act])
@@ -93,6 +96,7 @@ function _ReACTed_reachable_cell_online_pred_fast(grid::Grid{N}, system::Euclide
                 if succ.act_enabled[ai][k]
                     act_center!(reach.center, reach, cell_reach, act, c)
                     cover_ids!(buf, ids, grid, act_covers[ai][1], reach.center)
+                    must_act[ai][c] || add_waiting!(buf, succ, k)
                 end
                 set_successors!(succ, ai, k, buf)
             end
@@ -118,23 +122,23 @@ function _ReACTed_reachable_cell_online_pred_fast(grid::Grid{N}, system::Euclide
     end
 
     # Actions of cells never computed whose jump (without the flow after it) lands on a computed dead cell
-    act_bad = falses(shape)
-    for (ai, act) in enumerate(system.Act)
+    #act_bad = falses(shape)
+    #=for (ai, act) in enumerate(system.Act)
         ActZonotope = remove_zero_generators(Zonotope(copy(act.jumpVector), act.jumpMatrix*diagm(fill(grid.granularity/2, N))))
         for c in findall(may_act[ai])
             s.computed[ids[c]] && continue
             of = act.jumpMatrix * cell_offset(cell_reach, c)
             LazySets.API.translate!(ActZonotope, of)
-            any(cc -> s.computed[ids[cc]] && s.dead[ids[cc]], get_touching_cell_idxs_lz(grid, ActZonotope, covers)) && (act_bad[c] = true)
+            any(cc -> s.computed[ids[cc]] && s.dead[ids[cc]], get_touching_cell_idxs_lz(grid, ActZonotope, covers)) && (succ.act_enabled[ai][ids[c]] = false)
             LazySets.API.translate!(ActZonotope, -of)
         end
-    end
+    end=#
 
-    allowed, lost = cell_choices(shape, n_acts, s, store_enabled(succ), store_acted(succ))
+    allowed, lost = cell_choices(shape, n_acts, s, store_enabled(succ), store_acted(succ), store_noop(succ))
     grid.deadCells .= allowed .== 0
     verbose && report(timer, isempty(frontier) ? "Fixed point after $shield_count rounds, $cells_computed cells computed" :
-                                 "Stopped at max_steps = $max_steps before a fixed point, $cells_computed cells computed")
-    return grid, allowed, lost, (; act_bad, shield_count_cover)
+                             "Stopped at max_steps = $max_steps before a fixed point, $cells_computed cells computed")
+    return grid, allowed, lost, (; shield_count_cover)
 end
 
 # The shield over every cell of the grid: ReACTed_reachable_cell_online_pred_fast with online = false. clustering is not used.

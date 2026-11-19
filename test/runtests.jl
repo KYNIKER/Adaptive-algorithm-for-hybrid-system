@@ -1,7 +1,7 @@
 # Regression tests for the shields. Run from the repository root with
 #     julia --project=. test/runtests.jl
-# The reference values were recorded before the code was moved into src/, so a change in them means a shield now
-# computes something different. If that is intended, update the values and say why in the commit.
+# The reference values pin what each shield computes, so a change in them means a shield now computes something
+# different. If that is intended, update the values and say why in the commit.
 using Test, SHA, LazySets
 include(joinpath(@__DIR__, "..", "src", "ReACTShields.jl"))
 using .ReACTShields
@@ -14,15 +14,20 @@ digest(a) = bytes2hex(sha1(reinterpret(UInt8, vec(a))))[1:12]
         sys, p = loadBouncingBallShieldedWithInput()
         g, δ⁻ = 0.02, 0.001
         for (name, run, dead, sha) in [
-            ("plain", () -> ReACTed_reachable_cell_t(sys, p, g, δ⁻, 2^5 * δ⁻; verbose=false), 729664, "a8179306809b"),
-            ("pred_fast", () -> ReACTed_reachable_cell_online_pred_fast(sys, p, g, δ⁻, 2^5 * δ⁻; jump_hull=false, verbose=false), 228558, "80981bfe8b92"),
-            ("adaptive_fast", () -> ReACTed_reachable_cell_adaptive_fast(sys, p, 2g, 1, δ⁻, 2^5 * δ⁻, patience=0, verbose=false), 750566, "afc260df624d"),
+            ("plain", () -> ReACTed_reachable_cell_t(sys, p, g, δ⁻, 2^5 * δ⁻; verbose=false), 732669, "22051f1a40c6"),
+            ("pred_fast", () -> ReACTed_reachable_cell_online_pred_fast(sys, p, g, δ⁻, 2^5 * δ⁻; jump_hull=false, verbose=false), 231284, "18d122ec083e"),
+            ("adaptive_fast", () -> ReACTed_reachable_cell_adaptive_fast(sys, p, 2g, 1, δ⁻, 2^5 * δ⁻, patience=0, verbose=false), 753524, "23dcc443bf2b"),
         ]
             @testset "$name" begin
                 _, allowed, _, _ = run()
                 @test size(allowed) == (1500, 750)
                 @test count(==(0), allowed) == dead
                 @test digest(allowed) == sha
+                # Outside its guard an action does nothing, so it is allowed exactly where waiting is.
+                for (ai, act) in enumerate(sys.Act)
+                    outside = .!ReACTShields.guard_masks(Grid(sys.statespace, g), act.guard)[1]
+                    @test all(i -> isodd(allowed[i]) == isodd(allowed[i] >> ai), findall(outside))
+                end
             end
         end
     end

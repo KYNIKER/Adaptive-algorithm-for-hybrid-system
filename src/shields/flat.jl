@@ -3,6 +3,7 @@
 #   - CellReach: the reach set of each cell (or block of cells) from one zonotope translated to it
 #   - reach_covers: the covers of what fast cells and actions reach, each a translate of one zonotope
 #   - guard_masks, touching_masks: the cells touching or inside a polyhedron, from dot products against its halfspaces
+#   - add_waiting!: the successors of an action that only some states of a cell take
 #   - SuccessorStore: the successor lists of all ids in one Int32 pool
 #   - FlatShieldState: the event-driven shield over ids, the one set of shield rules every shield uses
 #   - choice_bits and its helpers: the common results of all shields, what each cell allows and what it lost, as bits
@@ -233,13 +234,14 @@ function guard_masks(grid::Grid{N}, P) where N
     return touching, inside
 end
 
-# The touching masks of guard_masks on every level. A finer level only tests the children of touching cells that are
-# not inside P.
-touching_masks(grids::Vector{<:Grid}, ::Nothing, factor) = [guard_masks(grid, nothing)[1] for grid in grids]
-function touching_masks(grids::Vector{Grid{N}}, P, factor::NTuple{N,Int}) where N
+# guard_masks on every level, as the tuple (touching per level, inside per level). A finer level only tests the
+# children of touching cells that are not inside P.
+guard_masks(grids::Vector{Grid{N}}, ::Nothing, factor::NTuple{N,Int}) where N = ([trues(cellshape(grid)) for grid in grids], [trues(cellshape(grid)) for grid in grids])
+function guard_masks(grids::Vector{Grid{N}}, P, factor::NTuple{N,Int}) where N
     H = CellHalfSpaces(P, Val(N))
     touching, inside = guard_masks(grids[1], P)
     masks = [touching]
+    insides = [inside]
     for grid in grids[2:end]
         touching′ = falses(cellshape(grid))
         inside′ = falses(cellshape(grid))
@@ -254,10 +256,14 @@ function touching_masks(grids::Vector{Grid{N}}, P, factor::NTuple{N,Int}) where 
             end
         end
         push!(masks, touching′)
+        push!(insides, inside′)
         touching, inside = touching′, inside′
     end
-    return masks
+    return masks, insides
 end
+
+# The touching masks of guard_masks on every level.
+touching_masks(grids::Vector{<:Grid}, P, factor) = guard_masks(grids, P, factor)[1]
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Successor lists
@@ -301,6 +307,19 @@ function set_successors!(store::SuccessorStore, ai::Int, id::Integer, succ::Abst
     start[id] = length(store.pool) + 1
     len[id] = length(succ)
     append!(store.pool, succ)
+end
+
+# For an action that only some states of id take (it is partly outside the guard): the others wait, so its successors
+# also include the waiting successors of id. Appends them to buf, or empties buf if waiting is bad, which makes the action
+# bad too.
+function add_waiting!(buf::Vector{Int32}, store::SuccessorStore, id::Integer)
+    if store.flow_none[id] || store.flow_len[id] == 0
+        empty!(buf)
+    else
+        append!(buf, view(store.pool, successor_range(store, 0, id)))
+        unique!(buf)
+    end
+    return buf
 end
 
 # Rewrites the pool without garbage once garbage is most of it.
@@ -475,8 +494,10 @@ end
 # the action at position ai; nothing allowed means dead. s is any shield state with the fields dead, flow_bad, computed
 # and act_ok. A k never computed allows waiting and every action it is enabled for (it touches the guard). An action is
 # lost in an alive k that is enabled for it and acted (has successors for it), but where it is unsafe.
-# enabled(ai, k) and acted(ai, k) say whether k is enabled for and has successors for action ai.
-function choice_bits(::Type{T}, s, k, enabled::E, acted::A) where {T,E,A}
+# enabled(ai, k) and acted(ai, k) say whether k is enabled for and has successors for action ai. noop(ai, k), if given,
+# says that action ai does nothing in k (k is outside its guard): trying it is the same as waiting, so it is allowed
+# exactly when waiting is.
+function choice_bits(::Type{T}, s, k, enabled::E, acted::A, noop::O=nothing) where {T,E,A,O}
     s.dead[k] && return zero(T), zero(T)
     allowed = one(T)
     lost = zero(T)
@@ -494,39 +515,46 @@ function choice_bits(::Type{T}, s, k, enabled::E, acted::A) where {T,E,A}
             end
         end
     end
+    if noop !== nothing && isodd(allowed)
+        for ai in eachindex(s.act_ok)
+            noop(ai, k) && (allowed |= T(1) << ai)
+        end
+    end
     return allowed, lost
 end
 
 # enabled and acted for choice_bits from a SuccessorStore.
 store_enabled(store::SuccessorStore) = (ai, k) -> store.act_enabled[ai][k]
 store_acted(store::SuccessorStore) = (ai, k) -> store.act_len[ai][k] > 0
+# noop for choice_bits from a SuccessorStore: an id outside an action's guard is not enabled for it, and the action does nothing there.
+store_noop(store::SuccessorStore) = (ai, k) -> !store.act_enabled[ai][k]
 
 # allowed and lost of a shield whose state is indexed like a cell array of the given shape (by cell or linear index).
-function cell_choices(shape, n_acts::Int, s, enabled, acted)
+function cell_choices(shape, n_acts::Int, s, enabled, acted, noop=nothing)
     T = choice_type(n_acts)
-    return cell_choices!(zeros(T, shape), zeros(T, shape), s, enabled, acted)
+    return cell_choices!(zeros(T, shape), zeros(T, shape), s, enabled, acted, noop)
 end
 
 # Function barrier on T
-function cell_choices!(allowed::Array{T}, lost::Array{T}, s, enabled::E, acted::A) where {T,E,A}
+function cell_choices!(allowed::Array{T}, lost::Array{T}, s, enabled::E, acted::A, noop::O=nothing) where {T,E,A,O}
     for k in eachindex(allowed)
-        allowed[k], lost[k] = choice_bits(T, s, k, enabled, acted)
+        allowed[k], lost[k] = choice_bits(T, s, k, enabled, acted, noop)
     end
     return allowed, lost
 end
 
 # allowed and lost of an adaptive shield on its finest grid: every active leaf (with the fields level, cell and active)
 # writes its bits to the finest cells it covers.
-function leaf_choices(shape, n_acts::Int, leaves, L::Int, factor, s, enabled, acted)
+function leaf_choices(shape, n_acts::Int, leaves, L::Int, factor, s, enabled, acted, noop=nothing)
     T = choice_type(n_acts)
-    return leaf_choices!(zeros(T, shape), zeros(T, shape), leaves, L, factor, s, enabled, acted)
+    return leaf_choices!(zeros(T, shape), zeros(T, shape), leaves, L, factor, s, enabled, acted, noop)
 end
 
 # Function barrier on T
-function leaf_choices!(allowed::Array{T,N}, lost::Array{T,N}, leaves, L::Int, factor::NTuple{N,Int}, s, enabled::E, acted::A) where {T,N,E,A}
+function leaf_choices!(allowed::Array{T,N}, lost::Array{T,N}, leaves, L::Int, factor::NTuple{N,Int}, s, enabled::E, acted::A, noop::O=nothing) where {T,N,E,A,O}
     for id in Int32(1):Int32(length(leaves.level))
         leaves.active[id] || continue
-        bits, lost_bits = choice_bits(T, s, id, enabled, acted)
+        bits, lost_bits = choice_bits(T, s, id, enabled, acted, noop)
         e = L - leaves.level[id]
         for cc in child_cells(leaves.cell[id], ntuple(i -> factor[i]^e, N))
             allowed[cc] = bits

@@ -23,6 +23,8 @@ reachability/            the reachability benchmarks: ReACTed.jl, testsuite.jl, 
 
 Every shield returns `grid, allowed, lost, info`. `allowed` holds a bit per choice for each cell: bit 0 is waiting a
 period, bit `i` the `i`-th action. A cell where nothing is allowed is dead. See `choice_bits` in src/shields/flat.jl.
+In every shield, trying an action outside its guard does nothing, so there it is allowed exactly when waiting is. In a
+cell partly inside the guard, the states outside it wait, so the action's successors include the waiting ones.
 Each prints the time per phase and a short summary at the end; pass `verbose=false` to keep it quiet.
 
 ## Usage

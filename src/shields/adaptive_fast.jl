@@ -28,18 +28,19 @@ struct AdaptiveFastLevel{N,CR,F}
     fast::LazyFastCells{N,F}
     fast_covers::Vector{ConstantZonotopeCover{N}} # per target level
     act_covers::Vector{Vector{ConstantZonotopeCover{N}}} # per action, per target level
-    may_act::Vector{BitArray{N}} # per action
+    may_act::Vector{BitArray{N}} # per action: the cell touches its guard
+    must_act::Vector{BitArray{N}} # per action: the cell is inside its guard
     constraint::BitArray{N}
 end
 
-function AdaptiveFastLevel(system::EuclideanHybridSystem, reach, grid::Grid{N}, grid0::Grid{N}, L::Int, sweep_factor::Int, may_act, constraint) where N
+function AdaptiveFastLevel(system::EuclideanHybridSystem, reach, grid::Grid{N}, grid0::Grid{N}, L::Int, sweep_factor::Int, may_act, must_act, constraint) where N
     sweep = [min(sweep_factor, n) for n in grid.numCells]
     nblocks = ntuple(i -> fld(grid.numCells[i], sweep[i]), N)
     block_reach = CellReach(reach, grid, sweep)
     fast = LazyFastCells(cellshape(grid), Tuple(sweep), nblocks, falses(nblocks), falses(nblocks), b -> is_fast_block(system, reach, block_reach, b))
     cell_reach = CellReach(reach, grid)
     fast_covers, act_covers = reach_covers(system, reach, cell_reach.Z, [grid0.granularity / 2^m / 2 for m in 0:L], Val(N))
-    return AdaptiveFastLevel(grid, cell_reach, fast, fast_covers, act_covers, may_act, constraint)
+    return AdaptiveFastLevel(grid, cell_reach, fast, fast_covers, act_covers, may_act, must_act, constraint)
 end
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -88,14 +89,14 @@ function AdaptiveFastContext(grid0::Grid{N}, system, p, L, δ⁻, δ⁺, alg, ma
     factor = ntuple(i -> zero_width[i] ? 1 : 2, N)
     reach = reach_setup(system, p, δ⁻, δ⁺, alg, maxOrder, reduceOrder, Val(N); jump_hull)
     grids = [level_grid(grid0, l, factor) for l in 0:L]
-    may_act = [touching_masks(grids, act.guard, factor) for act in system.Act] # per action, per level
+    act_masks = [guard_masks(grids, act.guard, factor) for act in system.Act] # per action: (touching, inside) per level
     constraint = [falses(cellshape(grid)) for grid in grids]
     for gc in system.globalConstraints
         for (l, m) in enumerate(touching_masks(grids, gc, factor))
             constraint[l] .|= m
         end
     end
-    levels = [AdaptiveFastLevel(system, reach, grids[l+1], grid0, L, sweep_factor, [m[l+1] for m in may_act], constraint[l+1]) for l in 0:L]
+    levels = [AdaptiveFastLevel(system, reach, grids[l+1], grid0, L, sweep_factor, [m[1][l+1] for m in act_masks], [m[2][l+1] for m in act_masks], constraint[l+1]) for l in 0:L]
     leaves = FlatLeaves{N}([NTuple{N,Int}(Tuple(cellshape(grid))) for grid in grids], length(system.Act))
     return AdaptiveFastContext(system, reach, levels, factor, leaves, L, Int32[], CoverCache{N}())
 end
@@ -154,6 +155,7 @@ function compute_leaf!(ctx::AdaptiveFastContext, id::Int32)
         if succ.act_enabled[ai][id]
             act_center!(reach.center, reach, lev.cell_reach, act, c)
             cover_leaves!(buffer, ctx, lev.act_covers[ai], reach.center)
+            lev.must_act[ai][c] || add_waiting!(buffer, succ, id)
         end
         set_successors!(succ, ai, id, buffer)
     end
@@ -410,7 +412,7 @@ end
 
 # What each finest cell allows and lost (see choice_bits).
 adaptive_allowed(ctx::AdaptiveFastContext, s::FlatShieldState) = leaf_choices(cellshape(ctx.levels[end].grid), length(ctx.system.Act),
-    ctx.leaves, ctx.L, ctx.factor, s, store_enabled(ctx.leaves.succ), store_acted(ctx.leaves.succ))
+    ctx.leaves, ctx.L, ctx.factor, s, store_enabled(ctx.leaves.succ), store_acted(ctx.leaves.succ), store_noop(ctx.leaves.succ))
 
 # Computes the online shield at max_granularity (level 0, as ReACTed_reachable_cell_online_pred_fast, including
 # include_border_cells), then refines in rounds up to granularity_steps halvings: every round splits the refine_fraction

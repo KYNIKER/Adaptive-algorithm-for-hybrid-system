@@ -53,6 +53,7 @@ end
 # Everything location-specific. Polyhedra are kept as the (directions, bounds) of getHalfSpaceProjections.
 struct ModalLocationData{D}
     dynamics::Dynamics # shared between locations with the same (A, U)
+    cell_disc::CellDiscretization{D} # discretization of a whole cell over a period, shared like dynamics
     layer::Int
     starts::Bool
     region::Union{Tuple{Vector{Vector{Float64}},Vector{Float64}},Nothing}
@@ -196,7 +197,11 @@ function modal_reach!(out::Vector{ModalEndSet}, ctx::ModalContext, li::Int, X, D
     loc = ctx.locations[li]
     dyn = loc.dynamics
     δ⁺ = min(ctx.δ⁺, ctx.δ⁻ * 2^floor(Int, log2(total))) # no step longer than the time left
-    disc = newReACTDiscretizePlus(X, ctx.δ⁻, δ⁺, dyn.A, dyn.P2A_abs, dyn.phiDict, dyn.inputDict, ctx.alg, ctx.maxOrder, ctx.reduceOrder)
+    # A whole cell flowing a whole period (flow, or an action that keeps the cell's shape) uses the precomputed
+    # discretization. Only at depth 0: the shared one is overwritten per call, and this call still reads it after the
+    # nested calls return.
+    disc = depth == 0 && total == ctx.steps && genmat(X) == ctx.cell_generators ? discretize_cell!(loc.cell_disc, LazySets.center(X)) :
+           newReACTDiscretizePlus(X, ctx.δ⁻, δ⁺, dyn.A, dyn.P2A_abs, dyn.phiDict, dyn.inputDict, ctx.alg, ctx.maxOrder, ctx.reduceOrder)
     k0 = first_touch(dyn, disc, Iterators.flatten((loc.guards, ctx.unsafe)), total, ctx.δ⁻, δ⁺, ctx.identity_matrix)
 
     # Pieces from the first touch on, and the pieces that end the period when the time left varies.
@@ -262,13 +267,18 @@ function _ModalContext(grid::Grid{D}, ::Val{N}, system, p::Float64, δ⁻, δ⁺
     action_ids = sort!(unique(a.action.id for loc in system.locations for a in loc.actions))
     identity_matrix = Matrix{Float64}(I, D, D)
 
-    shared = Dict{Tuple{Matrix{Float64},Vector{Float64},Matrix{Float64}},Dynamics}()
+    shared = Dict{Tuple{Matrix{Float64},Vector{Float64},Matrix{Float64}},Tuple{Dynamics,CellDiscretization{D}}}()
+    cell_δ⁺ = min(δ⁺, δ⁻ * 2^floor(Int, log2(steps))) # what modal_reach! uses for a whole period
     sweep = sweep_factor isa Integer ? [min(sweep_factor, n) for n in grid.numCells] : [min(s, n) for (s, n) in zip(sweep_factor, grid.numCells)]
     G_big = Matrix{Float64}(genmat(remove_zero_generators(Zonotope(zeros(D), diagm(map((n, s) -> n == 1 ? 0.0 : g * (s / 2), grid.numCells, sweep))))))
 
     locations = ModalLocationData{D}[]
     for loc in system.locations
-        dyn = get!(() -> Dynamics(loc.A, loc.U, steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder), shared, (loc.A, LazySets.center(loc.U), genmat(loc.U)))
+        dyn, cell_disc = get!(shared, (loc.A, LazySets.center(loc.U), genmat(loc.U))) do
+            dyn = Dynamics(loc.A, loc.U, steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder)
+            reach = (; δ⁻, δ⁺=cell_δ⁺, dyn.A, dyn.P2A_abs, dyn.phiDict, dyn.inputDict, U=loc.U)
+            dyn, CellDiscretization(Zonotope(zeros(D), cell_generators), reach, Val(D))
+        end
         guards = [getHalfSpaceProjections(e.guard) for e in loc.edges]
         targets = vcat(guards, unsafe, exits)
         region = loc.region === nothing ? nothing : getHalfSpaceProjections(loc.region)
@@ -305,7 +315,7 @@ function _ModalContext(grid::Grid{D}, ::Val{N}, system, p::Float64, δ⁻, δ⁺
         incoming_edges = [(src, e) for (src, l) in enumerate(system.locations) for e in l.edges if e.targetLoc == li]
         incoming_actions = [(src, a.action) for (src, l) in enumerate(system.locations) for a in l.actions if a.target == li]
         bordered = [bordered_by(guards, a, b; atol=MODAL_TOL) for (a, b) in zip(statespace...)]
-        push!(locations, ModalLocationData{D}(dyn, loc.layer, loc.starts, region, guards, fast, fast_cover, clock_rate, flow_lo, flow_hi, incoming_edges, incoming_actions, bordered))
+        push!(locations, ModalLocationData{D}(dyn, cell_disc, loc.layer, loc.starts, region, guards, fast, fast_cover, clock_rate, flow_lo, flow_hi, incoming_edges, incoming_actions, bordered))
     end
 
     # A location that does not offer an action has neither mask set for it, so the action does nothing there.
@@ -623,6 +633,13 @@ function _ReACTed_reachable_cell_modal(ctx::ModalContext{D,N}, online::Bool, inc
             queue_predecessors!(next_frontier, queued, ctx, li, lo, lo .+ g, memo)
         end
     end
+    # Queues the predecessors of the cells with ids ks. Once every cell is queued no search can add one, so it stops.
+    function queue_predecessors_of_ids!(ks)
+        for k in ks
+            count(queued) == n && return
+            queue_predecessors_of!(CartesianIndex(ntuple(i -> cells[k][i], D)), cells[k][N])
+        end
+    end
 
     for H in ctx.system.unsafe, c in get_touching_cell_idxs_l(grid, H), layer in 1:ctx.n_layers
         k = CartesianIndex(c, layer)
@@ -631,7 +648,7 @@ function _ReACTed_reachable_cell_modal(ctx::ModalContext{D,N}, online::Bool, inc
         queued[k] = true
     end
     if online
-        foreach(k -> queue_predecessors_of!(CartesianIndex(ntuple(i -> cells[k][i], D)), cells[k][N]), findall(s.dead))
+        queue_predecessors_of_ids!(findall(s.dead))
         if include_border_cells
             for c in border_cells(grid), layer in 1:ctx.n_layers
                 queued[CartesianIndex(c, layer)] || (queued[CartesianIndex(c, layer)] = true; push!(next_frontier, CartesianIndex(c, layer)))
@@ -669,9 +686,7 @@ function _ReACTed_reachable_cell_modal(ctx::ModalContext{D,N}, online::Bool, inc
         end
         lap!(timer, "Reachability")
         propagate_bad!(s)
-        if online
-            foreach(k -> queue_predecessors_of!(CartesianIndex(ntuple(i -> cells[k][i], D)), cells[k][N]), unique!(s.changed))
-        end
+        online && queue_predecessors_of_ids!(unique!(s.changed))
         empty!(s.changed)
         lap!(timer, "Shield")
     end

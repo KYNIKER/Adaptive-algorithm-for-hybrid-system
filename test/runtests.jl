@@ -44,6 +44,17 @@ digest(a) = bytes2hex(sha1(reinterpret(UInt8, vec(a))))[1:12]
         end
     end
 
+    @testset "modal: cruise control (_t), sensor range 50, granularity 1, δ 0.25 to 1" begin
+        sys, p = loadCruiseControlModal_t(; sensor_range=50.0)
+        run(online) = ReACTed_reachable_cell_modal(sys, p, 1.0, 0.25, 1.0; online, act_needs_safe_flow=false, verbose=false)[2]
+        allowed = run(false)
+        @test size(allowed) == (50, 30, 28, 1)
+        @test count(==(0), allowed) == 20362
+        @test digest(allowed) == "fb1279fa54ed"
+        # Online the shield only skips cells that cannot become unsafe, so it gives the same result.
+        @test run(true) == allowed
+    end
+
     @testset "modal: an action outside its guard does nothing" begin
         # x' = 1, y' = 0 on [0, 10] × [0, 1]. x >= 9 is unsafe. Action 1 resets x to 0 and has the guard x >= 5.
         statespace = Hyperrectangle([5.0, 0.5], [5.0, 0.5])

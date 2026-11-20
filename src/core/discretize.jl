@@ -201,44 +201,79 @@ function ReACT_discretize_combine_with_offsets(X0c::Zonotope{N,Vector{N},Matrix{
     return discritezationDict, size(c_bloat, 2)
 end
 
-function ReACT_discretize_combine_with_offset_vector!(preallocated_center::Vector{N}, preallocated_genmat::Matrix{N}, preallocated_inter_genmat::Matrix{N}, discritezationDict, X0c::Vector{N}, δ⁻::Float64, δ⁺::Float64, A, P2A_abs, phiDict, U, inputDiscritezationDict, generatorDiscretizationDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}
-    d = copy(δ⁻)
+# The discretization of a cell zonotope Z at every level δ⁻, 2δ⁻, ..., δ⁺, for any centre Xc: the same sets as
+# newReACTDiscretizePlus on Z translated to Xc, without its order reduction. The generators that do not depend on the
+# centre are computed once (ReACT_discretize_decomposed_generators). The centre and every other generator are a fixed
+# linear map of w = [Xc; 1; s], with s = P2A_abs |A² Xc| the bloat of the centre: each level of the hull recursion maps
+# them linearly. Generators that are zero for every centre are dropped. The zonotopes in dict are overwritten per cell.
+struct CellDiscretization{N}
+    dict::Dict{Float64,Zonotope{Float64,Vector{Float64},Matrix{Float64}}}
+    sets::Vector{Zonotope{Float64,Vector{Float64},Matrix{Float64}}} # per level, the same zonotopes as dict
+    Kc::Vector{Matrix{Float64}} # per level, n × (2n + 1): centre = Kc * w
+    KG::Vector{Matrix{Float64}} # per level, (n m) × (2n + 1): the m centre-dependent generators, column after column
+    AA::Matrix{Float64} # A²
+    P2A_abs::Matrix{Float64}
+    w::Vector{Float64}
+    a::Vector{Float64} # |A² Xc|
+end
 
-    Xc = X0c
-    Uc = inputDiscritezationDict[-2].center # dU + Psi
-
-    eAXc = (phiDict[d] * X0c)
-    copy!(view(preallocated_center, :, :), view((X0c + eAXc + Uc) .* 0.5, :, :))
-    dim = length(X0c)
-    ng = dim + 1
-
-    copy!(view(preallocated_genmat, :, 1:(ng-1)), view(diagm(sum(P2A_abs * diagm(abs.(A * A * Xc)), dims=2)[:, 1]) + generatorDiscretizationDict[0], :, :))
-
-    copy!(view(preallocated_genmat, :, ng), (Xc - (eAXc .+ Uc)) .* 0.5)
-
-    while d < δ⁺
-        copy!(discritezationDict[d].center, preallocated_center)
-
-        copy!(view(discritezationDict[d].generators, :, 1:(ng)), view(preallocated_genmat, :, 1:ng))
-
-        copyto!(view(discritezationDict[d].generators, :, (ng+1):(size(discritezationDict[d].generators, 2))), generatorDiscretizationDict[d])#view(generatorDiscretizationDict[d], :, 1:(size(generatorDiscretizationDict[d], 2))))
-
-        copyto!(view(preallocated_inter_genmat, :, 1:ng), (view(preallocated_genmat, :, 1:ng) + phiDict[d] * view(preallocated_genmat, :, 1:ng)) .* 0.5)
-
-        copyto!(view(preallocated_genmat, :, (ng+1):(2*ng+1)), (view(preallocated_genmat, :, 1:ng) - phiDict[d] * view(preallocated_genmat, :, 1:ng)) .* 0.5)
-
-        copyto!(view(preallocated_genmat, :, 1:ng), view(preallocated_inter_genmat, :, 1:ng))
-
-        ng = 2 * ng + 1
-        copy!(view(preallocated_genmat, :, ng), (preallocated_center .- ((phiDict[d] * preallocated_center) + inputDiscritezationDict[d].center)) .* 0.5)
-        copy!(preallocated_center, (preallocated_center .+ (phiDict[d] * preallocated_center) .+ inputDiscritezationDict[d].center) .* 0.5)
-
-        d = d * 2
+function CellDiscretization(Z::Zonotope, reach, ::Val{N}) where N
+    (; δ⁻, δ⁺, phiDict, inputDict) = reach
+    A, P2A_abs = Matrix{Float64}(reach.A), Matrix{Float64}(reach.P2A_abs)
+    shared = ReACT_discretize_decomposed_generators(Z, δ⁻, δ⁺, A, P2A_abs, phiDict, reach.U, inputDict)
+    n, nw = N, 2N + 1
+    Id = Matrix{Float64}(I, n, n)
+    lift(M, v) = hcat(M, v, zeros(n, n)) # the map w -> M Xc + v
+    # Level δ⁻: the hull of Z and Φ Z ⊕ input. The first n generators are the bloat, diag(s + b), with b the bloat of the
+    # generators and the input (shared[0], diagonal); then (Xc - Φ Xc - Uc) / 2.
+    Φ, Uc, b = phiDict[δ⁻], inputDict[-2].center, diag(shared[0])
+    Kc = lift((Id + Φ) / 2, Uc / 2)
+    # s_j is 0 for every centre when row j of P2A_abs |A²| is 0 (for instance when A² = 0): it then gets no entry
+    s_used = [any(!iszero, row) for row in eachrow(P2A_abs * abs.(A * A))]
+    cols = Matrix{Float64}[]
+    for j in 1:n
+        K = zeros(n, nw)
+        K[j, n+1] = b[j]
+        s_used[j] && (K[j, n+1+j] = 1.0)
+        push!(cols, K)
     end
-    copy!(discritezationDict[d].center, preallocated_center)
-    copy!(view(discritezationDict[d].generators, :, 1:(ng)), view(preallocated_genmat, :, 1:ng))
-    copyto!(view(discritezationDict[d].generators, :, (ng+1):(size(discritezationDict[d].generators, 2))), generatorDiscretizationDict[d])
+    push!(cols, lift((Id - Φ) / 2, -Uc / 2))
+    dict = Dict{Float64,Zonotope{Float64,Vector{Float64},Matrix{Float64}}}()
+    sets, Kcs, KGs = Zonotope{Float64,Vector{Float64},Matrix{Float64}}[], Matrix{Float64}[], Matrix{Float64}[]
+    d = δ⁻
+    while true
+        filter!(K -> any(!iszero, K), cols) # zero for every centre, and so are the generators made from it
+        S = shared[d]
+        S = S[:, [j for j in axes(S, 2) if any(!iszero, view(S, :, j))]]
+        dict[d] = Zonotope(zeros(n), hcat(zeros(n, length(cols)), S))
+        push!(sets, dict[d]); push!(Kcs, copy(Kc)); push!(KGs, isempty(cols) ? zeros(0, nw) : reduce(vcat, cols))
+        d < δ⁺ || break
+        # Next level: the hull of the set and Φ times it ⊕ the input, as in ReACT_discretize_combine_with_offsets
+        Φ, u = phiDict[d], inputDict[d].center
+        P, M = (Id + Φ) / 2, (Id - Φ) / 2
+        cols = vcat([P * K for K in cols], [M * K for K in cols], [M * Kc - lift(zeros(n, n), u / 2)])
+        Kc = P * Kc + lift(zeros(n, n), u / 2)
+        d *= 2
+    end
+    return CellDiscretization{N}(dict, sets, Kcs, KGs, A * A, P2A_abs, zeros(nw), zeros(n))
+end
 
+# Writes the discretization of the cell with centre Xc into cd.dict, without allocating.
+function discretize_cell!(cd::CellDiscretization{N}, Xc::AbstractVector{Float64}) where N
+    (; w, a) = cd
+    mul!(a, cd.AA, Xc)
+    a .= abs.(a)
+    @inbounds for i in 1:N
+        w[i] = Xc[i]
+    end
+    w[N+1] = 1.0
+    mul!(view(w, N+2:2N+1), cd.P2A_abs, a)
+    @inbounds for (ℓ, Z) in enumerate(cd.sets)
+        mul!(Z.center, cd.Kc[ℓ], w)
+        KG = cd.KG[ℓ]
+        mul!(view(vec(Z.generators), 1:size(KG, 1)), KG, w)
+    end
+    return cd.dict
 end
 
 function ReACT_discretize_state!(preallocated_center::Vector{N}, preallocated_genmat::Matrix{N}, preallocated_inter_genmat::Matrix{N}, discritezationStateDict, X0c::Vector{N}, δ⁻::Float64, δ⁺::Float64, A, P2A_abs, phiDict, U, inputDiscritezationDict, generatorDiscretizationDict, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5) where {N}

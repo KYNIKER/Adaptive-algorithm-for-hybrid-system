@@ -71,28 +71,21 @@ end
 # ---------------------------------------------------------------------------------------------------------------------
 # Reach sets of cells
 
-# One zonotope Z the size of a cell, or of a block of scale cells per dimension, with its discretization. Each
-# computation translates it to one cell and back. Zero-width dimensions get no generator.
-struct CellReach{N,GD,DD}
+# One zonotope Z the size of a cell, or of a block of scale cells per dimension, with its discretization
+# (CellDiscretization, in core/discretize.jl). Each computation translates it to one cell and back. Zero-width dimensions
+# get no generator.
+struct CellReach{N}
     Z::Zonotope{Float64,Vector{Float64},Matrix{Float64}}
-    generatorDict::GD
-    discretizationDict::DD
-    pc::Vector{Float64} # buffers of ReACT_discretize_combine_with_offset_vector!
-    pg::Matrix{Float64}
-    pig::Matrix{Float64}
+    disc::CellDiscretization{N}
     lower_offset::Vector{Float64} # centre of the first cell
     g::Float64
     scale::Vector{Int}
 end
 
 function CellReach(reach, grid::Grid{N}, scale::Vector{Int}=ones(Int, N)) where N
-    (; δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict) = reach
     g = grid.granularity
     Z = remove_zero_generators(Zonotope(zeros(N), diagm(map((n, s) -> n == 1 ? 0.0 : g * (s / 2), grid.numCells, scale))))
-    generatorDict = ReACT_discretize_decomposed_generators(Z, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict)
-    discretizationDict, finaldims = ReACT_discretize_combine_with_offsets(Z, δ⁻, δ⁺, A, P2A_abs, phiDict, U, inputDict, generatorDict)
-    return CellReach{N,typeof(generatorDict),typeof(discretizationDict)}(Z, generatorDict, discretizationDict, zeros(N),
-        zeros(N, finaldims), zeros(N, finaldims), grid.lower .+ g .* (scale ./ 2), g, scale)
+    return CellReach{N}(Z, CellDiscretization(Z, reach, Val(N)), grid.lower .+ g .* (scale ./ 2), g, scale)
 end
 
 cell_offset(cr::CellReach, c::CartesianIndex) = cr.lower_offset + ((car2vec(c) .- 1) .* cr.g .* cr.scale)
@@ -101,8 +94,7 @@ cell_offset(cr::CellReach, c::CartesianIndex) = cr.lower_offset + ((car2vec(c) .
 function with_cell(f, cr::CellReach, reach, c::CartesianIndex)
     of = cell_offset(cr, c)
     LazySets.API.translate!(cr.Z, of)
-    ReACT_discretize_combine_with_offset_vector!(cr.pc, cr.pg, cr.pig, cr.discretizationDict, of, reach.δ⁻, reach.δ⁺, reach.A, reach.P2A_abs, reach.phiDict, reach.U, reach.inputDict, cr.generatorDict)
-    res = f(cr.Z, cr.discretizationDict)
+    res = f(cr.Z, discretize_cell!(cr.disc, of))
     LazySets.API.translate!(cr.Z, -of)
     return res
 end

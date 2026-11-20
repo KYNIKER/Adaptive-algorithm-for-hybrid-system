@@ -205,7 +205,8 @@ end
 # newReACTDiscretizePlus on Z translated to Xc, without its order reduction. The generators that do not depend on the
 # centre are computed once (ReACT_discretize_decomposed_generators). The centre and every other generator are a fixed
 # linear map of w = [Xc; 1; s], with s = P2A_abs |A² Xc| the bloat of the centre: each level of the hull recursion maps
-# them linearly. Generators that are zero for every centre are dropped. The zonotopes in dict are overwritten per cell.
+# them linearly. Generators that are zero for every centre are dropped and those parallel for every centre merged. The
+# zonotopes in dict are overwritten per cell.
 struct CellDiscretization{N}
     dict::Dict{Float64,Zonotope{Float64,Vector{Float64},Matrix{Float64}}}
     sets::Vector{Zonotope{Float64,Vector{Float64},Matrix{Float64}}} # per level, the same zonotopes as dict
@@ -215,6 +216,26 @@ struct CellDiscretization{N}
     P2A_abs::Matrix{Float64}
     w::Vector{Float64}
     a::Vector{Float64} # |A² Xc|
+end
+
+# Merges parallel generators, given as vectors or as the maps that give them: g and α g span the same segment as
+# (1 + |α|) g, so the zonotope is the same. Parallel means equal up to rounding: what is left of one after taking out its
+# part along the other is at most PARALLEL_TOL of its length. Zero generators are dropped.
+const PARALLEL_TOL = 1e-12
+function merge_parallel(vs::AbstractVector{<:AbstractArray{Float64}})
+    reps, units, scales = eltype(vs)[], Vector{Float64}[], Float64[]
+    for v in vs
+        x = vec(v)
+        nx = norm(x)
+        nx == 0 && continue
+        i = findfirst(u -> norm(x - dot(u, x) * u) <= PARALLEL_TOL * nx, units)
+        if i === nothing
+            push!(reps, v); push!(units, x / nx); push!(scales, 1.0)
+        else
+            scales[i] += nx / norm(reps[i]) # |α|
+        end
+    end
+    return [s * r for (r, s) in zip(reps, scales)]
 end
 
 function CellDiscretization(Z::Zonotope, reach, ::Val{N}) where N
@@ -242,9 +263,11 @@ function CellDiscretization(Z::Zonotope, reach, ::Val{N}) where N
     sets, Kcs, KGs = Zonotope{Float64,Vector{Float64},Matrix{Float64}}[], Matrix{Float64}[], Matrix{Float64}[]
     d = δ⁻
     while true
-        filter!(K -> any(!iszero, K), cols) # zero for every centre, and so are the generators made from it
-        S = shared[d]
-        S = S[:, [j for j in axes(S, 2) if any(!iszero, view(S, :, j))]]
+        # A zero map gives a zero generator for every centre, and parallel maps parallel generators: both stay so in the
+        # generators made from them, so merging here also saves the work of the levels above.
+        cols = merge_parallel(cols)
+        shared_cols = merge_parallel(collect(eachcol(shared[d])))
+        S = isempty(shared_cols) ? zeros(n, 0) : reduce(hcat, shared_cols)
         dict[d] = Zonotope(zeros(n), hcat(zeros(n, length(cols)), S))
         push!(sets, dict[d]); push!(Kcs, copy(Kc)); push!(KGs, isempty(cols) ? zeros(0, nw) : reduce(vcat, cols))
         d < δ⁺ || break

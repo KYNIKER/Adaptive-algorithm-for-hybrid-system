@@ -1,197 +1,13 @@
-# Building blocks shared by the shields. Each gives every cell (pred_fast, modal) or leaf (adaptive_fast) an Int32 id
-# and keeps what it knows per id in flat arrays.
-#   - CellReach: the reach set of each cell (or block of cells) from one zonotope translated to it
-#   - reach_covers: the covers of what fast cells and actions reach, each a translate of one zonotope
-#   - guard_masks, touching_masks: the cells touching or inside a polyhedron, from dot products against its halfspaces
-#   - add_waiting!: the successors of an action that only some states of a cell take
+# Building blocks shared by the shields. Each gives every cell (modal) or leaf (modal_adaptive) an Int32 id and keeps
+# what it knows per id in flat arrays.
+#   - guard_masks: the cells touching or inside a polyhedron, from dot products against its halfspaces
 #   - SuccessorStore: the successor lists of all ids in one Int32 pool
 #   - FlatShieldState: the event-driven shield over ids, the one set of shield rules every shield uses
 #   - choice_bits and its helpers: the common results of all shields, what each cell allows and what it lost, as bits
 
-# ---------------------------------------------------------------------------------------------------------------------
-# Grids and fast cells
-
-# Grid for level l, obtained by subdividing the level-0 grid (not by Grid(statespace, g/2^l), whose ceil can break the
-# nesting). Zero-width axes (factor 1) keep a single cell centred on their value.
-function level_grid(grid0::Grid{N}, l::Int, factor::NTuple{N,Int}) where N
-    g = grid0.granularity / 2^l
-    numCells = [grid0.numCells[i] * factor[i]^l for i in 1:N]
-    lower = copy(grid0.lower)
-    upper = copy(grid0.upper)
-    for i in 1:N
-        if factor[i] == 1
-            value = grid0.lower[i] + grid0.granularity / 2
-            lower[i] = value - g / 2
-            upper[i] = value + g / 2
-        end
-    end
-    return Grid(N, g, lower, upper, numCells, falses(numCells...))
-end
-
 # Cells of level l+1 covering cell c of level l.
 child_cells(c::CartesianIndex{N}, factor::NTuple{N,Int}) where N =
     CartesianIndices(ntuple(i -> ((c[i]-1)*factor[i]+1):(c[i]*factor[i]), N))
-
-# Fast-cell matrix for one level that classifies sweep blocks on first access (and caches them), so fine levels are only swept where cells are actually used. 
-#Reads give the same values as the full sweep in ReACTed_reachable_cell_t.
-mutable struct LazyFastCells{N,F} <: AbstractArray{Bool,N}
-    dims::NTuple{N,Int}
-    sweep::NTuple{N,Int}
-    nblocks::NTuple{N,Int}
-    known::BitArray{N}
-    fast::BitArray{N}
-    check::F # block index -> Bool
-end
-
-Base.size(A::LazyFastCells) = A.dims
-
-# The fast cells of grid, in blocks of sweep_factor cells per dimension (see is_fast_block).
-function LazyFastCells(system, reach, grid::Grid{N}, sweep_factor::Int) where N
-    sweep = ntuple(i -> min(sweep_factor, grid.numCells[i]), N)
-    nblocks = ntuple(i -> fld(grid.numCells[i], sweep[i]), N)
-    block_reach = CellReach(reach, grid, collect(sweep))
-    return LazyFastCells(Tuple(cellshape(grid)), sweep, nblocks, falses(nblocks), falses(nblocks), b -> is_fast_block(system, reach, block_reach, b))
-end
-
-# Check whether we know that the lazy cell is fast or not. If it is not in a full block for the sweep, then it will always be false, as that the hybrid jump check fails for those intitially.
-function Base.getindex(A::LazyFastCells{N}, I::Vararg{Int,N}) where N
-    b = CartesianIndex(ntuple(i -> fld(I[i] - 1, A.sweep[i]) + 1, N))
-    for i in 1:N
-        if b[i] > A.nblocks[i]
-            return false # cells beyond the last full block are never fast
-        end
-    end
-    if !A.known[b]
-        A.fast[b] = A.check(b)
-        A.known[b] = true
-    end
-    return A.fast[b]
-end
-
-# ---------------------------------------------------------------------------------------------------------------------
-# Reach sets of cells
-
-# One zonotope Z the size of a cell, or of a block of scale cells per dimension, with its discretization
-# (CellDiscretization, in core/discretize.jl). Each computation translates it to one cell and back. Zero-width dimensions
-# get no generator.
-struct CellReach{N}
-    Z::Zonotope{Float64,Vector{Float64},Matrix{Float64}}
-    disc::CellDiscretization{N}
-    lower_offset::Vector{Float64} # centre of the first cell
-    g::Float64
-    scale::Vector{Int}
-end
-
-function CellReach(reach, grid::Grid{N}, scale::Vector{Int}=ones(Int, N)) where N
-    g = grid.granularity
-    Z = remove_zero_generators(Zonotope(zeros(N), diagm(map((n, s) -> n == 1 ? 0.0 : g * (s / 2), grid.numCells, scale))))
-    return CellReach{N}(Z, CellDiscretization(Z, reach, Val(N)), grid.lower .+ g .* (scale ./ 2), g, scale)
-end
-
-cell_offset(cr::CellReach, c::CartesianIndex) = cr.lower_offset + ((car2vec(c) .- 1) .* cr.g .* cr.scale)
-
-# f(Z, discretization) with Z translated to cell c and discretized there. Z is translated back afterwards.
-function with_cell(f, cr::CellReach, reach, c::CartesianIndex)
-    of = cell_offset(cr, c)
-    LazySets.API.translate!(cr.Z, of)
-    res = f(cr.Z, discretize_cell!(cr.disc, of))
-    LazySets.API.translate!(cr.Z, -of)
-    return res
-end
-
-# The sets reached from cell c at the end of the period and the flag of propagate_set_jumps (1 = bad).
-cell_flow(reach, cr::CellReach, c::CartesianIndex) = with_cell((Z, disc) -> propagate_set_jumps(reach.jump_reach, Z, disc), cr, reach, c)
-
-# Whether block b of cr cannot reach a guard or leave the invariant within the period, which makes its cells fast.
-is_fast_block(system, reach, cr::CellReach{N}, b::CartesianIndex{N}) where N = with_cell(cr, reach, b) do Z, disc
-    propagate_set_check_hybrid_jump(Z, [0.0, reach.p], reach.δ⁻, reach.δ⁺, system, system.edges, reach.identity_matrix, reach.attempt_recorder, N, reach.P2A_abs, reach.guardProjVectors, reach.guardProjBounds, reach.invariantProjVectors, reach.invariantProjBounds, disc, reach.phiDict, reach.tPhiDict, reach.inputDict, reach.max_input, reach.max_flow, reach.guard_invariant_intersection, reach.alg, reach.maxOrder, reach.reduceOrder) == 0
-end
-
-# Centre of acting with act in cell c, in the order LazySets computes it: translate J * (cell centre) by j, map by
-# max_flow, add max_input.
-act_center!(out, reach, cr::CellReach, act, c::CartesianIndex) = (out .= reach.max_flow * (act.jumpMatrix * cell_offset(cr, c) + act.jumpVector) + reach.max_input.center)
-
-# Covers of what a cell of size Z reaches, bloated by each half-cell size in halves for the cover test on that grid.
-# A fast cell reaches max_flow * cell + max_input and acting reaches max_flow * (J * cell + j) + max_input, so both are
-# translates of one zonotope per cell size. Both bound their candidate cells by the radius of the unbloated set, as
-# get_touching_cell_idxs_lz does, and the action covers are the ones it builds: the nonzero generators in the same order.
-# Returns the fast covers per half-cell size and the
-# action covers per action and half-cell size.
-function reach_covers(system, reach, Z, halves::Vector{Float64}, ::Val{N}) where N
-    (; max_flow, max_input) = reach
-    G = hcat(genmat(max_input), genmat(linear_map(max_flow, Z)))
-    fast = map(halves) do h
-        Gh = hcat(G, diagm(fill(h, N)))
-        ConstantZonotopeCover(Gh, ntuple(i -> sum(abs, view(G, i, :)), N), Val(N)) # candidates bounded by the unbloated set
-    end
-    act = map(system.Act) do a
-        Ga = hcat(max_flow * (a.jumpMatrix * genmat(Z)), genmat(max_input))
-        Ga = Ga[:, [j for j in axes(Ga, 2) if any(!iszero, view(Ga, :, j))]]
-        radius = ntuple(i -> sum(abs, view(Ga, i, :)), N)
-        [ConstantZonotopeCover(hcat(Ga, Matrix(h * I, N, N)), radius, Val(N)) for h in halves]
-    end
-    return fast, act
-end
-
-# Appends the ids in ids whose cell centre lies in the cover translated to c (0 = no id). Visits the same cells, in the
-# same order, as get_touching_cell_idxs_cover.
-function cover_ids!(out::Vector{Int32}, ids::Array{Int32,N}, grid::Grid{N}, cov::ConstantZonotopeCover{N}, c::AbstractVector{Float64}) where N
-    full = ntuple(i -> cell_range(grid, i, c[i] - cov.radius[i], c[i] + cov.radius[i]), N)
-    lower_bounds, upper_bounds = map(first, full), map(last, full)
-    sweeping_dim = argmax(upper_bounds[i] - lower_bounds[i] for i in 1:N)
-    next_sweep = argmax(i == sweeping_dim ? 0 : upper_bounds[i] - lower_bounds[i] for i in 1:N)
-    emit(idx) = (id = ids[idx]; id != 0 && push!(out, id))
-    if upper_bounds[next_sweep] == lower_bounds[next_sweep]
-        foreach(emit, CartesianIndices(ntuple(i -> lower_bounds[i]:upper_bounds[i], N)))
-    elseif upper_bounds[sweeping_dim] - lower_bounds[sweeping_dim] > 1
-        step = CartesianIndex(ntuple(i -> i == sweeping_dim ? 1 : 0, N))
-        for idx in CartesianIndices(ntuple(i -> i == sweeping_dim ? (0:0) : (lower_bounds[i]:max(upper_bounds[i], lower_bounds[i])), N))
-            first = findfirst(off -> cell_center_in_cover(cov, grid, idx + step * off, c), lower_bounds[sweeping_dim]:upper_bounds[sweeping_dim])
-            first === nothing && continue
-            lo = lower_bounds[sweeping_dim] + first - 1
-            hi = upper_bounds[sweeping_dim]
-            while !cell_center_in_cover(cov, grid, idx + step * hi, c)
-                hi -= 1
-            end
-            for off in lo:hi
-                emit(idx + step * off)
-            end
-        end
-    else
-        for idx in CartesianIndices(ntuple(i -> lower_bounds[i]:upper_bounds[i], N))
-            cell_center_in_cover(cov, grid, idx, c) && emit(idx)
-        end
-    end
-    return out
-end
-
-# Stores the successors of cell c of grid as id in succ: waiting, then each action (see choice_bits). A fast cell and the
-# actions use the precomputed covers fast_cov and act_covs[ai] through cover!(buf, cov, centre); a cell that is not fast
-# gets the cells its end-of-period sets touch through touching!(buf, sets). buf is scratch space.
-function compute_successors!(succ, buf::Vector{Int32}, system, reach, cr::CellReach, grid::Grid, c::CartesianIndex, id::Integer,
-                             is_fast::Bool, fast_cov, act_covs, must_act, cover!::C, touching!::T) where {C,T}
-    empty!(buf)
-    if is_fast
-        fast_cell_center!(reach.center, reach.max_flow, reach.max_input.center, grid, c)
-        cover!(buf, fast_cov, reach.center)
-        succ.flow_none[id] = false
-    else
-        z, f = cell_flow(reach, cr, c)
-        succ.flow_none[id] = f == 1
-        f == 1 || touching!(buf, z)
-    end
-    set_successors!(succ, 0, id, buf)
-    for (ai, act) in enumerate(system.Act)
-        empty!(buf)
-        if succ.act_enabled[ai][id]
-            act_center!(reach.center, reach, cr, act, c)
-            cover!(buf, act_covs[ai], reach.center)
-            must_act[ai][c] || add_waiting!(buf, succ, id)
-        end
-        set_successors!(succ, ai, id, buf)
-    end
-    return id
-end
 
 # ---------------------------------------------------------------------------------------------------------------------
 # Cells touching a polyhedron
@@ -260,37 +76,6 @@ function guard_masks(grid::Grid{N}, P) where N
     return touching, inside
 end
 
-# guard_masks on every level, as the tuple (touching per level, inside per level). A finer level only tests the
-# children of touching cells that are not inside P.
-guard_masks(grids::Vector{Grid{N}}, ::Nothing, factor::NTuple{N,Int}) where N = ([trues(cellshape(grid)) for grid in grids], [trues(cellshape(grid)) for grid in grids])
-function guard_masks(grids::Vector{Grid{N}}, P, factor::NTuple{N,Int}) where N
-    H = CellHalfSpaces(P, Val(N))
-    touching, inside = guard_masks(grids[1], P)
-    masks = [touching]
-    insides = [inside]
-    for grid in grids[2:end]
-        touching′ = falses(cellshape(grid))
-        inside′ = falses(cellshape(grid))
-        range = touching_candidates(grid, P)
-        for c in CartesianIndices(touching)
-            touching[c] || continue
-            for cc in child_cells(c, factor)
-                cc in range || continue
-                k = inside[c] ? 2 : cell_meets(H, grid, cc)
-                touching′[cc] = k > 0
-                inside′[cc] = k == 2
-            end
-        end
-        push!(masks, touching′)
-        push!(insides, inside′)
-        touching, inside = touching′, inside′
-    end
-    return masks, insides
-end
-
-# The touching masks of guard_masks on every level.
-touching_masks(grids::Vector{<:Grid}, P, factor) = guard_masks(grids, P, factor)[1]
-
 # ---------------------------------------------------------------------------------------------------------------------
 # Successor lists
 
@@ -306,22 +91,14 @@ mutable struct SuccessorStore
     act_enabled::Vector{BitVector} # per action: the id touches its guard
     act_start::Vector{Vector{Int}}
     act_len::Vector{Vector{Int32}}
+    # Whether waiting, or an action, with no successors is safe: everything it reaches left the state space, and leaving
+    # is allowed. Otherwise no successors is bad.
+    flow_empty_ok::Bool
+    act_empty_ok::Bool
 end
 
 SuccessorStore(n::Int, act_enabled::Vector{BitVector}) = SuccessorStore(Int32[], 0, falses(n), ones(Int, n), zeros(Int32, n),
-    act_enabled, [ones(Int, n) for _ in act_enabled], [zeros(Int32, n) for _ in act_enabled])
-
-# Adds an id without successors, enabled for the actions whose mask is set at cell.
-function push_id!(store::SuccessorStore, may_act::Vector{<:AbstractArray{Bool}}, cell::CartesianIndex)
-    push!(store.flow_none, false)
-    push!(store.flow_start, 1)
-    push!(store.flow_len, 0)
-    for ai in eachindex(store.act_enabled)
-        push!(store.act_enabled[ai], may_act[ai][cell])
-        push!(store.act_start[ai], 1)
-        push!(store.act_len[ai], 0)
-    end
-end
+    act_enabled, [ones(Int, n) for _ in act_enabled], [zeros(Int32, n) for _ in act_enabled], false, false)
 
 successor_range(store::SuccessorStore, ai::Int, k::Integer) =
     ai == 0 ? (store.flow_start[k]:store.flow_start[k]+store.flow_len[k]-1) : (store.act_start[ai][k]:store.act_start[ai][k]+store.act_len[ai][k]-1)
@@ -333,19 +110,6 @@ function set_successors!(store::SuccessorStore, ai::Int, id::Integer, succ::Abst
     start[id] = length(store.pool) + 1
     len[id] = length(succ)
     append!(store.pool, succ)
-end
-
-# For an action that only some states of id take (it is partly outside the guard): the others wait, so its successors
-# also include the waiting successors of id. Appends them to buf, or empties buf if waiting is bad, which makes the action
-# bad too.
-function add_waiting!(buf::Vector{Int32}, store::SuccessorStore, id::Integer)
-    if store.flow_none[id] || store.flow_len[id] == 0
-        empty!(buf)
-    else
-        append!(buf, view(store.pool, successor_range(store, 0, id)))
-        unique!(buf)
-    end
-    return buf
 end
 
 # Rewrites the pool without garbage once garbage is most of it.
@@ -458,7 +222,7 @@ end
 # Registers a computed id, reading its successors from the store.
 function register_successors!(store::SuccessorStore, s::FlatShieldState, k::Int32)
     pool = store.pool
-    if store.flow_none[k] || store.flow_len[k] == 0
+    if store.flow_none[k] || (store.flow_len[k] == 0 && !store.flow_empty_ok)
         s.flow_bad[k] = true
     else
         for i in successor_range(store, 0, k)
@@ -470,7 +234,7 @@ function register_successors!(store::SuccessorStore, s::FlatShieldState, k::Int3
     n = Int32(0)
     for ai in eachindex(s.act_ok)
         range = successor_range(store, ai, k)
-        (store.act_enabled[ai][k] && !isempty(range)) || continue
+        (store.act_enabled[ai][k] && (!isempty(range) || store.act_empty_ok)) || continue
         any(i -> s.dead[pool[i]] || (s.act_needs_safe_flow && s.flow_bad[pool[i]]), range) && continue
         for i in range
             add_pred!(s, s.act_head[ai], pool[i], k)
@@ -520,10 +284,9 @@ end
 # the action at position ai; nothing allowed means dead. s is any shield state with the fields dead, flow_bad, computed
 # and act_ok. A k never computed allows waiting and every action it is enabled for (it touches the guard). An action is
 # lost in an alive k that is enabled for it and acted (has successors for it), but where it is unsafe.
-# enabled(ai, k) and acted(ai, k) say whether k is enabled for and has successors for action ai. noop(ai, k), if given,
-# says that action ai does nothing in k (k is outside its guard): trying it is the same as waiting, so it is allowed
-# exactly when waiting is.
-function choice_bits(::Type{T}, s, k, enabled::E, acted::A, noop::O=nothing) where {T,E,A,O}
+# enabled(ai, k) and acted(ai, k) say whether k is enabled for and has successors for action ai. Where an action does
+# nothing, the shields set it to the waiting bit afterwards (see noop_choices! in modal.jl).
+function choice_bits(::Type{T}, s, k, enabled::E, acted::A) where {T,E,A}
     s.dead[k] && return zero(T), zero(T)
     allowed = one(T)
     lost = zero(T)
@@ -541,51 +304,22 @@ function choice_bits(::Type{T}, s, k, enabled::E, acted::A, noop::O=nothing) whe
             end
         end
     end
-    if noop !== nothing && isodd(allowed)
-        for ai in eachindex(s.act_ok)
-            noop(ai, k) && (allowed |= T(1) << ai)
-        end
-    end
     return allowed, lost
 end
 
-# enabled and acted for choice_bits from a SuccessorStore.
-store_enabled(store::SuccessorStore) = (ai, k) -> store.act_enabled[ai][k]
+# acted for choice_bits from a SuccessorStore.
 store_acted(store::SuccessorStore) = (ai, k) -> store.act_len[ai][k] > 0
-# noop for choice_bits from a SuccessorStore: an id outside an action's guard is not enabled for it, and the action does nothing there.
-store_noop(store::SuccessorStore) = (ai, k) -> !store.act_enabled[ai][k]
 
 # allowed and lost of a shield whose state is indexed like a cell array of the given shape (by cell or linear index).
-function cell_choices(shape, n_acts::Int, s, enabled, acted, noop=nothing)
+function cell_choices(shape, n_acts::Int, s, enabled, acted)
     T = choice_type(n_acts)
-    return cell_choices!(zeros(T, shape), zeros(T, shape), s, enabled, acted, noop)
+    return cell_choices!(zeros(T, shape), zeros(T, shape), s, enabled, acted)
 end
 
 # Function barrier on T
-function cell_choices!(allowed::Array{T}, lost::Array{T}, s, enabled::E, acted::A, noop::O=nothing) where {T,E,A,O}
+function cell_choices!(allowed::Array{T}, lost::Array{T}, s, enabled::E, acted::A) where {T,E,A}
     for k in eachindex(allowed)
-        allowed[k], lost[k] = choice_bits(T, s, k, enabled, acted, noop)
-    end
-    return allowed, lost
-end
-
-# allowed and lost of an adaptive shield on its finest grid: every active leaf (with the fields level, cell and active)
-# writes its bits to the finest cells it covers.
-function leaf_choices(shape, n_acts::Int, leaves, L::Int, factor, s, enabled, acted, noop=nothing)
-    T = choice_type(n_acts)
-    return leaf_choices!(zeros(T, shape), zeros(T, shape), leaves, L, factor, s, enabled, acted, noop)
-end
-
-# Function barrier on T
-function leaf_choices!(allowed::Array{T,N}, lost::Array{T,N}, leaves, L::Int, factor::NTuple{N,Int}, s, enabled::E, acted::A, noop::O=nothing) where {T,N,E,A,O}
-    for id in Int32(1):Int32(length(leaves.level))
-        leaves.active[id] || continue
-        bits, lost_bits = choice_bits(T, s, id, enabled, acted, noop)
-        e = L - leaves.level[id]
-        for cc in child_cells(leaves.cell[id], ntuple(i -> factor[i]^e, N))
-            allowed[cc] = bits
-            lost[cc] = lost_bits
-        end
+        allowed[k], lost[k] = choice_bits(T, s, k, enabled, acted)
     end
     return allowed, lost
 end

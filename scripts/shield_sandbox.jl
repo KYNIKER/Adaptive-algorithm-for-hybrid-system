@@ -18,13 +18,12 @@ cscheme = palette(:matter, 2^length(euclideanHybridSystem.Act)+1; rev=true)
 
 δ⁻ = 0.001
 
-#@time grid, allowed, lost, info = ReACTed_reachable_cell_t(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻)
-#@time grid, allowed, lost, info = ReACTed_reachable_cell_online_pred_fast(euclideanHybridSystem, timePeriod, granularity, δ⁻, 2^5 * δ⁻; jump_hull=false)
-#@time grid, allowed, lost, info = ReACTed_reachable_cell_adaptive_fast(euclideanHybridSystem, timePeriod, granularity, 1, δ⁻, 2^5 * δ⁻, patience=0)
+#@time grid, allowed, lost, info = ReACTed_reachable_cell_modal(ModalHybridSystem(euclideanHybridSystem), timePeriod, granularity, δ⁻, 2^5 * δ⁻; online=true)
+#@time grid, allowed, lost, info = ReACTed_reachable_cell_modal_adaptive(ModalHybridSystem(euclideanHybridSystem), timePeriod, 2granularity, 1, δ⁻, 2^5 * δ⁻; online=true)
 
 #can_wait = (allowed .& 0x01) .!= 0
 #can_act(ai) = ((allowed .>> ai) .& 0x01) .!= 0   # ai is the position in Act
-# Every shield returns grid, allowed, lost, info (see choice_bits in src/shields/flat.jl); info holds what only that shield has, here info.act_bad and info.shield_count_cover
+# Every shield returns grid, allowed, lost, info (see choice_bits in src/shields/flat.jl); info holds what only that shield has, here info.ctx
 
 #@time grid, allowed, lost, info = ReACTed_reachable_cell_modal(OPsys, tp, 0.2, 0.1, 0.2; online=true)
 @time grid, allowed, lost, info = ReACTed_reachable_cell_modal(CCsys, tc, 0.5, 0.125, 0.25; online=false)

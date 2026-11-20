@@ -6,9 +6,9 @@
 #   cruise_t       loadCruiseControlModal_t, sensor range 50, g = 1, δ 0.25-1, act_needs_safe_flow = false (modal)
 #   cruise         loadCruiseControlModal, sensor range 50, g = 1, δ 0.25-1 (modal)
 #   oilpump        loadOilPumpModal, period 0.2, g = 0.2, δ 0.2-0.4 (modal)
-#   ball_pred      bouncing ball with input, g = 0.03, δ 0.001-0.032 (pred_fast)
-#   ball_adaptive  bouncing ball with input, g0 = 0.06, L = 1, δ 0.001-0.032 (adaptive_fast)
-# The ball's adaptive shield is always online.
+#   ball           bouncing ball with input, g = 0.03, δ 0.001-0.032 (modal, as ModalHybridSystem)
+#   ball_adaptive  bouncing ball with input, g0 = 0.06, L = 1, δ 0.001-0.032 (modal adaptive)
+# The ball leaves the state space as allowed, as its old Euclidean shields did in effect.
 #
 # It compiles the code with a warm-up on a coarser grid (twice the granularity), then does one run under @timed and the
 # CPU profiler together: @timed counts the bytes and the GC time exactly, the profiler samples where the time goes, and
@@ -20,13 +20,14 @@
 # code that allocates much more than the rest, so it gets a run of its own; it is for finding where allocations come
 # from, not for timing.
 # Baselines (warm, separate runs) of 2026-11-17, before the optimizations of 2026-11-18: cruise_t offline 29 s and
-# 16.1 GiB, oil pump 3.6 s and 2.7 GiB, ball_pred 2.7 s and 2.5 GiB, ball_adaptive 4.1 s and 3.5 GiB.
+# 16.1 GiB, oil pump 3.6 s and 2.7 GiB, ball_pred 2.7 s and 2.5 GiB, ball_adaptive 4.1 s and 3.5 GiB (the last two with the
+# Euclidean shields pred_fast and adaptive_fast, removed on 2026-11-20).
 using LazySets, ReachabilityAnalysis, Profile, Printf
 const REPO = normpath(joinpath(@__DIR__, ".."))
 include(joinpath(REPO, "src", "ReACTShields.jl"))
 using .ReACTShields
 
-const MODELS = ("cruise_t", "cruise", "oilpump", "ball_pred", "ball_adaptive")
+const MODELS = ("cruise_t", "cruise", "oilpump", "ball", "ball_adaptive")
 isempty(ARGS) && error("give a model: $(join(MODELS, ", "))")
 model = ARGS[1]
 model in MODELS || error("unknown model $model; the models are $(join(MODELS, ", "))")
@@ -37,8 +38,10 @@ allocs = parse(Bool, get(opts, "allocs", "false"))
 # scale = 2 is the coarse warm-up
 if startswith(model, "ball")
     sys, T = loadBouncingBallShieldedWithInput()
-    synthesize(scale=1) = model == "ball_pred" ? ReACTed_reachable_cell_online_pred_fast(sys, T, 0.03scale, 0.001, 0.032; online, verbose=false) :
-                          ReACTed_reachable_cell_adaptive_fast(sys, T, 0.06scale, 1, 0.001, 0.032; patience=0, verbose=false)
+    msys = ModalHybridSystem(sys)
+    exits = (; exit_bad_for_flow=false, exit_bad_for_actions=false)
+    synthesize(scale=1) = model == "ball" ? ReACTed_reachable_cell_modal(msys, T, 0.03scale, 0.001, 0.032; online, exits..., verbose=false) :
+                          ReACTed_reachable_cell_modal_adaptive(msys, T, 0.06scale, 1, 0.001, 0.032; online, exits..., verbose=false)
 else
     sys, T, g, δ⁻, δ⁺, ansf = model == "cruise_t" ? (loadCruiseControlModal_t(; sensor_range=50.0)..., 1.0, 0.25, 1.0, false) :
                              model == "cruise" ? (redirect_stdout(() -> loadCruiseControlModal(; sensor_range=50.0), devnull)..., 1.0, 0.25, 1.0, true) :

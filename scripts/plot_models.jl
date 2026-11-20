@@ -3,13 +3,14 @@
 #     julia --project=. scripts/plot_models.jl <model> [key=value ...]
 #
 # Models and their defaults (every key can be given on the command line):
-#   ball      bouncing ball with input, pred_fast   g=0.02 dmin=0.001 dmax=0.032 shield=pred_fast (or t, adaptive)
-#   oilpump   oil pump, modal                       g=0.1  dmin=0.2   dmax=0.4   period=0.2 online=true
+#   ball      bouncing ball with input              g=0.02 dmin=0.001 dmax=0.032 online=true exit_bad=false
+#   oilpump   oil pump                              g=0.1  dmin=0.2   dmax=0.4   period=0.2 online=true
 #   cruise    cruise control, a layer per ego mode  g=1.0  dmin=0.25  dmax=1.0   v_ego=0.0 sensor_range=200.0 online=true
 #   cruise_t  cruise control, one decision layer    g=1.0  dmin=0.25  dmax=1.0   v_ego=0.0 sensor_range=200.0 online=true
 #                                                   act_needs_safe_flow=false
-# Common keys: g (granularity), dmin and dmax (δ⁻ and δ⁺), online, act_needs_safe_flow, out (the png to write; by default
-# results/<model>_<settings>.png). For example
+# Common keys: g (granularity), dmin and dmax (δ⁻ and δ⁺), online, act_needs_safe_flow, exit_bad (leaving the state space
+# is bad, for waiting and for actions; true unless given), shield (modal, or adaptive: one level of refinement from 2g
+# down to g), out (the png to write; by default results/<model>_<settings>.png). For example
 #
 #     julia --project=. scripts/plot_models.jl cruise_t g=0.5 v_ego=4
 #     julia --project=. scripts/plot_models.jl oilpump period=1.0
@@ -24,9 +25,9 @@ gr()
 include(joinpath(@__DIR__, "..", "src", "ReACTShields.jl"))
 using .ReACTShields
 
-# shield: {"pred_fast", "t", "adaptive"}
+# shield: {"modal", "adaptive"}. The ball leaves the state space by default, as its old online shield (pred_fast) did in effect.
 const DEFAULTS = Dict(
-    "ball" => Dict("g" => "0.02", "dmin" => "0.001", "dmax" => "0.032", "shield" => "pred_fast"),
+    "ball" => Dict("g" => "0.02", "dmin" => "0.001", "dmax" => "0.032", "online" => "true", "exit_bad" => "false"),
     "oilpump" => Dict("g" => "0.2", "dmin" => "0.1", "dmax" => "0.2", "period" => "0.2", "online" => "true"),
     #"cruise" => Dict("g" => "1.0", "dmin" => "0.25", "dmax" => "1.0", "v_ego" => "0.0", "sensor_range" => "200.0", "online" => "true"),
     "cruise_t" => Dict("g" => "1.0", "dmin" => "0.125", "dmax" => "1.0", "v_ego" => "0.0", "sensor_range" => "200.0", "online" => "true",
@@ -43,6 +44,8 @@ function parse_args(args)
     haskey(DEFAULTS, model) || error("unknown model $model; the models are $(join(sort(collect(keys(DEFAULTS))), ", "))")
     opts = copy(DEFAULTS[model])
     haskey(opts, "act_needs_safe_flow") || (opts["act_needs_safe_flow"] = "true")
+    haskey(opts, "exit_bad") || (opts["exit_bad"] = "true")
+    haskey(opts, "shield") || (opts["shield"] = "modal")
     for a in args[2:end]
         k, v = split(a, "="; limit=2)
         opts[k] = v
@@ -55,7 +58,7 @@ function plot_ball(grid, allowed, sys)
     names = ["wait"; ["act $(a.id)" for a in sys.Act]]
     label(b) = b == 0 ? "dead" : "{" * join([names[i+1] for i in 0:(length(names)-1) if (b >> i) & 1 != 0], ", ") * "}"
     present = sort(unique(allowed))
-    colors = [:black, :steelblue, :darkgoldenrod, :yellow, :orchid4, :orchid, :gray60, :white]
+    colors = [:black, :steelblue, :darkgoldenrod, :yellow, :orchid4, :white, :gray60, :white]
     idx = Dict(b => i for (i, b) in enumerate(present))
     #map!(v -> v & 0x1 == 1 ? (v > 1 ? 3 : 1) : clamp(v, 0, 2), allowed)
     m = map(b -> idx[b], allowed)
@@ -75,23 +78,21 @@ function synthesize(model, opts; verbose::Bool=true)
     num(k) = parse(Float64, opts[k])
     flag(k) = parse(Bool, opts[k])
     g, δ⁻, δ⁺ = num("g"), num("dmin"), num("dmax")
-    if model == "ball"
-        sys, p = loadBouncingBallShieldedWithInput()
-        shield = opts["shield"]
-        res = shield == "pred_fast" ? ReACTed_reachable_cell_online_pred_fast(sys, p, g, δ⁻, δ⁺; act_needs_safe_flow=flag("act_needs_safe_flow"), verbose) :
-              shield == "t" ? ReACTed_reachable_cell_t(sys, p, g, δ⁻, δ⁺; verbose) :
-              shield == "adaptive" ? ReACTed_reachable_cell_adaptive_fast(sys, p, 2g, 1, δ⁻, δ⁺; patience=0, act_needs_safe_flow=flag("act_needs_safe_flow"), verbose) :
-              error("unknown shield $shield; use pred_fast, t or adaptive")
-        return sys, res
-    end
-    sys, p = model == "oilpump" ? loadOilPumpModal(; period=num("period")) :
+    sys, p = model == "ball" ? loadBouncingBallShieldedWithInput() :
+             model == "oilpump" ? loadOilPumpModal(; period=num("period")) :
              model == "cruise" ? loadCruiseControlModal(; sensor_range=num("sensor_range")) :
              loadCruiseControlModal_t(; sensor_range=num("sensor_range"))
-    return sys, ReACTed_reachable_cell_modal(sys, p, g, δ⁻, δ⁺; online=flag("online"), act_needs_safe_flow=flag("act_needs_safe_flow"), verbose)
+    msys = sys isa EuclideanHybridSystem ? ModalHybridSystem(sys) : sys
+    kw = (; online=flag("online"), act_needs_safe_flow=flag("act_needs_safe_flow"), exit_bad_for_flow=flag("exit_bad"), exit_bad_for_actions=flag("exit_bad"), verbose)
+    shield = opts["shield"]
+    res = shield == "modal" ? ReACTed_reachable_cell_modal(msys, p, g, δ⁻, δ⁺; kw...) :
+          shield == "adaptive" ? ReACTed_reachable_cell_modal_adaptive(msys, p, 2g, 1, δ⁻, δ⁺; kw...) :
+          error("unknown shield $shield; use modal or adaptive")
+    return sys, res
 end
 
 function plot_shield(model, opts, sys, (grid, allowed, lost, info))
-    model == "ball" && return plot_ball(grid, allowed, sys)
+    model == "ball" && return plot_ball(grid, dropdims(allowed; dims=3), sys) # one layer
     model == "oilpump" && return plot_oil_pump(grid, grid, allowed, lost, info)
     return plot_cruise(grid, allowed, info; v_ego=parse(Float64, opts["v_ego"]), wait_mode=model == "cruise_t" ? CRUISE_NEUTRAL : nothing)
 end

@@ -448,37 +448,3 @@ function get_touching_cell_idxs_lz_lp(grid::Grid{N}, convexSet::Zonotope{Float64
     end
     return touching_cell_idxs
 end
-
-function offsets(grid::Grid{N}) where N
-    offsets = Set{CartesianIndex{N}}(CartesianIndices(ntuple(_ -> -1:1, N)))
-    return delete!(offsets, zero(CartesianIndex{N}))
-end
-
-# Cells on the outer faces of the grid. Dimensions with a single cell are skipped, since every cell lies on both of
-# their faces.
-function border_cells(grid::Grid{N}) where N
-    shape = cellshape(grid)
-    res = CartesianIndex{N}[]
-    for i in 1:N
-        if shape[i] == 1
-            continue
-        end
-        for side in unique((1, shape[i]))
-            append!(res, CartesianIndices(ntuple(j -> j == i ? (side:side) : (1:shape[j]), N)))
-        end
-    end
-    return unique!(res)
-end
-
-function grow_indices_t(grid::Grid, idxs::Vector{<:CartesianIndex{N}}, offsets::Set{<:CartesianIndex{N}}) where N
-    R = CartesianIndices(grid.deadCells)
-    src = Set(CartesianIndex.(idxs))          # fast membership test
-    res = Set{eltype(R)}()
-    for idx in src, off in offsets
-        nb = idx + CartesianIndex(off)
-        if nb in R && !(nb in src)
-            push!(res, nb)
-        end
-    end
-    return collect(res)                # drop sort! if order doesn't matter
-end

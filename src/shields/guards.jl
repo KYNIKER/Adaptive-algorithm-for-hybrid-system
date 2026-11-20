@@ -1,32 +1,5 @@
 # ReACT's guard and constraint checks on zonotopes, and the set predicates (allunder, someinside, ...) built on them.
 
-function propagate_set_check_hybrid_jump(X0, interval, δ⁻::Float64, δ⁺::Float64, system, listOfEdges, identity_matrix, attemptsRecorder, dims, Φ₂, guardProjVectors, guardProjBounds, invariantProjVectors, invariantProjBounds, discretizationDict, PhiDict, TPhiDict, inputDict, max_input, max_flow, guard_intersection, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5)
-    zero_input = Zonotope(zeros(dims), zeros(size(genmat((inputDict[δ⁻])))))
-    for edge in listOfEdges
-        guard_projection_vectors = copy(guardProjVectors)
-        guard_projection_bounds = copy(guardProjBounds)
-
-        #   Compute the reachset closest to the guard without intersecting it and not reaching the unsafe set. 
-        _, _, _, flag = ReACT_guards_t(δ⁻, δ⁺, interval, identity_matrix, attemptsRecorder, zero_input, guard_projection_vectors, guard_projection_bounds, PhiDict, TPhiDict, discretizationDict, inputDict)
-
-        #
-        #   0: Didnt hit either constraint, guard or invariant
-        #   1: Hit constraint
-        #   2: Hit guard
-        #   3: Hit invariant surface
-        #
-        if flag != 0
-            return 1
-        end
-        if allunder(linear_map(max_flow, X0), max_input, invariantProjVectors, invariantProjBounds)
-            continue
-        else
-            return 1
-        end
-    end
-    return 0
-end
-
 function ReACT_guards_t(δ⁻::Float64, δ⁺::Float64, interval, identity_matrix, attemptsRecorder, zero_input, guardProjVectors, guardProjBounds, PhiDict, permutedphiDict, discritezationDict, inputDiscretizationDict)
     time::Float64 = copy(minimum(interval))
     endtime::Float64 = maximum(interval)

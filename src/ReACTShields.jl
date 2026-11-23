@@ -28,7 +28,7 @@ include("core/partition.jl")
 include("core/timer.jl")          # PhaseTimer, the time per phase each shield reports
 
 # Order matters: later files use the types and helpers of earlier ones.
-include("shields/guards.jl")        # ReACT_guards_t and the set predicates (allunder, someinside, ...)
+include("shields/guards.jl")        # ReACT_guards and the set predicates (all_inside, some_inside, ...)
 include("shields/propagate.jl")     # reach set of a cell over one period, with jumps
 include("shields/flat.jl")          # successor store, the shield state and its rules, choice_bits
 include("shields/modal.jl")

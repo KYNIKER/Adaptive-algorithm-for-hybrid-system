@@ -16,11 +16,11 @@ end
 # instead of splatting grid.numCells, whose length is unknown to the compiler and makes the array dimension unknown.
 cellshape(grid::Grid{N}) where N = size(grid.deadCells)::NTuple{N,Int}
 
-function Grid(convexSet::LazySet, granularity::Float64)
-    dimension = LazySets.dim(convexSet)
+function Grid(set::LazySet, granularity::Float64)
+    dimension = LazySets.dim(set)
 
-    lower_bounds = LazySets.low(convexSet)
-    upper_bounds = LazySets.high(convexSet)
+    lower_bounds = LazySets.low(set)
+    upper_bounds = LazySets.high(set)
 
     numCells = zeros(Int, dimension)
 
@@ -28,11 +28,12 @@ function Grid(convexSet::LazySet, granularity::Float64)
     upper_bounds = Vector{Float64}(upper_bounds)
     for (i, (lb, ub)) in enumerate(zip(lower_bounds, upper_bounds))
         numCells[i] = max(ceil((ub-lb)/granularity), 1)
-        # A zero-width dimension (e.g. a constant like gravity) becomes a single cell centred on its value, so cell
-        # centres (lower + granularity/2) equal the value and touching-cell index ranges are 1:1 rather than empty.
-        if ub == lb
-            lower_bounds[i] = lb - granularity/2
-            upper_bounds[i] = ub + granularity/2
+        # A dimension narrower than a cell (zero width for a constant like gravity) becomes a single cell centred on it, so
+        # the cell centre (lower + granularity/2) is the middle of the state space there and touching-cell index ranges
+        # are 1:1 rather than empty. The shields give such a cell the width of the state space on that axis.
+        if ub - lb < granularity
+            lower_bounds[i] = (lb + ub)/2 - granularity/2
+            upper_bounds[i] = (lb + ub)/2 + granularity/2
         end
     end
 
@@ -43,9 +44,9 @@ end
 Base.show(io::IO, grid::Grid) = println(io,
     "Grid($(grid.granularity), $(grid.lower), $(grid.upper), $(grid.numCells))")
 
-@inline car2vec(x::CartesianIndex) = collect(Tuple(x))
+@inline index_vector(x::CartesianIndex) = collect(Tuple(x))
 
-@inline car2vecFloat(x::CartesianIndex) = collect(Float64, Tuple(x))
+@inline float_index_vector(x::CartesianIndex) = collect(Float64, Tuple(x))
 
 function hyperrectangle_to_HPolyhedron(hyperrectangle)
     i = ones(length(hyperrectangle.center))
@@ -64,14 +65,14 @@ const CELL_BOUND_TOL = 1e-9
     return max(ceil(Int, x_lo - CELL_BOUND_TOL), 1):min(floor(Int, x_hi + CELL_BOUND_TOL) + 1, grid.numCells[i])
 end
 
-function get_touching_cell_idxs_l(cgrid::Grid{N}, convexSet::LazySet) where N
+function touching_cells(grid::Grid{N}, set::LazySet) where N
     touching_cell_idxs = CartesianIndex{N}[]
 
-    ranges = [cell_range(cgrid, i, l, h) for (i, l, h) in zip(1:N, LazySets.low(convexSet), LazySets.high(convexSet))]
+    ranges = [cell_range(grid, i, l, h) for (i, l, h) in zip(1:N, LazySets.low(set), LazySets.high(set))]
     lower_bounds, upper_bounds = first.(ranges), last.(ranges)
 
-    sweeping_dim = argmax(upper_bounds[i]-lower_bounds[i] for i in 1:cgrid.dimension)
-    hbox = Hyperrectangle(cgrid.lower .+ (cgrid.granularity/2), fill(cgrid.granularity/2, N))
+    sweeping_dim = argmax(upper_bounds[i]-lower_bounds[i] for i in 1:grid.dimension)
+    hbox = Hyperrectangle(grid.lower .+ (grid.granularity/2), fill(grid.granularity/2, N))
     if upper_bounds[sweeping_dim] - lower_bounds[sweeping_dim] > 1
 
         cartesian_offset = CartesianIndex(ntuple(i -> i == sweeping_dim ? 1 : 0, N))
@@ -82,10 +83,10 @@ function get_touching_cell_idxs_l(cgrid::Grid{N}, convexSet::LazySet) where N
             lower_idx = 0
             upper_idx = 0
             for off in sweeping_range
-                of = (car2vec((idx + (cartesian_offset * off))) .- 1) .* cgrid.granularity
+                of = (index_vector((idx + (cartesian_offset * off))) .- 1) .* grid.granularity
 
                 LazySets.API.translate!(hbox, of)
-                if !isdisjoint(convexSet, hbox)
+                if !isdisjoint(set, hbox)
                     LazySets.API.translate!(hbox, -of)
 
                     lower_idx = off
@@ -99,10 +100,10 @@ function get_touching_cell_idxs_l(cgrid::Grid{N}, convexSet::LazySet) where N
             end
             for off in rev_sweeping_range
 
-                of = (car2vec(idx + (cartesian_offset * off)) .- 1) .* cgrid.granularity
+                of = (index_vector(idx + (cartesian_offset * off)) .- 1) .* grid.granularity
 
                 LazySets.API.translate!(hbox, of)
-                if !isdisjoint(convexSet, hbox)
+                if !isdisjoint(set, hbox)
                     LazySets.API.translate!(hbox, -of)
 
                     upper_idx = off
@@ -125,9 +126,9 @@ function get_touching_cell_idxs_l(cgrid::Grid{N}, convexSet::LazySet) where N
         println("second")
 
         for idx in CartesianIndices(ntuple(i -> lower_bounds[i]:upper_bounds[i], N))
-            of = (car2vec(idx) .- 1) .* cgrid.granularity
+            of = (index_vector(idx) .- 1) .* grid.granularity
             LazySets.API.translate!(hbox, of)
-            if !isdisjoint(convexSet, hbox)
+            if !isdisjoint(set, hbox)
                 push!(touching_cell_idxs, idx)
             end
             LazySets.API.translate!(hbox, -of)
@@ -262,24 +263,12 @@ const MAX_COVER_FACET_PAIRS = 5000
     return true
 end
 
-# Centre of the reach set of fast cell idx, max_flow * (cell centre) + offset, written into out without allocating.
-function fast_cell_center!(out::Vector{Float64}, max_flow::AbstractMatrix{Float64}, offset::AbstractVector{Float64}, grid::Grid{N}, idx::CartesianIndex{N}) where N
-    for i in 1:N
-        s = offset[i]
-        for j in 1:N
-            s += max_flow[i, j] * ((grid.lower[j] + grid.granularity/2) + (idx[j] - 1) * grid.granularity)
-        end
-        out[i] = s
-    end
-    return out
-end
-
-# Same cells as get_touching_cell_idxs_test(grid, Z, model, con_ref) for the translated zonotope Z with center c, using
+# Same cells as touching_cells_lp(grid, Z) for the translated zonotope Z with center c, using
 # the precomputed H-representation instead of an LP per candidate cell. A cell touches the reach set iff its centre
 # lies in the reach set bloated by half a cell, which is what cov represents.
 # keep_lo and keep_hi (cell indices per axis) limit the result to the cells in that box, as filtering it afterwards would,
 # without testing the cells outside it.
-function get_touching_cell_idxs_cover(grid::Grid{N}, cov::ConstantZonotopeCover{N}, c::AbstractVector{Float64},
+function cells_in_cover(grid::Grid{N}, cov::ConstantZonotopeCover{N}, c::AbstractVector{Float64},
     keep_lo::NTuple{N,Int}=ntuple(_ -> 1, N), keep_hi::NTuple{N,Int}=cellshape(grid)) where N
     touching_cell_idxs = CartesianIndex{N}[]
     full = ntuple(i -> cell_range(grid, i, c[i] - cov.radius[i], c[i] + cov.radius[i]), N)
@@ -330,20 +319,20 @@ function get_touching_cell_idxs_cover(grid::Grid{N}, cov::ConstantZonotopeCover{
     return touching_cell_idxs
 end
 
-# Cells touching the zonotope convexSet, without LPs: a cell touches it iff the cell centre lies in convexSet bloated by
+# Cells touching the zonotope set, without LPs: a cell touches it iff the cell centre lies in set bloated by
 # half a cell, which is tested against the facets of that bloated zonotope (see ConstantZonotopeCover). Gives the same
-# cells as get_touching_cell_idxs_lz_lp. Falls back to it when the facet count explodes (many generators in high
+# cells as touching_cells_lp. Falls back to it when the facet count explodes (many generators in high
 # dimensions). Without LPs this is also safe to call from several threads (GLPK is not).
-function get_touching_cell_idxs_lz(grid::Grid{N}, convexSet::Zonotope{Float64,Vector{Float64},Matrix{Float64}}) where N
-    G = genmat(convexSet)
+function touching_cells(grid::Grid{N}, set::Zonotope{Float64,Vector{Float64},Matrix{Float64}}) where N
+    G = genmat(set)
     nonzero = [j for j in axes(G, 2) if any(!iszero, view(G, :, j))]
     if cover_facet_pairs(length(nonzero) + N, N) > MAX_COVER_FACET_PAIRS
-        return get_touching_cell_idxs_lz_lp(grid, convexSet)
+        return touching_cells_lp(grid, set)
     end
     # Bound the candidate cells by the set itself (as the LP version does); test membership against the bloated set.
     radius = ntuple(i -> sum(abs, view(G, i, :)), N)
     bloated = hcat(G[:, nonzero], Matrix((grid.granularity / 2) * I, N, N))
-    return get_touching_cell_idxs_cover(grid, ConstantZonotopeCover(bloated, radius, Val(N)), convexSet.center)
+    return cells_in_cover(grid, ConstantZonotopeCover(bloated, radius, Val(N)), set.center)
 end
 
 # Covers by their generator matrix (the set's nonzero generators and the half-cell bloat), so sets that only differ by a
@@ -351,14 +340,14 @@ end
 const CoverCache{N} = Dict{Matrix{Float64},ConstantZonotopeCover{N}}
 const MAX_CACHED_COVERS = 100_000
 
-# get_touching_cell_idxs_lz with the cover taken from, or added to, covers. Gives the same cells. keep_lo and keep_hi
-# limit the result to a box of cells, as in get_touching_cell_idxs_cover.
-function get_touching_cell_idxs_lz(grid::Grid{N}, convexSet::Zonotope{Float64,Vector{Float64},Matrix{Float64}}, covers::CoverCache{N},
+# touching_cells with the cover taken from, or added to, covers. Gives the same cells. keep_lo and keep_hi
+# limit the result to a box of cells, as in cells_in_cover.
+function touching_cells(grid::Grid{N}, set::Zonotope{Float64,Vector{Float64},Matrix{Float64}}, covers::CoverCache{N},
     keep_lo::NTuple{N,Int}=ntuple(_ -> 1, N), keep_hi::NTuple{N,Int}=cellshape(grid)) where N
-    G = genmat(convexSet)
+    G = genmat(set)
     nonzero = [j for j in axes(G, 2) if any(!iszero, view(G, :, j))]
     if cover_facet_pairs(length(nonzero) + N, N) > MAX_COVER_FACET_PAIRS
-        return get_touching_cell_idxs_lz_lp(grid, convexSet)
+        return touching_cells_lp(grid, set)
     end
     bloated = hcat(G[:, nonzero], Matrix((grid.granularity / 2) * I, N, N))
     cov = get(covers, bloated, nothing)
@@ -366,13 +355,13 @@ function get_touching_cell_idxs_lz(grid::Grid{N}, convexSet::Zonotope{Float64,Ve
         length(covers) >= MAX_CACHED_COVERS && empty!(covers)
         cov = covers[bloated] = ConstantZonotopeCover(bloated, ntuple(i -> sum(abs, view(G, i, :)), N), Val(N))
     end
-    return get_touching_cell_idxs_cover(grid, cov, convexSet.center, keep_lo, keep_hi)
+    return cells_in_cover(grid, cov, set.center, keep_lo, keep_hi)
 end
 
-function get_touching_cell_idxs_lz_lp(grid::Grid{N}, convexSet::Zonotope{Float64,Vector{Float64},Matrix{Float64}}) where N
+function touching_cells_lp(grid::Grid{N}, set::Zonotope{Float64,Vector{Float64},Matrix{Float64}}) where N
     touching_cell_idxs::Vector{CartesianIndex{N}} = CartesianIndex{N}[]
 
-    ranges = [cell_range(grid, i, l, h) for (i, l, h) in zip(1:N, LazySets.low(convexSet), LazySets.high(convexSet))]
+    ranges = [cell_range(grid, i, l, h) for (i, l, h) in zip(1:N, LazySets.low(set), LazySets.high(set))]
     lower_bounds::Vector{Int64}, upper_bounds::Vector{Int64} = first.(ranges), last.(ranges)
 
     sweeping_dim::Int64 = argmax(upper_bounds[i]-lower_bounds[i] for i in 1:grid.dimension)
@@ -399,8 +388,8 @@ function get_touching_cell_idxs_lz_lp(grid::Grid{N}, convexSet::Zonotope{Float64
                 lower_idx::Int64 = 0
                 upper_idx::Int64 = 0
                 for off in sweeping_range
-                    copyto!(hbox.center, (car2vecFloat((idx + (cartesian_offset * off))) .- 1.0) .* grid.granularity + of)
-                    if !isdisjoint(convexSet, hbox, false)
+                    copyto!(hbox.center, (float_index_vector((idx + (cartesian_offset * off))) .- 1.0) .* grid.granularity + of)
+                    if !isdisjoint(set, hbox, false)
 
                         lower_idx = off
                         break
@@ -412,9 +401,9 @@ function get_touching_cell_idxs_lz_lp(grid::Grid{N}, convexSet::Zonotope{Float64
                 end
                 for off in rev_sweeping_range
 
-                    copyto!(hbox.center, (car2vecFloat(idx + (cartesian_offset * off)) .- 1.0) .* grid.granularity + of)
+                    copyto!(hbox.center, (float_index_vector(idx + (cartesian_offset * off)) .- 1.0) .* grid.granularity + of)
 
-                    if !isdisjoint(convexSet, hbox, false)
+                    if !isdisjoint(set, hbox, false)
 
                         upper_idx = off
                         break
@@ -436,9 +425,9 @@ function get_touching_cell_idxs_lz_lp(grid::Grid{N}, convexSet::Zonotope{Float64
             next_sweep = argmax(i == sweeping_dim ? 0 : upper_bounds[i]-lower_bounds[i] for i in 1:grid.dimension)
 
             for idx in CartesianIndices(ntuple(i -> lower_bounds[i]:1:upper_bounds[i], N))
-                #of::Vector{Float64} = (car2vec(idx) .- 1) .* granularity
-                copyto!(hbox.center, (car2vecFloat(idx) .- 1.0) .* grid.granularity + of)
-                if !isdisjoint(convexSet, hbox, false)
+                #of::Vector{Float64} = (index_vector(idx) .- 1) .* granularity
+                copyto!(hbox.center, (float_index_vector(idx) .- 1.0) .* grid.granularity + of)
+                if !isdisjoint(set, hbox, false)
                     push!(touching_cell_idxs, idx)
 
                 end

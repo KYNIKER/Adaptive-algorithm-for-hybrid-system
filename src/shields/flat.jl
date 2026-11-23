@@ -50,18 +50,18 @@ function cell_meets(H::CellHalfSpaces{N}, grid::Grid{N}, c::CartesianIndex{N}) w
     end
     cut == 0 && return 2
     cut == 1 && return 1
-    box = Hyperrectangle(grid.lower .+ (car2vec(c) .- 0.5) .* g, fill(g / 2, N))
+    box = Hyperrectangle(grid.lower .+ (index_vector(c) .- 0.5) .* g, fill(g / 2, N))
     return isdisjoint(H.P, box) ? 0 : 1
 end
 
-# The candidate cells of get_touching_cell_idxs_l for P on a grid. Its bounds are clamped to the state space, so on a
+# The candidate cells of touching_cells for P on a grid. Its bounds are clamped to the state space, so on a
 # grid that overhangs the state space they leave out cells there; each level's candidates lie in its parents' candidates.
 function touching_candidates(grid::Grid{N}, P) where N
     lo, hi = low(P), high(P)
     return CartesianIndices(ntuple(i -> cell_range(grid, i, lo[i], hi[i]), N))
 end
 
-# Masks of the cells of grid touching P (the same cells as get_touching_cell_idxs_l) and of those inside it, as the
+# Masks of the cells of grid touching P (the same cells as touching_cells) and of those inside it, as the
 # tuple (touching, inside). A guard of nothing is the whole state space: every cell touches it and is inside it.
 guard_masks(grid::Grid, ::Nothing) = (trues(cellshape(grid)), trues(cellshape(grid)))
 function guard_masks(grid::Grid{N}, P) where N

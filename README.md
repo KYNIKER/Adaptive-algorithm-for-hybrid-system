@@ -21,6 +21,8 @@ reachability/            the reachability benchmarks: ReACTed.jl, testsuite.jl, 
 
 A system without discrete modes, such as the bouncing ball (an `EuclideanHybridSystem`), runs through them as
 `ModalHybridSystem(system)`. Leaving the state space is bad unless `exit_bad_for_flow` or `exit_bad_for_actions` is false.
+It is checked at the end of each period (and at every step on faces a guard borders), so a state that leaves and comes
+back within a period is not caught: whatever must never happen belongs in the unsafe sets.
 
 Every shield returns `grid, allowed, lost, info`. `allowed` holds a bit per choice for each cell: bit 0 is waiting a
 period, bit `i` the `i`-th action. A cell where nothing is allowed is dead. See `choice_bits` in src/shields/flat.jl.

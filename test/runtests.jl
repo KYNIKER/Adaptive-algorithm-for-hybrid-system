@@ -103,6 +103,28 @@ digest(a) = bytes2hex(sha1(reinterpret(UInt8, vec(a))))[1:12]
         end
     end
 
+    @testset "modal: an axis narrower than a cell" begin
+        # x' = y with y in [0, 0.9], one cell of g = 1. x >= 9 is unsafe, and an action resets x to 0. Over a period of 5 a
+        # state moves up to 4.5, so waiting from x in [4, 5) can reach x = 9.49: unsafe. Flowed at a single y, the cell
+        # missed that.
+        statespace = Hyperrectangle([5.0, 0.45], [5.0, 0.45])
+        unsafe = [HPolyhedron([LazySets.HalfSpace([-1.0, 0.0], -9.0)])]
+        reset = Action(1, HPolyhedron([LazySets.HalfSpace([-1.0, 0.0], 0.0)]), [0.0 0.0; 0.0 1.0], [0.0, 0.0])
+        sys = ModalHybridSystem(statespace, unsafe, [ModalLocation(1, nothing, [0.0 1.0; 0.0 0.0], Zonotope([0.0, 0.0], zeros(2, 2)), Edge[], [ModalAction(reset, 1)])])
+        allowed = ReACTed_reachable_cell_modal(sys, 5.0, 1.0, 0.25, 0.5; act_needs_safe_flow=false, verbose=false)[2]
+        @test vec(allowed[:, 1, 1]) == [0x03, 0x03, 0x03, 0x02, 0x02, 0x02, 0x02, 0x02, 0x00, 0x00]
+    end
+
+    @testset "modal: leaving through a face a guard only partly borders" begin
+        # x' = -1 on [0, 10]². The guard x <= 0, y >= 5 wraps x to 10, so below y = 5 the states leave through x = 0.
+        # y >= 9.5 is unsafe. In a period of 0.5 the first column crosses x = 0.
+        guard = HPolyhedron([LazySets.HalfSpace([1.0, 0.0], 0.0), LazySets.HalfSpace([0.0, -1.0], -5.0)])
+        sys = ModalHybridSystem(Hyperrectangle([5.0, 5.0], [5.0, 5.0]), [HPolyhedron([LazySets.HalfSpace([0.0, -1.0], -9.5)])],
+            [ModalLocation(1, nothing, zeros(2, 2), Zonotope([-1.0, 0.0], zeros(2, 2)), [Edge(1, guard, [0.0 0.0; 0.0 1.0], [10.0, 0.0])], ModalAction[])])
+        allowed = ReACTed_reachable_cell_modal(sys, 0.5, 1.0, 0.25, 0.5; verbose=false)[2]
+        @test vec(allowed[1, :, 1]) == [0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x01, 0x00, 0x00]
+    end
+
     @testset "modal: an action outside its guard does nothing" begin
         # x' = 1, y' = 0 on [0, 10] × [0, 1]. x >= 9 is unsafe. Action 1 resets x to 0 and has the guard x >= 5.
         statespace = Hyperrectangle([5.0, 0.5], [5.0, 0.5])

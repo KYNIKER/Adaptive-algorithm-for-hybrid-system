@@ -3,7 +3,7 @@
 # The state space is partitioned into leaves: aligned boxes of cells of the finest grid (granularity max_granularity /
 # 2^L), in one layer. A leaf at level l is 2^(L-l) finest cells wide on every axis (zero-width axes are never split);
 # level 0 is the coarsest, and a leaf at level L is one finest cell. Every leaf is flowed forward as one set
-# (box_successors, or flow_successors and action_successors for a single cell), and its successors are kept per choice
+# (box_successors), and its successors are kept per choice
 # as finest cells. So splitting a leaf never changes what the other leaves reach: each round maps the finest cells to the
 # leaves that now cover them, and only the new leaves are computed.
 #
@@ -22,8 +22,6 @@
 
 # Splits of a level-l cell: f[i] finest cells per axis
 level_factor(L::Int, l::Int, numCells) = ntuple(i -> numCells[i] == 1 ? 1 : 2^(L - l), length(numCells))
-leaf_box(c::CartesianIndex{D}, f::NTuple{D,Int}, numCells) where D =
-    CartesianIndices(ntuple(i -> ((c[i]-1)*f[i]+1):min(c[i] * f[i], numCells[i]), D))
 
 # Returns grid, allowed, lost, info on the finest grid like every shield (see choice_bits in flat.jl), with info.ctx the
 # modal context on the finest grid, info.levels the number of active leaves per level and info.leaf_level the level of
@@ -35,10 +33,10 @@ function ReACTed_reachable_cell_modal_adaptive(system::ModalHybridSystem, p, max
     # The modal context on the finest grid. A leaf whose cells are all fast uses a cover, whatever the sweep blocks are.
     ctx = ModalContext(system, p, Float64(max_granularity) / 2^L, δ⁻, δ⁺, alg, maxOrder, reduceOrder, sweep_factor, max_depth; exit_bad_for_flow, exit_bad_for_actions)
     lap!(timer, "Setup")
-    return _modal_adaptive(ctx, L, online, act_needs_safe_flow, max_rounds, verbose, timer)
+    return _ReACTed_reachable_cell_modal_adaptive(ctx, L, online, act_needs_safe_flow, max_rounds, verbose, timer)
 end
 
-function _modal_adaptive(ctx::ModalContext{D,N}, L::Int, online::Bool, act_needs_safe_flow::Bool, max_rounds::Int, verbose::Bool, timer::PhaseTimer) where {D,N}
+function _ReACTed_reachable_cell_modal_adaptive(ctx::ModalContext{D,N}, L::Int, online::Bool, act_needs_safe_flow::Bool, max_rounds::Int, verbose::Bool, timer::PhaseTimer) where {D,N}
     grid = ctx.grid
     nc = Tuple(grid.numCells)
     n_acts = length(ctx.action_ids)
@@ -46,7 +44,7 @@ function _modal_adaptive(ctx::ModalContext{D,N}, L::Int, online::Bool, act_needs
     fshape = (cellshape(grid)..., ctx.n_layers)
     fids = LinearIndices(fshape)
     unsafe = falses(fshape)
-    for H in ctx.system.unsafe, c in get_touching_cell_idxs_l(grid, H), layer in 1:ctx.n_layers
+    for H in ctx.system.unsafe, c in touching_cells(grid, H), layer in 1:ctx.n_layers
         unsafe[c, layer] = true
     end
 
@@ -57,7 +55,7 @@ function _modal_adaptive(ctx::ModalContext{D,N}, L::Int, online::Bool, act_needs
     flow_succ = Union{Nothing,Vector{Int32}}[] # finest-cell ids, nothing if waiting is bad
     act_succ = Vector{Union{Nothing,Vector{Int32}}}[] # per action position, nothing if bad (or not enabled)
     leaf_of = zeros(Int32, fshape)
-    box(id) = leaf_box(cell[id], level_factor(L, level[id], nc), nc)
+    box(id) = box_cells(cell[id], level_factor(L, level[id], nc), nc)
 
     function add_leaf!(l, c, layer, par)
         push!(level, l); push!(cell, c); push!(layer_of, layer); push!(parent, par)
@@ -80,80 +78,16 @@ function _modal_adaptive(ctx::ModalContext{D,N}, L::Int, online::Bool, act_needs
         return id
     end
 
-    to_ids(cs) = sorted_unique!(Int32[fids[v] for v in cs])
-
-    # Blocks of level-0 leaves, flowed forward as one box each: per choice their successors (finest-cell ids; nothing if
-    # bad or not enabled), and all of them together in succ_off/succ_pool.
+    # Blocks of level-0 leaves (see ForwardBlocks), about sweep_factor finest cells per axis
     f0 = level_factor(L, 0, nc)
-    bf = ntuple(i -> f0[i] * max(1, round(Int, ctx.sweep[i] / f0[i])), D) # finest cells per block and axis
-    bgrid = CartesianIndices(ntuple(i -> cld(nc[i], bf[i]), D))
-    bids = LinearIndices((size(bgrid)..., ctx.n_layers))
-    nb = length(bids)
-    block_flow = Vector{Union{Nothing,Vector{Int32}}}(undef, nb)
-    block_acts = Vector{Vector{Union{Nothing,Vector{Int32}}}}(undef, nb)
-    block_enabled = [falses(nb) for _ in 1:n_acts]
-    block_bad = falses(nb)
-    succ_off, succ_pool = ones(Int, nb + 1), Int32[]
-    for layer in 1:ctx.n_layers, b in bgrid # in increasing block id
-        bid = bids[b, layer]
-        r = box_successors(ctx, layer, leaf_box(b, bf, nc))
-        block_flow[bid] = r.flow === nothing ? nothing : to_ids(r.flow)
-        block_bad[bid] = r.flow === nothing
-        all_succ = r.flow === nothing ? Int32[] : copy(block_flow[bid])
-        block_acts[bid] = Union{Nothing,Vector{Int32}}[nothing for _ in 1:n_acts]
-        for ai in 1:n_acts
-            r.enabled[ai] || continue
-            block_enabled[ai][bid] = true
-            if r.acts[ai] === nothing
-                block_bad[bid] = true
-            else
-                block_acts[bid][ai] = to_ids(r.acts[ai])
-                append!(all_succ, block_acts[bid][ai])
-            end
-        end
-        append!(succ_pool, sorted_unique!(all_succ))
-        succ_off[bid+1] = length(succ_pool) + 1
-    end
-    block_of_leaf(id) = bids[CartesianIndex(ntuple(i -> cld((cell[id][i] - 1) * level_factor(L, level[id], nc)[i] + 1, bf[i]), D)), layer_of[id]]
+    blocks = ForwardBlocks(ctx, ntuple(i -> f0[i] * max(1, round(Int, ctx.sweep[i] / f0[i])), D), fids, online)
     lap!(timer, "Blocks")
-    # The leaf's list for one choice: its own, intersected with its parent's; the parent's where only the leaf's is bad
-    function within_parent(own, par_list)
-        par_list === nothing && return own
-        own === nothing && return copy(par_list)
-        return filter!(v -> insorted(v, par_list), own)
-    end
+    # A leaf's successors lie within its parent's, and a level-0 leaf's within its block's (see successors_within)
     function compute_leaf!(id)
-        layer = layer_of[id]
-        b = box(id)
-        if length(b) == 1
-            c = first(b)
-            fl = flow_successors(ctx, layer, c)
-            flow = fl === nothing ? nothing : to_ids(fl)
-            acts = Union{Nothing,Vector{Int32}}[]
-            for ai in 1:n_acts
-                sa = action_successors(ctx, layer, c, ai, ctx.exit_bad_for_actions, fl)
-                push!(acts, sa === nothing ? nothing : to_ids(sa))
-            end
-        else
-            r = box_successors(ctx, layer, b)
-            flow = r.flow === nothing ? nothing : to_ids(r.flow)
-            acts = Union{Nothing,Vector{Int32}}[r.acts[ai] === nothing ? nothing : to_ids(r.acts[ai]) for ai in 1:n_acts]
-        end
-        par = parent[id]
-        if par != 0
-            flow = within_parent(flow, flow_succ[par])
-            for ai in 1:n_acts
-                enabled[ai][par] && (acts[ai] = within_parent(acts[ai], act_succ[par][ai]))
-            end
-        else
-            bid = block_of_leaf(id)
-            flow = within_parent(flow, block_flow[bid])
-            for ai in 1:n_acts
-                block_enabled[ai][bid] && (acts[ai] = within_parent(acts[ai], block_acts[bid][ai]))
-            end
-        end
-        flow_succ[id] = flow
-        act_succ[id] = acts
+        layer, par = layer_of[id], parent[id]
+        outer = par != 0 ? (flow_succ[par], act_succ[par], [enabled[ai][par] for ai in 1:n_acts]) :
+                (bid = block_id(blocks, first(box(id)), layer); (blocks.flow[bid], blocks.acts[bid], blocks.enabled[bid]))
+        flow_succ[id], act_succ[id] = successors_within(ctx, layer, box(id), fids, outer...)
         computed[id] = true
     end
 
@@ -198,16 +132,14 @@ function _modal_adaptive(ctx::ModalContext{D,N}, L::Int, online::Bool, act_needs
     end
     # Online: the blocks reaching each finest cell, and what has been queued so far (kept across rounds: a leaf computed
     # stays computed, and its children are computed when it is split).
-    rev_off, rev_pool = online ? reverse_csr(succ_off, succ_pool, length(fids)) : (ones(Int, length(fids) + 1), Int32[])
-    block_queued = falses(nb)
+    block_queued = falses(length(blocks.bad))
     fine_seen = falses(length(fids))
     pending = Int32[]
     function queue_block!(bid)
         block_queued[bid] && return
         block_queued[bid] = true
-        bl = CartesianIndices(bids)[bid]
-        layer = bl[N]
-        for x in leaf_box(CartesianIndex(ntuple(i -> bl[i], D)), bf, nc)
+        bcells, layer = block_cells(blocks, bid, nc)
+        for x in bcells
             lid = leaf_of[x, layer]
             (computed[lid] || constraint[lid] || !starts[lid]) || push!(pending, lid)
         end
@@ -219,9 +151,7 @@ function _modal_adaptive(ctx::ModalContext{D,N}, L::Int, online::Bool, act_needs
             v = fids[x, layer]
             fine_seen[v] && continue
             fine_seen[v] = true
-            for i in rev_off[v]:(rev_off[v+1]-1)
-                queue_block!(rev_pool[i])
-            end
+            foreach(queue_block!, blocks_reaching(blocks, v))
         end
     end
 
@@ -249,7 +179,7 @@ function _modal_adaptive(ctx::ModalContext{D,N}, L::Int, online::Bool, act_needs
         propagate_bad!(s)
         local n_online = 0
         if online
-            foreach(queue_block!, findall(block_bad))
+            foreach(queue_block!, findall(blocks.bad))
             for id in Int32(1):Int32(n_leaves)
                 active[id] && constraint[id] && queue_reaching!(id)
             end

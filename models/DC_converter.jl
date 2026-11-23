@@ -6,43 +6,34 @@ using LazySets
 include("../src/core/utilities.jl")
 
 function loadDC_Converter()
+    d_aux = 0.0
+    R_L = 0.3 # internal resistor
+    R = 0.0 # load resistor
 
-    A = [0.0 1.0 0.0; 0.0 0.0 -9.82; 0. 0. 0.]
-    S = Hyperrectangle([8.5, 0.0, 1.0], [8.5, 15.0, 0]) # p: [-1, 16], v: [-15, 15], g: [1,1]
+    L = 0.0 # inductance
 
-    guard = HPolyhedron([
-        LazySets.HalfSpace(sparsevec([1], [1.], 3), 0.0), # p <= 0
-        LazySets.HalfSpace(sparsevec([1], [-1.], 3), 0.0),  # p >= 0
-        LazySets.HalfSpace(sparsevec([2], [1.], 3), 0.0)  # v <= 0
-    ])
+    C_0 = 0.0
 
-    jumpMatrix = [0.0 0.0 0.; 0.0 -0.85 0.; 0.0 0.0 1.0]
+    x_1_min = 0.0
+    x_1_max = 0.0
+    x_2_min = 0.0
+    x_2_max = 0.0
 
-    edges::Vector{Edge} = [Edge(1, guard, jumpMatrix, zeros(3))]
 
-    constraint = HPolyhedron([
-        LazySets.HalfSpace(sparsevec([1], [1.], 3), 0.0), # p <= 0
-        #LazySets.HalfSpace(sparsevec([1], [-1.], 3), 0.0),  # p >= 0
-        LazySets.HalfSpace(sparsevec([2], [1.], 3), 0.0),  # v <= 0
-        LazySets.HalfSpace(sparsevec([2], [-1.], 3), 1e-5)  # v >= 1e-5
-    ])
+    x_1 = 1 # this is i_L(t)
+    x_2 = 2 # this is v_0(t)
 
-    act1 = Action(1, HPolyhedron([
-        LazySets.HalfSpace(sparsevec([1], [-1.], 3), -4.0), # p >= 4
-        LazySets.HalfSpace(sparsevec([2], [1.], 3), 0.0),  # v <= 0
-        LazySets.HalfSpace(sparsevec([2], [-1.], 3), 4.0)  # v > -4
-    ]), diagm([1.0, 0.0, 1.0]), [0.0, -4.0, 0.0])
+    dims = 2
+    A = zeros(dims, dims)
+    A_1 = [-R_L/L, -1/L; 1/C_0, -1/(C_0*R)]
+    A_2 = [0.0, 1/L; -1/C_0, 0.0]
+    B = [1/L, 0.0]
+    v_s = Zonotope(B, zeros(3, 1))
 
-    act2 = Action(2, HPolyhedron([
-        LazySets.HalfSpace(sparsevec([1], [-1.], 3), -4.0), # p >= 4
-        LazySets.HalfSpace(sparsevec([2], [-1.], 3), 0.0)  # v >= 0
-    ]), diagm([1.0, 0.9, 1.0]), [0.0, -4.0, 0.0])
+    S = Hyperrectangle([(x_1_max + x_1_min)/2, (x_2_max + x_2_min)/2], [(x_1_max - x_1_min)/2, (x_2_max - x_2_min)/2])
+    locations = ModalLocation[]
 
-    Act = [act1, act2]
+    unsafe = [HPolyhedron([LazySets.HalfSpace([1.0, 0.0], x_1_min)]), HPolyhedron([LazySets.HalfSpace([-1.0, 0.0], -x_1_max)]), HPolyhedron([LazySets.HalfSpace([0.0, 1.0], x_2_min)]), HPolyhedron([LazySets.HalfSpace([0.0, -1.0], -x_2_max)])]
 
-    H = EuclideanHybridSystem(S, Zonotope(zeros(3), zeros(3, 3)), [constraint], A, edges, Act)
-
-    T = 0.1
-
-    return H, T
+    ModalHybridSystem(S, unsafe, locations), period
 end

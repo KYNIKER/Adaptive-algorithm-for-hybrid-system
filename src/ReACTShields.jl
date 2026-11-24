@@ -37,11 +37,13 @@ include("shields/modal_adaptive.jl") # ReACTed_reachable_cell_modal_adaptive: mu
 include("../models/bouncingBall.jl")
 include("../models/oilpump.jl")
 include("../models/cruise.jl")
+include("../models/DC_converter.jl")
 
 export ReACTed_reachable_cell_modal, ReACTed_reachable_cell_modal_adaptive
 export Grid, Edge, Action, EuclideanHybridSystem, ModalHybridSystem, ModalLocation, ModalAction
 export loadBouncingBallShielded, loadBouncingBallShieldedWithInput, loadBouncingBallNoEdges
 export loadOilPumpModal, plot_oil_pump, OILPUMP_OFF_FREE, OILPUMP_OFF_LOCKED, OILPUMP_ON_FREE, OILPUMP_ON_LOCKED, OILPUMP_PIECES
 export loadCruiseControl, loadCruiseControlModal, loadCruiseControlModal_t, plot_cruise, CRUISE_DECELERATE, CRUISE_NEUTRAL, CRUISE_ACCELERATE
+export loadBoostConverterKaramanakos, BOOST_OFF, BOOST_ON
 
 end

@@ -8,6 +8,8 @@
 #   cruise    cruise control, a layer per ego mode  g=1.0  dmin=0.25  dmax=1.0   v_ego=0.0 sensor_range=200.0 online=true
 #   cruise_t  cruise control, one decision layer    g=1.0  dmin=0.25  dmax=1.0   v_ego=0.0 sensor_range=200.0 online=true
 #                                                   act_needs_safe_flow=false
+#   boost     dc-dc boost converter (Karamanakos)   g=0.02 dmin=0.5   dmax=4.0   R=73.0 v_min=14.5 v_max=15.5 online=true
+#             (time in µs: dmin and dmax are in µs, the period is 50 µs)
 # Common keys: g (granularity), dmin and dmax (δ⁻ and δ⁺), online, act_needs_safe_flow, exit_bad (leaving the state space
 # is bad, for waiting and for actions; true unless given), shield (modal, or adaptive: one level of refinement from 2g
 # down to g), out (the png to write; by default results/<model>_<settings>.png). For example
@@ -32,11 +34,12 @@ const DEFAULTS = Dict(
     #"cruise" => Dict("g" => "1.0", "dmin" => "0.25", "dmax" => "1.0", "v_ego" => "0.0", "sensor_range" => "200.0", "online" => "true"),
     "cruise_t" => Dict("g" => "1.0", "dmin" => "0.125", "dmax" => "1.0", "v_ego" => "0.0", "sensor_range" => "200.0", "online" => "true",
         "act_needs_safe_flow" => "false"),
+    "boost" => Dict("g" => "0.02", "dmin" => "0.5", "dmax" => "4.0", "R" => "73.0", "v_min" => "14.5", "v_max" => "15.5", "online" => "true"),
 )
 
 # Granularity of the warm-up run. For the cruise control it must keep the front car's region borders (-6 and 18) on
 # cell borders.
-const WARMUP_G = Dict("ball" => "0.5", "oilpump" => "1.0", "cruise" => "2.0", "cruise_t" => "2.0")
+const WARMUP_G = Dict("ball" => "0.5", "oilpump" => "1.0", "cruise" => "2.0", "cruise_t" => "2.0", "boost" => "0.1")
 
 function parse_args(args)
     isempty(args) && error("give a model: $(join(sort(collect(keys(DEFAULTS))), ", "))")
@@ -73,6 +76,32 @@ function plot_ball(grid, allowed, sys)
     return fig
 end
 
+# The boost converter as two heatmaps of current against voltage, one per switch position, coloured by the set of
+# choices allowed in each cell. The dashed box is the safe set.
+function plot_boost(grid, allowed, v_min, v_max, i_max)
+    names = ["keep", "turn on", "turn off"]
+    label(b) = b == 0 ? "dead" : "{" * join([names[i+1] for i in 0:2 if (b >> i) & 1 != 0], ", ") * "}"
+    present = sort(unique(allowed))
+    palette = Dict(0 => :black, 1 => :steelblue, 2 => :darkgoldenrod, 3 => :yellow, 4 => :orchid4, 5 => :white)
+    idx = Dict(b => i for (i, b) in enumerate(present))
+    colors = [get(palette, b, :gray60) for b in present]
+    i = grid.lower[1] .+ grid.granularity .* ((1:size(allowed, 1)) .- 0.5)
+    v = grid.lower[2] .+ grid.granularity .* ((1:size(allowed, 2)) .- 0.5)
+    panels = map(((BOOST_OFF, "switch off"), (BOOST_ON, "switch on"))) do (layer, title)
+        m = map(b -> idx[b], allowed[:, :, layer])
+        fig = heatmap(i, v, permutedims(m); c=cgrad(colors, length(present), categorical=true), clim=(0.5, length(present) + 0.5),
+            colorbar=false, xlabel="inductor current (A)", ylabel="output voltage (V)", title, legend=layer == BOOST_ON ? :outerright : false)
+        plot!(fig, [0, i_max, i_max, 0], [v_min, v_min, v_max, v_max]; color=:red, ls=:dash, label=false)
+        for b in present
+            plot!(fig, Float64[], Float64[]; seriestype=:shape, color=colors[idx[b]], linecolor=:gray60, label=label(b))
+        end
+        fig
+    end
+    println(join(("$(label(b)) $(count(==(b), allowed))" for b in present), ", "))
+    return plot(panels...; layout=(1, 2), size=(1400, 600), plot_title="Boost converter shield, g = $(grid.granularity)",
+        left_margin=4Plots.mm, bottom_margin=4Plots.mm)
+end
+
 # Synthesizes the shield of the model. Returns the system and what the shield returns.
 function synthesize(model, opts; verbose::Bool=true)
     num(k) = parse(Float64, opts[k])
@@ -81,6 +110,7 @@ function synthesize(model, opts; verbose::Bool=true)
     sys, p = model == "ball" ? loadBouncingBallShieldedWithInput() :
              model == "oilpump" ? loadOilPumpModal(; period=num("period")) :
              model == "cruise" ? loadCruiseControlModal(; sensor_range=num("sensor_range")) :
+             model == "boost" ? loadBoostConverterKaramanakos(; R=num("R"), v_min=num("v_min"), v_max=num("v_max")) :
              loadCruiseControlModal_t(; sensor_range=num("sensor_range"))
     msys = sys isa EuclideanHybridSystem ? ModalHybridSystem(sys) : sys
     kw = (; online=flag("online"), act_needs_safe_flow=flag("act_needs_safe_flow"), exit_bad_for_flow=flag("exit_bad"), exit_bad_for_actions=flag("exit_bad"), verbose)
@@ -94,6 +124,7 @@ end
 function plot_shield(model, opts, sys, (grid, allowed, lost, info))
     model == "ball" && return plot_ball(grid, dropdims(allowed; dims=3), sys) # one layer
     model == "oilpump" && return plot_oil_pump(grid, grid, allowed, lost, info)
+    model == "boost" && return plot_boost(grid, allowed, parse(Float64, opts["v_min"]), parse(Float64, opts["v_max"]), 4.0)
     return plot_cruise(grid, allowed, info; v_ego=parse(Float64, opts["v_ego"]), wait_mode=model == "cruise_t" ? CRUISE_NEUTRAL : nothing)
 end
 

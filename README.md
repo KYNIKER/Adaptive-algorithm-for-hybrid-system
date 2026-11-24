@@ -8,7 +8,7 @@ ReACT, an adaptive reachability analysis for hybrid systems, and shield synthesi
 src/ReACTShields.jl      the shield module: include("src/ReACTShields.jl"); using .ReACTShields
 src/core/                shared by both parts: hybrid system types, discretization, the grid and cell covers
 src/shields/             the two shields and their building blocks
-models/                  shield models: bouncing ball, oil pump, cruise control
+models/                  shield models: bouncing ball, oil pump, cruise control, dc-dc boost converter
 scripts/                 shield_sandbox.jl for experiments, setup.jl to install the packages
 test/runtests.jl         regression tests for the shields
 reachability/            the reachability benchmarks: ReACTed.jl, testsuite.jl, JuliaReach/, plotFuncs/ and their models

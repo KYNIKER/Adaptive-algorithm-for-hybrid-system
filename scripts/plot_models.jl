@@ -42,18 +42,68 @@ const DEFAULTS = Dict(
 const WARMUP_G = Dict("ball" => "0.5", "oilpump" => "1.0", "cruise" => "2.0", "cruise_t" => "2.0", "boost" => "0.1")
 
 function parse_args(args)
-    isempty(args) && error("give a model: $(join(sort(collect(keys(DEFAULTS))), ", "))")
-    model = args[1]
-    haskey(DEFAULTS, model) || error("unknown model $model; the models are $(join(sort(collect(keys(DEFAULTS))), ", "))")
-    opts = copy(DEFAULTS[model])
-    haskey(opts, "act_needs_safe_flow") || (opts["act_needs_safe_flow"] = "true")
-    haskey(opts, "exit_bad") || (opts["exit_bad"] = "true")
-    haskey(opts, "shield") || (opts["shield"] = "modal")
-    for a in args[2:end]
-        k, v = split(a, "="; limit=2)
-        opts[k] = v
+    if !isempty(args)
+        model = args[1]
+        haskey(DEFAULTS, model) || error("unknown model $model; the models are $(join(sort(collect(keys(DEFAULTS))), ", "))")
+        opts = copy(DEFAULTS[model])
+        haskey(opts, "act_needs_safe_flow") || (opts["act_needs_safe_flow"] = "true")
+        haskey(opts, "exit_bad") || (opts["exit_bad"] = "true")
+        haskey(opts, "shield") || (opts["shield"] = "modal")
+        for a in args[2:end]
+            k, v = split(a, "="; limit=2)
+            opts[k] = v
+        end
+        return [model], [opts]
+    else
+        models, opts .= []
+        ball_configs = [
+            Dict("g" => "0.02", "dmin" => "0.001", "dmax" => "0.032", "online" => "true", "exit_bad" => "false", "shield" => "modal"),
+            Dict("g" => "0.01", "dmin" => "0.001", "dmax" => "0.032", "online" => "true", "exit_bad" => "false", "shield" => "modal"),
+            Dict("g" => "0.02", "dmin" => "0.001", "dmax" => "0.032", "online" => "false", "exit_bad" => "false", "shield" => "modal"),
+            Dict("g" => "0.01", "dmin" => "0.001", "dmax" => "0.032", "online" => "false", "exit_bad" => "false", "shield" => "modal"),
+            Dict("g" => "0.01", "dmin" => "0.001", "dmax" => "0.032", "online" => "true", "exit_bad" => "false", "shield" => "adaptive"),
+            Dict("g" => "0.01", "dmin" => "0.001", "dmax" => "0.032", "online" => "false", "exit_bad" => "false", "shield" => "adaptive")
+        ]
+        for bc in ball_configs
+            push!(models, "ball")
+            push!(opts, bc)
+        end
+
+        op_configs = [
+            "oilpump" => Dict("g" => "0.2", "dmin" => "0.1", "dmax" => "0.2", "period" => "0.2", "online" => "true", "shield"=>"modal"),
+            "oilpump" => Dict("g" => "0.2", "dmin" => "0.1", "dmax" => "0.2", "period" => "0.2", "online" => "false", "shield"=>"modal"),
+            "oilpump" => Dict("g" => "0.1", "dmin" => "0.1", "dmax" => "0.2", "period" => "0.2", "online" => "true", "shield"=>"adaptive")
+        ]
+        for opc in op_configs
+            push!(models, "oilpump")
+            push!(opts, opc)
+        end
+
+        cc_configs = [
+            "cruise_t" => Dict("g" => "1.0", "dmin" => "0.125", "dmax" => "1.0", "v_ego" => "0.0", "sensor_range" => "200.0", "online" => "true", "act_needs_safe_flow" => "false", "shield"=>"modal"),
+            "cruise_t" => Dict("g" => "0.5", "dmin" => "0.125", "dmax" => "0.5", "v_ego" => "0.0", "sensor_range" => "200.0", "online" => "true", "act_needs_safe_flow" => "false", "shield"=>"modal"),
+            "cruise_t" => Dict("g" => "1.0", "dmin" => "0.125", "dmax" => "1.0", "v_ego" => "0.0", "sensor_range" => "200.0", "online" => "false", "act_needs_safe_flow" => "false", "shield"=>"modal"),
+            "cruise_t" => Dict("g" => "0.5", "dmin" => "0.125", "dmax" => "1.0", "v_ego" => "0.0", "sensor_range" => "200.0", "online" => "true", "act_needs_safe_flow" => "false", "shield"=>"adaptive")
+        ]
+
+        for ccc in cc_configs
+            push!(models, "cruise_t")
+            push!(opts, ccc)
+        end
+
+        boost_configs = [
+            "boost" => Dict("g" => "0.02", "dmin" => "0.5", "dmax" => "4.0", "R" => "73.0", "v_min" => "14.5", "v_max" => "15.5", "online" => "true", "shield"=>"modal"),
+            "boost" => Dict("g" => "0.02", "dmin" => "0.5", "dmax" => "4.0", "R" => "73.0", "v_min" => "14.5", "v_max" => "15.5", "online" => "false", "shield"=>"modal"),
+            "boost" => Dict("g" => "0.01", "dmin" => "0.5", "dmax" => "4.0", "R" => "73.0", "v_min" => "14.5", "v_max" => "15.5", "online" => "true", "shield"=>"modal"),
+            "boost" => Dict("g" => "0.01", "dmin" => "0.5", "dmax" => "4.0", "R" => "73.0", "v_min" => "14.5", "v_max" => "15.5", "online" => "true", "shield"=>"adaptive")
+        ]
+
+        for boostc in boost_configs
+            push!(models, "boost")
+            push!(opts, boostc)
+        end
+        return models, opts
     end
-    return model, opts
 end
 
 # The bouncing ball as a heatmap of position against velocity, coloured by the set of choices allowed in each cell.
@@ -141,17 +191,19 @@ function record_timing(row)
     return abspath(file)
 end
 
-model, opts = parse_args(ARGS)
-settings = join(("$k=$(opts[k])" for k in sort(collect(keys(opts))) if k != "out"), "_")
-out = get(opts, "out", joinpath(@__DIR__, "..", "results", "$(model)_$(settings).png"))
-mkpath(dirname(out))
-println("warm-up at g = $(WARMUP_G[model])")
-synthesize(model, merge(opts, Dict("g" => WARMUP_G[model])); verbose=false)
-synth = @timed synthesize(model, opts)
-sys, res = synth.value
-savefig(plot_shield(model, opts, sys, res), out)
-allowed = res[2]
-csv = record_timing((Dates.format(now(), "yyyy-mm-dd HH:MM:SS"), model, settings, round(synth.time, digits=3), count(==(0), allowed), length(allowed)))
-println("synthesis $(round(synth.time, digits=1)) s")
-println("saved $(abspath(out))")
-println("timing appended to $csv")
+models, optss = parse_args(ARGS)
+for (model, opts) in zip(models, optss)
+    settings = join(("$k=$(opts[k])" for k in sort(collect(keys(opts))) if k != "out"), "_")
+    out = get(opts, "out", joinpath(@__DIR__, "..", "results", "$(model)_$(settings).png"))
+    mkpath(dirname(out))
+    println("warm-up at g = $(WARMUP_G[model])")
+    synthesize(model, merge(opts, Dict("g" => WARMUP_G[model])); verbose=false)
+    synth = @timed synthesize(model, opts)
+    sys, res = synth.value
+    savefig(plot_shield(model, opts, sys, res), out)
+    allowed = res[2]
+    csv = record_timing((Dates.format(now(), "yyyy-mm-dd HH:MM:SS"), model, settings, round(synth.time, digits=3), count(==(0), allowed), length(allowed)))
+    println("synthesis $(round(synth.time, digits=1)) s")
+    println("saved $(abspath(out))")
+    println("timing appended to $csv")
+end

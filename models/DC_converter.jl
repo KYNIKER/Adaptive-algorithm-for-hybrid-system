@@ -57,8 +57,7 @@ end
 # The off layer has the conduction modes as two locations: when the current reaches 0 with v_o >= v_s, an edge enters
 # discontinuous conduction (the current is set to exactly 0), and once v_o drops to v_s the diode conducts again. The
 # discontinuous location is only entered by that edge (starts = false), so every period starts in continuous conduction;
-# with v_o >= v_s at i_L = 0 it is at the guard at once. The face i_L >= 0 of the state space is bordered by that guard,
-# as the ball's floor is.
+# with v_o >= v_s at i_L = 0 it is at the guard at once. The face i_L >= 0 of the state space is bordered by that guard.
 #
 # Safety: the current stays below i_max and the output voltage inside [v_min, v_max]. v_s_spread makes the input voltage
 # an interval v_s ± v_s_spread.

@@ -23,11 +23,10 @@ struct Location
     invarient::Union{HPolyhedron,Nothing}
     A::Matrix{Float64}
     B::Union{Nothing,Matrix{Float64}}
-    u # Unsure 
+    u
     c::Union{Nothing,Vector{Float64}}
     edges::Vector{Edge}
     constraints::Vector{LazySets.HalfSpace}
-    # constraints::Vector{Union{HPolyhedron,LazySets.HalfSpace}}
 end
 
 Base.show(io::Core.IO, l::Location) = print(io, "Location: ", l.id, "\n invariant? ", !isnothing(l.invarient), "\n edges: ", length(l.edges))
@@ -35,9 +34,6 @@ Base.show(io::Core.IO, l::Location) = print(io, "Location: ", l.id, "\n invarian
 mutable struct HybridSystemV2
     locations::Vector{Location}
     globalConstraints::Vector{LazySets.HalfSpace}
-    #globalConstraints::Vector{Union{HPolyhedron,LazySets.HalfSpace}}
-    #initialLoc::Int
-    #initialState # Fill this in later
 end
 
 Base.show(io::Core.IO, s::HybridSystemV2) = print(io, "System with ", length(s.locations), " locations.")
@@ -64,17 +60,17 @@ struct EuclideanHybridSystem{S<:LazySet,U<:LazySet,C<:LazySet,M<:AbstractMatrix}
 end
 
 function getHalfSpaceProjections(H::HPolyhedron)
-    getHalfSpaceProjections(H.constraints) # Convert to halfspace list
+    getHalfSpaceProjections(H.constraints)
 end
 
-function getHalfSpaceProjections(halfspaces::Vector{<:LazySets.HalfSpace}) # Any subtype of halfspace
+function getHalfSpaceProjections(halfspaces::Vector{<:LazySets.HalfSpace})
     projVectors = map(x -> Vector(x.a), halfspaces)
     projBounds = ρ.(projVectors, halfspaces)
     return projVectors, projBounds
 end
 
 function getHalfSpaceProjections(H::Nothing)
-    return ([], []) # return empty lists
+    return ([], [])
 end
 
 function sparseHPolyhedronToDense(H_sparse::HPolyhedron)
@@ -141,13 +137,13 @@ function isSubSet(Z::Zonotope, H::HPolyhedron)
     for h in H.constraints
         agenSum = reduce(+, abs.(genmat(Z) .* h.a))
         acenSum = dot(Vector(h.a), Z.center)
-        sen = sen & (ρ(h.a, Z) <= h.b) #(acenSum + agenSum <= h.b)
+        sen = sen & (ρ(h.a, Z) <= h.b)
     end
     return sen
 end
 
 function isSubSet(Z::Zonotope, H::Any)
-    return ⊆(Z, H, false) # Do not return a witness, just boolean
+    return ⊆(Z, H, false)
 end
 
 function overapproximateIntervalReachset(A, X0::Zonotope{N,Vector{N},Matrix{N}}, U::Zonotope, δ⁻, δ⁺, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5, phiDict=nothing) where {N}
@@ -163,13 +159,10 @@ function overapproximateIntervalReachset(A, X0::Zonotope{N,Vector{N},Matrix{N}},
 
     d = δ⁻
     dia::Matrix{Float64} = diagm(ones(XDim))
-    isInvA = isinvertible(A)
-    Φ = copy(phiDict[d])
     A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(A)
-    Φcache = sum(A) == abs(sum(A)) ? Φ : nothing
-    P2A_abs = ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, isInvA, Φcache)
+    P2A_abs = ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, false, nothing)
 
-    if !(zeros(XDim) ∈ U) #Origin is *not* in input
+    if !(zeros(XDim) ∈ U)
         invA = inv(Matrix(A))
         û = copy(U.center)
         Ut = Zonotope(U.center - û, genmat(U))
@@ -250,7 +243,6 @@ function overapproximateIntervalReachset(A, X0::Zonotope{N,Vector{N},Matrix{N}},
 end
 
 function produceDirections(n)
-    # Produce one hot encodings. 
     #TODO: Could be smarter directions?
     directions = Vector{Vector{Float64}}()
     for i in 1:n
@@ -278,7 +270,6 @@ function segmentLineIntersection(segment1, segment2, line)
     if (x1 - line) * (x2 - line) > 0 || (x1 == x2)
         return nothing
     end
-    # Use interpolation
     t = (line - x1) / (x2 - x1)
     return y1 + t * (y2 - y1)
 end
@@ -288,27 +279,23 @@ function GirardGuernicAlgorithm(Z::Zonotope, line::Float64)
     c = Z.center
     G = [copy(g) for g in eachcol(genmat(Z))]
 
-    # Ensure all generators are positive
     for g in G
         if g[2] < 0 || (g[2] == 0 && g[1] < 0)
             g .*= -1
         end
     end
 
-    # Get the lowest vertex
     P = copy(c)
     for g in G
         P .-= g
     end
 
-    # Sort generators in trigometric order
     sort!(G, by=g -> atan(g[2], g[1]))
 
     m = Inf
     M = -Inf
     # Next we traverse the verticies of the zonotope, 
     # looking for intersections with the line
-    # Forward scan
     for g in G
         Q = P .+ 2g
         y = segmentLineIntersection(P, Q, line)
@@ -319,7 +306,6 @@ function GirardGuernicAlgorithm(Z::Zonotope, line::Float64)
         P = Q
     end
 
-    # Backward scan
     for g in G
         Q = P .- 2g
         y = segmentLineIntersection(P, Q, line)
@@ -334,7 +320,6 @@ function GirardGuernicAlgorithm(Z::Zonotope, line::Float64)
 end
 
 # Zonotope intersection with hyperplane
-# Gets the area where we meet the intersection.
 function lineIntersection(Z::Zonotope, H::LazySets.HalfSpace)
     directions = produceDirections(length(Z.center))
     val = H.b
@@ -346,14 +331,12 @@ function lineIntersection(Z::Zonotope, H::LazySets.HalfSpace)
         Z2 = project2d(Z, n, direction)
         m, M = GirardGuernicAlgorithm(Z2, val)
 
-        #Produce the constraints
         if isfinite(m)
             push!(constraints, LazySets.HalfSpace(direction, M))
             push!(constraints, LazySets.HalfSpace(-direction, -m))
         end
     end
 
-    # enforce hyperplane equality n⋅x = γ
     push!(constraints, LazySets.HalfSpace(n, val))
     push!(constraints, LazySets.HalfSpace(-n, -val))
 
@@ -376,7 +359,7 @@ end
 
 function getBoxIntersection(Z::Zonotope, H_intersections::Vector{N}) where N
     S1 = foldr((x, y) -> ∩(x, y), H_intersections; init=Z)
-    S = S1 #overapproximate(S1, Zonotope) #foldr(∩, H_intersections; init=Z)
+    S = S1
 
     if !isempty(S)
         S = overapproximate(S, HPolytope, dirs=BoxDirections())
@@ -392,7 +375,7 @@ end
 function getBoxIntersection(Z::Zonotope, H_intersections::Any)
     S = ∩(H_intersections, Z)
     if !isempty(S)
-        box = overapproximate(S, Hyperrectangle)#box_approximation(S)#
+        box = overapproximate(S, Hyperrectangle)
         return convert(Zonotope, box)
     else
         println("EMPTY!!")
@@ -403,7 +386,6 @@ end
 function splitZonotope(Z::Zonotope, H_intersection::LazySets.HalfSpace)
     H_rest = LazySets.HalfSpace(-H_intersection.a, -H_intersection.b)
 
-    # Get intersections
     Z_intersection = getBoxIntersection(Z, H_intersection)
     Z_rest = getBoxIntersection(Z, H_rest)
 
@@ -413,7 +395,6 @@ end
 function splitZonotope(Z::Zonotope, H_intersections::Vector{N}) where N
     H_rest = map(x -> LazySets.HalfSpace(-x.a, -x.b), H_intersections)
 
-    # Get intersections
     Z_intersection = getBoxIntersection(Z, H_intersections)
     Z_rest = getBoxIntersection(Z, H_rest)
 
@@ -421,12 +402,10 @@ function splitZonotope(Z::Zonotope, H_intersections::Vector{N}) where N
 end
 
 function splitZonotope(Z::Zonotope, H_intersections::LazySets.HPolyhedronModule.HPolyhedron)
-    # Get intersections
     Z_intersection = zonotopeStripIntersection(Z, H_intersections)
 
     println(Z_intersection)
 
-    # Flip it!
     constraint_list = H_intersections.constraints
     flipped_constraint_list = map(x -> LazySets.HalfSpace(-x.a, -x.b), constraint_list)
 
@@ -444,7 +423,6 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HyperplaneModule.Hyp
     c = Z.center
     tb = transpose(H.a)
     GGb = G * (transpose(G) * H.a)
-    # λ = GGB / (transpose(b) * GGb + σ^2)
     # λ = (G * transpose(G) * b) / (transpose(b) * G * transpose(G) * b + σ^2)
     λ = GGb / (dot(tb, GGb) + σ^2)
     ĉ = c + λ * (H.b - tb * c)
@@ -458,7 +436,6 @@ function zonotopeStripIntersection(Z::Zonotope, a, b, σ::Float64)
     c = Z.center
     tb = transpose(a)
     GGb = G * (transpose(G) * a)
-    # λ = GGB / (transpose(b) * GGb + σ^2)
     # λ = (G * transpose(G) * b) / (transpose(b) * G * transpose(G) * b + σ^2)
     λ = GGb / (dot(tb, GGb) + σ^2)
     ĉ = c + λ * (b - tb * c)
@@ -466,7 +443,6 @@ function zonotopeStripIntersection(Z::Zonotope, a, b, σ::Float64)
     return Zonotope(ĉ, Ĝ)
 end
 
-# Takes two vectors. May be sparrse
 function iscollinear(a, b; atol=1e-10)
     # If the value is zero (Or very close to zero, then they are linearly dependent)
     # Squaring rather than doing norm because norm would take longer to calc 
@@ -501,8 +477,7 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
 
         for hs in HalfSpaces
             centerOfStrip = (hs.b - ρ(-hs.a, res)) / 2
-            #σ = abs(x + hs.b) / 2
-            σ = abs(centerOfStrip - hs.b)# / 2
+            σ = abs(centerOfStrip - hs.b)
 
             σ = σ == 0.0 ? eps(1.0) : σ
             res = zonotopeStripIntersection(res, hs.a, centerOfStrip, σ)
@@ -524,8 +499,7 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
             maxDist = min(temphs[1].b, ρ(temphs[1].a, res))
             minDist = min(temphs[2].b, ρ(-temphs[1].a, res))
 
-            diff = maxDist - (maxDist + minDist) / 2 #norm((minminDists * temphs[1].a + maxminDists * temphs[1].a) / 2 - minminDists * temphs[1].a)
-            #σ = maxminDists - diff
+            diff = maxDist - (maxDist + minDist) / 2
             σ = maxDist - diff
             σ = σ == 0.0 ? eps(1.0) : σ
 
@@ -536,7 +510,7 @@ function zonotopeStripIntersection(Z::Zonotope, H::LazySets.HPolyhedronModule.HP
 
             centerOfStrip = (hs.b - ρ(-hs.a, res)) / 2
 
-            σ = abs(centerOfStrip - hs.b)# / 2
+            σ = abs(centerOfStrip - hs.b)
 
             σ = σ == 0.0 ? eps(1.0) : σ
             res = zonotopeStripIntersection(res, hs.a, centerOfStrip, σ)
@@ -589,10 +563,10 @@ function plotProjectedFlowpipe(flowpipe, dim1, dim2, destination, alpha=1)
                 mincor2 = c[dim2] - projectGDim2
 
                 if sen
-                    Plots.plot!(Shape([(mincor1s[dim1], mincor1s[dim2]), (mincor2s[dim1], mincor2s[dim2]), (maxcor1s[dim1], maxcor1s[dim2]), (maxcor2s[dim1], maxcor2s[dim2])]), c=cpallete[i], lab="S" * string(i), linealpha=0) # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
+                    Plots.plot!(Shape([(mincor1s[dim1], mincor1s[dim2]), (mincor2s[dim1], mincor2s[dim2]), (maxcor1s[dim1], maxcor1s[dim2]), (maxcor2s[dim1], maxcor2s[dim2])]), c=cpallete[i], lab="S" * string(i), linealpha=0)
                     sen = false
                 else
-                    Plots.plot!(Shape([(mincor1s[dim1], mincor1s[dim2]), (mincor2s[dim1], mincor2s[dim2]), (maxcor1s[dim1], maxcor1s[dim2]), (maxcor2s[dim1], maxcor2s[dim2])]), c=cpallete[i], lab="", linealpha=0) # Shape([mincor1s[dim1], mincor2s[dim1], maxcor2s[dim1], maxcor1s[dim1]], [mincor1s[dim2], mincor2s[dim2], maxcor2s[dim2], maxcor1s[dim2]])
+                    Plots.plot!(Shape([(mincor1s[dim1], mincor1s[dim2]), (mincor2s[dim1], mincor2s[dim2]), (maxcor1s[dim1], maxcor1s[dim2]), (maxcor2s[dim1], maxcor2s[dim2])]), c=cpallete[i], lab="", linealpha=0)
                 end
             end
             i += 1
@@ -663,8 +637,8 @@ function plotProjectedFlowpipeLazy(flowpipe, dims, ndim, destination, alpha=1)
             println(y)
             sen = true
             for (r, t) in x
-                d1 = [r[1], -r[2]]#[ρ(sparsevec([dim1], [-1.0], ndim), r), ρ(sparsevec([dim1], [1.0], ndim), r)]
-                d2 = [r[3], -r[4]]#[ρ(sparsevec([dim2], [-1.0], ndim), r), ρ(sparsevec([dim2], [1.0], ndim), r)]
+                d1 = [r[1], -r[2]]
+                d2 = [r[3], -r[4]]
 
                 if sen
                     Plots.plot!(Shape([d1[1], d1[2], d1[2], d1[1]], [d2[1], d2[1], d2[2], d2[2]]), c=cpallete[i], leg=false, linealpha=0)
@@ -689,25 +663,24 @@ end
 function nestedInputDiscCalculate(inputDict, phiDict, δ⁻, currentTime, reduceOrder=5, maxOrder=5)
     # We know that δ⁻ % currentTime == 0
 
-    precomputedLargestStep = (length(inputDict) - 2)#log2(δ⁺ / δ⁻)#
+    precomputedLargestStep = (length(inputDict) - 2)
     largestTimeStepSize = δ⁻ * 2^precomputedLargestStep
 
-    totalSteps = Int(round(currentTime / δ⁻))  # Steps we need to take. We round cause floats make small errors
+    totalSteps = Int(round(currentTime / δ⁻))
 
-    # Convert to bits 
-    listToInclude = digits(totalSteps, base=2) # Get bit map
+    listToInclude = digits(totalSteps, base=2)
     largestInput = copy(inputDict[largestTimeStepSize])
     ϕ = phiDict[largestTimeStepSize]
     tempM = similar(ϕ)
     outputInput = Zonotope(zeros(size(tempM, 1)), zeros(size(tempM, 1), 1))
     sen = true
     precomputed = true
-    i = 0 # Iterator for precomputed
+    i = 0
     for includeFlag in (listToInclude)
         if precomputed
-            if includeFlag == 1 # If we have to add
+            if includeFlag == 1
                 if sen
-                    outputInput = minkowski_sum(outputInput, inputDict[2^i*δ⁻])#copy(inputDict[2^i*δ⁻])#
+                    outputInput = minkowski_sum(outputInput, inputDict[2^i*δ⁻])
                     sen = false
                 else
 
@@ -715,7 +688,6 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁻, currentTime, reduce
                 end
             end
 
-            # Check if next step is also precomputed
             if !(i < precomputedLargestStep)
 
                 precomputed = false
@@ -725,7 +697,7 @@ function nestedInputDiscCalculate(inputDict, phiDict, δ⁻, currentTime, reduce
             ϕ = ϕ * ϕ
             inputDict[2^i*δ⁻] = copy(largestInput)
             phiDict[2^i*δ⁻] = copy(ϕ)
-            if includeFlag == 1 # If we have to add
+            if includeFlag == 1
                 if isnothing(outputInput)
                     outputInput = largestInput
                 else

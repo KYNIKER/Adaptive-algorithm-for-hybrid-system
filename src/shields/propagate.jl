@@ -17,8 +17,7 @@ function Dynamics(A::Matrix{Float64}, U, steps::Int, δ⁻::Float64, δ⁺::Floa
     step_Φ, step_Φt, step_input_any = phi_input_dict(A, U, δ⁻, δ⁺, alg, maxOrder, reduceOrder)
     step_input = Dict(k => dense_zonotope(Z) for (k, Z) in step_input_any)
     A_abs = ReachabilityAnalysis.Exponentiation.elementwise_abs(A)
-    Φcache = A == A_abs ? step_Φ[δ⁻] : nothing
-    P2A_abs = Matrix{Float64}(ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, isinvertible(A), Φcache))
+    P2A_abs = Matrix{Float64}(ReachabilityAnalysis.Exponentiation.Φ₂(A_abs, δ⁻, alg, false, nothing))
     Φ = Matrix{Float64}[Matrix{Float64}(I, n, n)]
     V = [Zonotope(zeros(n), zeros(n, n))]
     Φ₁ = Matrix{Float64}[zeros(n, n)] # Φ₁[k+1] is Φ₁(A, k δ⁻)

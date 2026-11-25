@@ -23,16 +23,15 @@ using SparseArrays: sparsevec
 # Shared with the reachability benchmarks in reachability/
 include("core/discretize.jl")
 include("core/utilities.jl")
-# The grid, cells and covers of zonotopes by cells
 include("core/partition.jl")
-include("core/timer.jl")          # PhaseTimer, the time per phase each shield reports
+include("core/timer.jl")
 
 # Order matters: later files use the types and helpers of earlier ones.
-include("shields/guards.jl")        # ReACT_guards and the set predicates (all_inside, some_inside, ...)
-include("shields/propagate.jl")     # reach set of a cell over one period, with jumps
-include("shields/flat.jl")          # successor store, the shield state and its rules, choice_bits
+include("shields/guards.jl")
+include("shields/propagate.jl")
+include("shields/flat.jl")
 include("shields/modal.jl")
-include("shields/modal_adaptive.jl") # ReACTed_reachable_cell_modal_adaptive: multi-resolution on top of modal.jl
+include("shields/modal_adaptive.jl")
 
 include("../models/bouncingBall.jl")
 include("../models/oilpump.jl")

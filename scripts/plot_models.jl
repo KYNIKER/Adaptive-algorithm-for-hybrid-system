@@ -22,7 +22,7 @@
 # coarse grid (WARMUP_G), so the time does not include compiling the shield code.
 
 ENV["GKSwstype"] = "100" # no plot windows, only files
-using LazySets, Plots, Dates
+using LazySets, Plots, Dates#, ProfileView
 gr()
 include(joinpath(@__DIR__, "..", "src", "ReACTShields.jl"))
 using .ReACTShields
@@ -210,6 +210,7 @@ for (model, opts) in zip(models, optss)
     out = get(opts, "out", joinpath(@__DIR__, "..", "results", "$(model)_$(settings).png"))
     mkpath(dirname(out))
     println("warm-up at g = $(WARMUP_G[model])")
+    #VSCodeServer.@profview synthesize(model, merge(opts, Dict("g" => WARMUP_G[model])); verbose=false)
     synthesize(model, merge(opts, Dict("g" => WARMUP_G[model])); verbose=false)
     synth = @timed synthesize(model, opts)
     sys, res = synth.value

@@ -55,7 +55,8 @@ function parse_args(args)
         end
         return [model], [opts]
     else
-        models, opts .= []
+        models = []
+        opts = []
         ball_configs = [
             Dict("g" => "0.02", "dmin" => "0.001", "dmax" => "0.032", "online" => "true", "exit_bad" => "false", "shield" => "modal"),
             Dict("g" => "0.01", "dmin" => "0.001", "dmax" => "0.032", "online" => "true", "exit_bad" => "false", "shield" => "modal"),
@@ -66,40 +67,52 @@ function parse_args(args)
         ]
         for bc in ball_configs
             push!(models, "ball")
+            haskey(bc, "act_needs_safe_flow") || (bc["act_needs_safe_flow"] = "true")
+            haskey(bc, "exit_bad") || (bc["exit_bad"] = "true")
+            haskey(bc, "shield") || (bc["shield"] = "modal")
             push!(opts, bc)
         end
 
         op_configs = [
-            "oilpump" => Dict("g" => "0.2", "dmin" => "0.1", "dmax" => "0.2", "period" => "0.2", "online" => "true", "shield"=>"modal"),
-            "oilpump" => Dict("g" => "0.2", "dmin" => "0.1", "dmax" => "0.2", "period" => "0.2", "online" => "false", "shield"=>"modal"),
-            "oilpump" => Dict("g" => "0.1", "dmin" => "0.1", "dmax" => "0.2", "period" => "0.2", "online" => "true", "shield"=>"adaptive")
+            Dict("g" => "0.2", "dmin" => "0.1", "dmax" => "0.2", "period" => "0.2", "online" => "true", "shield"=>"modal"),
+            Dict("g" => "0.2", "dmin" => "0.1", "dmax" => "0.2", "period" => "0.2", "online" => "false", "shield"=>"modal"),
+            Dict("g" => "0.1", "dmin" => "0.1", "dmax" => "0.2", "period" => "0.2", "online" => "true", "shield"=>"adaptive")
         ]
         for opc in op_configs
             push!(models, "oilpump")
+            haskey(opc, "act_needs_safe_flow") || (opc["act_needs_safe_flow"] = "true")
+            haskey(opc, "exit_bad") || (opc["exit_bad"] = "true")
+            haskey(opc, "shield") || (opc["shield"] = "modal")
             push!(opts, opc)
         end
 
         cc_configs = [
-            "cruise_t" => Dict("g" => "1.0", "dmin" => "0.125", "dmax" => "1.0", "v_ego" => "0.0", "sensor_range" => "200.0", "online" => "true", "act_needs_safe_flow" => "false", "shield"=>"modal"),
-            "cruise_t" => Dict("g" => "0.5", "dmin" => "0.125", "dmax" => "0.5", "v_ego" => "0.0", "sensor_range" => "200.0", "online" => "true", "act_needs_safe_flow" => "false", "shield"=>"modal"),
-            "cruise_t" => Dict("g" => "1.0", "dmin" => "0.125", "dmax" => "1.0", "v_ego" => "0.0", "sensor_range" => "200.0", "online" => "false", "act_needs_safe_flow" => "false", "shield"=>"modal"),
-            "cruise_t" => Dict("g" => "0.5", "dmin" => "0.125", "dmax" => "1.0", "v_ego" => "0.0", "sensor_range" => "200.0", "online" => "true", "act_needs_safe_flow" => "false", "shield"=>"adaptive")
+            Dict("g" => "1.0", "dmin" => "0.125", "dmax" => "1.0", "v_ego" => "0.0", "sensor_range" => "200.0", "online" => "true", "act_needs_safe_flow" => "false", "shield"=>"modal"),
+            Dict("g" => "0.5", "dmin" => "0.125", "dmax" => "0.5", "v_ego" => "0.0", "sensor_range" => "200.0", "online" => "true", "act_needs_safe_flow" => "false", "shield"=>"modal"),
+            Dict("g" => "1.0", "dmin" => "0.125", "dmax" => "1.0", "v_ego" => "0.0", "sensor_range" => "200.0", "online" => "false", "act_needs_safe_flow" => "false", "shield"=>"modal"),
+            Dict("g" => "0.5", "dmin" => "0.125", "dmax" => "1.0", "v_ego" => "0.0", "sensor_range" => "200.0", "online" => "true", "act_needs_safe_flow" => "false", "shield"=>"adaptive")
         ]
 
         for ccc in cc_configs
             push!(models, "cruise_t")
+            haskey(ccc, "act_needs_safe_flow") || (ccc["act_needs_safe_flow"] = "true")
+            haskey(ccc, "exit_bad") || (ccc["exit_bad"] = "true")
+            haskey(ccc, "shield") || (ccc["shield"] = "modal")
             push!(opts, ccc)
         end
 
         boost_configs = [
-            "boost" => Dict("g" => "0.02", "dmin" => "0.5", "dmax" => "4.0", "R" => "73.0", "v_min" => "14.5", "v_max" => "15.5", "online" => "true", "shield"=>"modal"),
-            "boost" => Dict("g" => "0.02", "dmin" => "0.5", "dmax" => "4.0", "R" => "73.0", "v_min" => "14.5", "v_max" => "15.5", "online" => "false", "shield"=>"modal"),
-            "boost" => Dict("g" => "0.01", "dmin" => "0.5", "dmax" => "4.0", "R" => "73.0", "v_min" => "14.5", "v_max" => "15.5", "online" => "true", "shield"=>"modal"),
-            "boost" => Dict("g" => "0.01", "dmin" => "0.5", "dmax" => "4.0", "R" => "73.0", "v_min" => "14.5", "v_max" => "15.5", "online" => "true", "shield"=>"adaptive")
+            Dict("g" => "0.02", "dmin" => "0.5", "dmax" => "4.0", "R" => "73.0", "v_min" => "14.5", "v_max" => "15.5", "online" => "true", "shield"=>"modal"),
+            Dict("g" => "0.02", "dmin" => "0.5", "dmax" => "4.0", "R" => "73.0", "v_min" => "14.5", "v_max" => "15.5", "online" => "false", "shield"=>"modal"),
+            Dict("g" => "0.01", "dmin" => "0.5", "dmax" => "4.0", "R" => "73.0", "v_min" => "14.5", "v_max" => "15.5", "online" => "true", "shield"=>"modal"),
+            Dict("g" => "0.01", "dmin" => "0.5", "dmax" => "4.0", "R" => "73.0", "v_min" => "14.5", "v_max" => "15.5", "online" => "true", "shield"=>"adaptive")
         ]
 
         for boostc in boost_configs
             push!(models, "boost")
+            haskey(boostc, "act_needs_safe_flow") || (boostc["act_needs_safe_flow"] = "true")
+            haskey(boostc, "exit_bad") || (boostc["exit_bad"] = "true")
+            haskey(boostc, "shield") || (boostc["shield"] = "modal")
             push!(opts, boostc)
         end
         return models, opts

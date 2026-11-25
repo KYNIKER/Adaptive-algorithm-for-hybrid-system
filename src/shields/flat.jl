@@ -1,18 +1,10 @@
-# Building blocks shared by the shields. Each gives every cell (modal) or leaf (modal_adaptive) an Int32 id and keeps
-# what it knows per id in flat arrays.
-#   - guard_masks: the cells touching or inside a polyhedron, from dot products against its halfspaces
-#   - SuccessorStore: the successor lists of all ids in one Int32 pool
-#   - FlatShieldState: the event-driven shield over ids, the one set of shield rules every shield uses
-#   - choice_bits and its helpers: the common results of all shields, what each cell allows and what it lost, as bits
+# Building blocks shared by the shields. Each gives every cell (modal) or leaf (modal_adaptive) an Int32 id and keeps what it knows per id in flat arrays.
 
-# Cells of level l+1 covering cell c of level l.
 child_cells(c::CartesianIndex{N}, factor::NTuple{N,Int}) where N =
     CartesianIndices(ntuple(i -> ((c[i]-1)*factor[i]+1):(c[i]*factor[i]), N))
 
-# ---------------------------------------------------------------------------------------------------------------------
-# Cells touching a polyhedron
 
-# Halfspaces of a polyhedron as rows, for allocation-free cell tests.
+# Wrapper to group HPolyhedron and their constraints
 struct CellHalfSpaces{N}
     P::HPolyhedron{Float64,Vector{Float64}}
     a::Matrix{Float64}
@@ -25,10 +17,8 @@ function CellHalfSpaces(P, ::Val{N}) where N
         Matrix{Float64}(reduce(vcat, (Vector{Float64}(h.a)' for h in cs))), Float64[h.b for h in cs])
 end
 
-# How the closed box of cell c meets the polyhedron: 0 misses, 1 touches, 2 inside. A box cut by exactly one halfspace
-# and inside the others meets their intersection; a box cut by several is decided by an LP.
-# Cell borders are sums like lower + (c - 1) * g, which rounding can move off a face they lie on, so a box within
-# CELL_MEETS_TOL (relative) of a halfspace still touches it, as for the LP.
+# How the cell c meets the polyhedron H.P: 0 misses, 1 touches, 2 inside.
+# A cell within CELL_MEETS_TOL (relative) of a halfspace still touches it, as for the LazySets.isdisjoint function.
 const CELL_MEETS_TOL = 1e-9
 function cell_meets(H::CellHalfSpaces{N}, grid::Grid{N}, c::CartesianIndex{N}) where N
     cut = 0
@@ -54,15 +44,13 @@ function cell_meets(H::CellHalfSpaces{N}, grid::Grid{N}, c::CartesianIndex{N}) w
     return isdisjoint(H.P, box) ? 0 : 1
 end
 
-# The candidate cells of touching_cells for P on a grid. Its bounds are clamped to the state space, so on a
-# grid that overhangs the state space they leave out cells there; each level's candidates lie in its parents' candidates.
+# Cell ids for cells in box of P on grid
 function touching_candidates(grid::Grid{N}, P) where N
     lo, hi = low(P), high(P)
     return CartesianIndices(ntuple(i -> cell_range(grid, i, lo[i], hi[i]), N))
 end
 
-# Masks of the cells of grid touching P (the same cells as touching_cells) and of those inside it, as the
-# tuple (touching, inside). A guard of nothing is the whole state space: every cell touches it and is inside it.
+# Splits the cells intersecting a guard into those touching and those inside.
 guard_masks(grid::Grid, ::Nothing) = (trues(cellshape(grid)), trues(cellshape(grid)))
 function guard_masks(grid::Grid{N}, P) where N
     H = CellHalfSpaces(P, Val(N))
@@ -76,12 +64,8 @@ function guard_masks(grid::Grid{N}, P) where N
     return touching, inside
 end
 
-# ---------------------------------------------------------------------------------------------------------------------
-# Successor lists
 
-# Successor lists of all ids in one Int32 pool, per choice ai: 0 is the flow (waiting a period), ai > 0 the action
-# Act[ai], as in the bits of choice_bits. A recomputed list is appended and its old slice becomes garbage, which
-# compact! removes.
+# Struct for storing successors in one contigous vector. This eliminates the need for dictionary look ups, but requires more book keeping. A recomputed list is appended, which compact! removes.
 mutable struct SuccessorStore
     pool::Vector{Int32}
     live::Int # pool entries still referenced
@@ -101,9 +85,8 @@ SuccessorStore(n::Int, act_enabled::Vector{BitVector}) = SuccessorStore(Int32[],
     act_enabled, [ones(Int, n) for _ in act_enabled], [zeros(Int32, n) for _ in act_enabled], false, false)
 
 successor_range(store::SuccessorStore, ai::Int, k::Integer) =
-    ai == 0 ? (store.flow_start[k]:store.flow_start[k]+store.flow_len[k]-1) : (store.act_start[ai][k]:store.act_start[ai][k]+store.act_len[ai][k]-1)
+    ai == 0 ? (store.flow_start[k]:(store.flow_start[k]+store.flow_len[k]-1)) : (store.act_start[ai][k]:(store.act_start[ai][k]+store.act_len[ai][k]-1))
 
-# Replaces the successors of id for choice ai.
 function set_successors!(store::SuccessorStore, ai::Int, id::Integer, succ::AbstractVector{Int32})
     start, len = ai == 0 ? (store.flow_start, store.flow_len) : (store.act_start[ai], store.act_len[ai])
     store.live += length(succ) - len[id]
@@ -112,12 +95,11 @@ function set_successors!(store::SuccessorStore, ai::Int, id::Integer, succ::Abst
     append!(store.pool, succ)
 end
 
-# Rewrites the pool without garbage once garbage is most of it.
 function compact!(store::SuccessorStore)
     length(store.pool) <= 2 * store.live + 2^20 && return
     pool = Vector{Int32}(undef, store.live)
     i = 1
-    for (start, len) in Iterators.flatten(((store.flow_start, store.flow_len), zip(store.act_start, store.act_len)))
+    for (start, len) in Iterators.flatten((((store.flow_start, store.flow_len),), zip(store.act_start, store.act_len)))
         for k in eachindex(start)
             copyto!(pool, i, store.pool, start[k], len[k])
             start[k] = i
@@ -127,18 +109,9 @@ function compact!(store::SuccessorStore)
     store.pool = pool
 end
 
-# ---------------------------------------------------------------------------------------------------------------------
-# Event-driven (counter based) shield over ids. Instead of re-checking every computed id each round, it keeps a
-# predecessor relation that grows as successors are registered, and pushes "bad" events backwards along it. Every edge
-# is processed at most once.
-#   flow_bad[k] : not acting in k is unsafe (no flow successors, hit a constraint, or a flow successor is dead)
-#   act_ok[ai][k] : action ai is still a safe choice in k
-#   n_ok[k]     : number of actions still safe in k
-#   k is dead   : flow_bad[k] && n_ok[k] == 0
-# With act_needs_safe_flow an action is also unsafe when one of its successors is flow_bad: after acting, the system
-# must be able to wait one period.
-# Predecessor lists are linked lists in flat arrays: the predecessors of v start at edge head[v] and follow edge_next
-# (0 ends).
+
+# Struct for storing the Shield state, that is what is the state of all cells computed. Most cell states are stored as, or vectors of, bit vectors.
+# It also stores the predecessor relation for both flow and actions, as edges split into from and next. Flow_ and act_head is used to help realize this.
 mutable struct FlatShieldState
     dead::BitVector
     flow_bad::BitVector
@@ -158,7 +131,6 @@ end
 FlatShieldState(n_acts::Int, act_needs_safe_flow::Bool) = FlatShieldState(BitVector(), BitVector(), BitVector(), [BitVector() for _ in 1:n_acts],
     Int32[], Int32[], [Int32[] for _ in 1:n_acts], Int32[], Int32[], Int32[], Int32[], Int32[], act_needs_safe_flow)
 
-# Clears the state for n ids, keeping the allocated memory.
 function reset!(s::FlatShieldState, n::Int)
     for x in (s.dead, s.flow_bad, s.computed, s.act_ok...)
         resize!(x, n)
@@ -195,7 +167,6 @@ end
     end
 end
 
-# Makes every action that leads into v unsafe.
 function invalidate_actions_into!(s::FlatShieldState, v::Int32)
     for ai in eachindex(s.act_head)
         e = s.act_head[ai][v]
@@ -212,14 +183,13 @@ function invalidate_actions_into!(s::FlatShieldState, v::Int32)
     end
 end
 
-# Constraint ids start dead without being computed.
 function seed_constraint!(s::FlatShieldState, k::Int32)
     s.dead[k] = true
     s.flow_bad[k] = true
     s.computed[k] = true
 end
 
-# Registers a computed id, reading its successors from the store.
+# Make the successor store and flat shield state agree. 
 function register_successors!(store::SuccessorStore, s::FlatShieldState, k::Int32)
     pool = store.pool
     if store.flow_none[k] || (store.flow_len[k] == 0 && !store.flow_empty_ok)
@@ -251,7 +221,6 @@ function register_successors!(store::SuccessorStore, s::FlatShieldState, k::Int3
     check_dead!(s, k)
 end
 
-# propagate_bad! over the linked predecessor lists.
 function propagate_bad!(s::FlatShieldState)
     while !isempty(s.dead_queue) || !isempty(s.flow_bad_queue)
         while !isempty(s.dead_queue)
@@ -274,7 +243,6 @@ end
 # Results. Every shield returns grid, allowed, lost, info: allowed and lost hold the choice bits of each cell (see
 # choice_bits), grid.deadCells is where nothing is allowed, and info is a NamedTuple of what only that shield has.
 
-# The smallest unsigned type with a bit for waiting and one for each of n_acts actions.
 function choice_type(n_acts::Int)
     n_acts < 64 || throw(ArgumentError("at most 63 actions fit in the allowed matrix"))
     return n_acts < 8 ? UInt8 : n_acts < 16 ? UInt16 : n_acts < 32 ? UInt32 : UInt64
@@ -307,10 +275,8 @@ function choice_bits(::Type{T}, s, k, enabled::E, acted::A) where {T,E,A}
     return allowed, lost
 end
 
-# acted for choice_bits from a SuccessorStore.
 store_acted(store::SuccessorStore) = (ai, k) -> store.act_len[ai][k] > 0
 
-# allowed and lost of a shield whose state is indexed like a cell array of the given shape (by cell or linear index).
 function cell_choices(shape, n_acts::Int, s, enabled, acted)
     T = choice_type(n_acts)
     return cell_choices!(zeros(T, shape), zeros(T, shape), s, enabled, acted)

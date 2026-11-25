@@ -95,7 +95,7 @@ stateDict = copy(discDict)
 preallocated_center = zeros(2)
 preallocated_genmat = zeros(2, finaldims + 6)
 preallocated_inter_genmat = zeros(2, finaldims + 6)
-ReACT_discretize_state!(preallocated_center, preallocated_genmat, preallocated_inter_genmat, stateDict, c, d/4, d, A, P2A_absp, phiDictp, U, inputDictp, generatorDict)
+#ReACT_discretize_state!(preallocated_center, preallocated_genmat, preallocated_inter_genmat, stateDict, c, d/4, d, A, P2A_absp, phiDictp, U, inputDictp, generatorDict)
 #plot!(plt, stateDict[d/2], c=:yellow, lab="state dict implementation")
 #plot!(plt, remove_zero_generators(stateDict[d]), c=:purple, lab="state dict implementation")
 

@@ -1,37 +1,15 @@
-#=
-The modal shield of modal.jl, reduced to its method. Every axis is treated alike. Every cell of every layer is computed
-once, then the bad events are pushed backwards (flat.jl). Uses the system types and bounds of modal_shared.jl.
+# modal.jl reduced to its method: all axes alike, every cell computed once, bad events pushed back (flat.jl).
+# Successors are the touching_cells of each end set, within its Bounds (modal_shared.jl).
 
-Cells are half-open, [l, l + g) per axis, as for a floor lookup of the state. A set reaches the cells it touches
-(touching_cells), within the bounds that are known to hold for its states at the end of the period (Bounds, modal_shared.jl). These
-bounds are exact where they are tracked, so a cell that only touches their open end is dropped: otherwise a set that
-moves by whole cells would also reach a neighbour every period. They are also what the exit check uses, as the sets
-after a jump are bloated.
-  - Flow and actions: the end state of x₀ in the cell is T x₀ + c, exactly, on the axes where the input is constant.
-    The interval of axis i is then exact, with an open upper end when it needs some x₀ at the open end of the cell.
-    An open end is moved down by open_margin (modal_shared.jl), so all bounds are closed.
-  - A guard jumps at a time that depends on the state. An axis keeps its bounds when its end value does not depend on
-    that time (see jumped_bounds), and loses them otherwise.
-
-One period of a set X in a location (reach!):
-  - ReACT's adaptive time steps find the first step of δ⁻ at which the flowpipe of X touches a guard or an unsafe set.
-  - From there the flowpipe is walked in pieces of δ⁻. A piece touching an unsafe set makes the transition bad. A piece
-    touching a guard jumps, and the jumped set continues in the target location for its own remaining time.
-  - The states that have not jumped end the period in the location.
-Leaving the state space is checked on the sets at the end of the period, where a part beyond a face that lies inside a
-guard has jumped. So a state that leaves and comes back within the period is not caught.
-=#
-
-const DenseZonotope = Zonotope{Float64,Vector{Float64},Matrix{Float64}}
-const PeriodEnd = Tuple{Int,DenseZonotope,Bounds} # location, set, bounds of its states
+const PeriodEnd = Tuple{Int,Zonotope{Float64,Vector{Float64},Matrix{Float64}},Bounds} # location, set, bounds
 
 struct SimpleLocation{D}
     dynamics::Dynamics
     layer::Int
     guards::Vector{Halfspaces}
-    rate::Vector{Float64} # per axis its constant rate where it only translates, NaN for the others
-    starts::BitArray{D} # the cells a period starts in this location
-    discs::Dict{Matrix{Float64},CellDiscretization{D}} # per shape, the discretization of a whole period
+    rate::Vector{Float64} # rate of each axis that only translates, NaN otherwise
+    starts::BitArray{D} # cells that start a period here
+    discs::Dict{Matrix{Float64},CellDiscretization{D}} # whole-period discretization per shape
 end
 
 struct SimpleContext{D,S}
@@ -45,13 +23,13 @@ struct SimpleContext{D,S}
     reduceOrder::Int
     max_depth::Int
     locations::Vector{SimpleLocation{D}}
-    layers::Vector{Vector{Int}} # per layer, its locations
+    layers::Vector{Vector{Int}}
     unsafe::Vector{Halfspaces}
     statespace::Halfspaces
     cell::Matrix{Float64} # generators of a cell
     action_ids::Vector{Int}
-    may_act::Vector{Vector{BitArray{D}}} # per location and action: some state of the cell is inside the guard
-    must_act::Vector{Vector{BitArray{D}}} # every state of the cell is inside it
+    may_act::Vector{Vector{BitArray{D}}} # [location][action]: some state of the cell is in the guard
+    must_act::Vector{Vector{BitArray{D}}} # [location][action]: every state of the cell is in the guard
     covers::CoverCache{D}
     exit_bad_for_flow::Bool
     exit_bad_for_actions::Bool
@@ -63,25 +41,22 @@ function SimpleContext(system::ModalHybridSystem, p::Float64, g::Float64, δ⁻,
     isinteger(log2(δ⁺ / δ⁻)) || throw(ArgumentError("δ⁺ / δ⁻ must be a power of two"))
     grid = Grid(system.statespace, g)
     D = grid.dimension
-
-    # On an axis of a single cell the cell is the state space: a point for a constant.
-    half = [n == 1 ? (h - l) / 2 : g / 2 for (n, l, h) in zip(grid.numCells, low(system.statespace), high(system.statespace))]
+    half = [n == 1 ? (h - l) / 2 : g / 2 for (n, l, h) in zip(grid.numCells, low(system.statespace), high(system.statespace))] # one cell: the whole axis
     cell = Matrix{Float64}(genmat(remove_zero_generators(Zonotope(zeros(D), diagm(half)))))
 
-    shared = Dict{Tuple{Matrix{Float64},Vector{Float64},Matrix{Float64}},Dynamics}() # locations with the same (A, U)
+    shared = Dict{Tuple{Matrix{Float64},Vector{Float64},Matrix{Float64}},Dynamics}()
     locations = map(system.locations) do loc
         dyn = get!(() -> Dynamics(loc.A, loc.U, steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder), shared, (loc.A, LazySets.center(loc.U), genmat(loc.U)))
         region = loc.region === nothing ? nothing : getHalfSpaceProjections(loc.region)
         starts = BitArray(loc.starts && box_overlaps_region(region, cell_low(grid, c), cell_low(grid, c) .+ g) for c in CartesianIndices(cellshape(grid)))
-        guards = Halfspaces[getHalfSpaceProjections(e.guard) for e in loc.edges]
         rate = [iszero(view(loc.A, i, :)) && iszero(view(genmat(loc.U), i, :)) ? LazySets.center(loc.U)[i] : NaN for i in 1:D]
-        SimpleLocation(dyn, loc.layer, guards, rate, starts, Dict{Matrix{Float64},CellDiscretization{D}}())
+        SimpleLocation(dyn, loc.layer, Halfspaces[getHalfSpaceProjections(e.guard) for e in loc.edges], rate, starts, Dict{Matrix{Float64},CellDiscretization{D}}())
     end
     layers = [[li for (li, loc) in enumerate(locations) if loc.layer == layer] for layer in 1:maximum(loc.layer for loc in locations)]
 
     action_ids = sort!(unique(a.action.id for loc in system.locations for a in loc.actions))
     may_act = [[falses(cellshape(grid)) for _ in action_ids] for _ in locations]
-    must_act = [[falses(cellshape(grid)) for _ in action_ids] for _ in locations]
+    must_act = deepcopy(may_act)
     for (li, loc) in enumerate(system.locations), a in loc.actions
         all(b -> b.action.id != a.action.id || b.action.guard == a.action.guard, loc.actions) ||
             throw(ArgumentError("location $li has actions with id $(a.action.id) and different guards"))
@@ -96,35 +71,26 @@ function SimpleContext(system::ModalHybridSystem, p::Float64, g::Float64, δ⁻,
 end
 
 cell_low(grid::Grid, c::CartesianIndex) = grid.lower .+ (index_vector(c) .- 1) .* grid.granularity
-
-# The locations the cell c starts a period in, in its layer.
 starting(ctx::SimpleContext, c::CartesianIndex, layer::Int) = filter(li -> ctx.locations[li].starts[c], ctx.layers[layer])
-
 can_act(ctx::SimpleContext, c::CartesianIndex, layer::Int, ai::Int) = any(li -> ctx.may_act[li][ai][c], starting(ctx, c, layer))
-
 flowed(dyn::Dynamics, X, k::Int) = minkowski_sum(linear_map(dyn.Φ[k+1], X), dyn.V[k+1])
 
-# ReACT's discretization of X, from the one of its shape when X flows a whole period. Only outside a jump: that one is
-# overwritten by every call, and the caller still reads it after the jumps return.
+# Cached per shape at depth 0 only: discretize_cell! overwrites its result, which the caller reads after the jumps.
 function discretize(ctx::SimpleContext, li::Int, X, depth::Int, δ⁺::Float64)
     loc, dyn = ctx.locations[li], ctx.locations[li].dynamics
-    if depth == 0
-        G = genmat(X)
-        cd = get!(() -> period_discretization(dyn, ctx.system.locations[li].U, G, ctx.δ⁻, δ⁺), loc.discs, G)
-        return discretize_cell!(cd, LazySets.center(X))
-    end
-    return newReACTDiscretizePlus(X, ctx.δ⁻, δ⁺, dyn.A, dyn.P2A_abs, dyn.step_Φ, dyn.step_input, ctx.alg, ctx.maxOrder, ctx.reduceOrder)
+    depth > 0 && return newReACTDiscretizePlus(X, ctx.δ⁻, δ⁺, dyn.A, dyn.P2A_abs, dyn.step_Φ, dyn.step_input, ctx.alg, ctx.maxOrder, ctx.reduceOrder)
+    G = genmat(X)
+    cd = get!(() -> period_discretization(dyn, ctx.system.locations[li].U, G, ctx.δ⁻, δ⁺), loc.discs, G)
+    return discretize_cell!(cd, LazySets.center(X))
 end
 
-# Appends to out what X reaches at the end of the period. X has between D and D + W steps of δ⁻ left, depending on the
-# state: W > 0 after a jump. bounds hold for its states at the end of the period. Returns false if the transition is bad.
+# Appends the end sets of X, which has D to D + W steps of δ⁻ left; false if the transition is bad.
 function reach!(out::Vector{PeriodEnd}, ctx::SimpleContext, li::Int, X, D::Int, W::Int, exit_bad::Bool, bounds::Bounds, depth::Int=0)
-    depth > ctx.max_depth && return false # jumping again and again
+    depth > ctx.max_depth && return false # Zeno
     total = D + W
     total == 0 && (push!(out, (li, X, bounds)); return true)
-    loc = ctx.locations[li]
-    dyn = loc.dynamics
-    δ⁺ = min(ctx.δ⁺, ctx.δ⁻ * 2^floor(Int, log2(total))) # no step longer than the time left
+    loc, dyn = ctx.locations[li], ctx.locations[li].dynamics
+    δ⁺ = min(ctx.δ⁺, ctx.δ⁻ * 2^floor(Int, log2(total)))
     disc = discretize(ctx, li, X, depth, δ⁺)
     k0 = first_touch(dyn, disc, Iterators.flatten((loc.guards, ctx.unsafe)), total, ctx.δ⁻, δ⁺)
 
@@ -136,8 +102,8 @@ function reach!(out::Vector{PeriodEnd}, ctx::SimpleContext, li::Int, X, D::Int, 
             for (e, guard) in zip(ctx.system.locations[li].edges, loc.guards)
                 clipped = some_inside(piece, guard...) ? clip_to_polyhedron(piece, guard) : nothing
                 clipped === nothing && continue
-                # A state of the piece has spent between k and k + 1 steps here.
-                D′, W′ = max(D - k - 1, 0), total - k - max(D - k - 1, 0)
+                D′ = max(D - k - 1, 0) # the piece's states have spent k to k + 1 steps here
+                W′ = total - k - D′
                 b = jumped_bounds(bounds, guard, e.jumpMatrix, e.jumpVector, loc.rate, ctx.locations[e.targetLoc].rate, D′, W′, ctx.δ⁻, k == 0, ctx.grid.granularity)
                 b === nothing && continue
                 jumped = jump_set(clipped, e.jumpMatrix, e.jumpVector, ctx.maxOrder, ctx.reduceOrder)
@@ -146,34 +112,28 @@ function reach!(out::Vector{PeriodEnd}, ctx::SimpleContext, li::Int, X, D::Int, 
             end
             all_jumped && return true
         end
-        W > 0 && k >= D && push!(out, (li, piece, bounds)) # the states with k + 1 steps left end in this piece
+        W > 0 && k >= D && push!(out, (li, piece, bounds)) # states with k + 1 steps left end here
     end
     exit_bad && any(k -> leaves(ctx, loc, flowed(dyn, X, k), bounds), unique((D, total))) && return false
     W == 0 && push!(out, (li, flowed(dyn, X, total), bounds))
     return true
 end
 
-# True if part of the set lies beyond a face of the state space and outside every guard of the location: inside a guard
-# it has jumped. On a tracked axis the bounds decide whether it lies beyond. The guard's halfspace that borders the face
-# holds beyond it by construction, and is skipped: the clip is not exact on it.
+# Whether part of the set is beyond a face of the state space and in no guard; the guard's own face halfspace is skipped.
 function leaves(ctx::SimpleContext, loc::SimpleLocation, set, (lo, hi)::Bounds)
     for (a, b) in zip(ctx.statespace...)
         i = findfirst(!iszero, a)
         bound = a[i] * (a[i] > 0 ? hi[i] : lo[i])
         min(bound, ρ(a, set)) > b + MODAL_TOL || continue
         beyond = clip_to_polyhedron(set, ([-a], [-b]))
-        if beyond === nothing
-            isfinite(bound) && return true # the bounds are exact, the set is not
-            continue
-        end
+        beyond === nothing && (isfinite(bound) ? (return true) : continue) # exact bounds beat an inexact clip
         in_guard(guard) = all(((c, d),) -> (isapprox(c, -a; atol=MODAL_TOL) && isapprox(d, -b; atol=MODAL_TOL)) || ρ(c, beyond) <= d, zip(guard...))
         any(in_guard, loc.guards) || return true
     end
     return false
 end
 
-# The cells that the transitions (location, set, exit_bad, map from the cell Z) reach in one period, or nothing if one of
-# them is bad.
+# Cells reached by the transitions (location, set, exit_bad, affine map of Z), or nothing if one is bad.
 function reached(ctx::SimpleContext, transitions, Z)
     out = PeriodEnd[]
     for (li, X, exit_bad, affine) in transitions
@@ -182,9 +142,7 @@ function reached(ctx::SimpleContext, transitions, Z)
     return unique!([CartesianIndex(c, ctx.locations[li].layer) for (li, X, b) in out for c in touching_cells(ctx.grid, X, ctx.covers, cell_bounds(ctx.grid, b)...)])
 end
 
-# The successors of cell c of a layer that starts in locations locs: of waiting, and per action nothing where it is not
-# enabled or bad. An action tried outside its guard, or in a location that does not offer it, does nothing: there the
-# state just flows, so the action also has the successors of waiting.
+# Successors of waiting and per action (nothing: disabled or bad); where an action is not taken, the state just waits.
 function cell_successors(ctx::SimpleContext, c::CartesianIndex, locs::Vector{Int})
     Z = Zonotope(cell_low(ctx.grid, c) .+ ctx.grid.granularity / 2, ctx.cell)
     D = length(c)
@@ -202,9 +160,7 @@ function cell_successors(ctx::SimpleContext, c::CartesianIndex, locs::Vector{Int
     return waiting, acts
 end
 
-# Shield for a ModalHybridSystem, like ReACTed_reachable_cell_modal without its optimizations and clock axes, and offline
-# only. Returns grid, allowed, lost, info as every shield (see choice_bits in flat.jl), but lost is nothing: only the
-# allowed choices are computed. info.ctx is the context.
+# Offline shield like ReACTed_reachable_cell_modal; returns grid, allowed, nothing (no lost), (; ctx).
 function ReACTed_reachable_cell_modal_simple(system::ModalHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64,
     alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5;
     act_needs_safe_flow::Bool=true, exit_bad_for_flow::Bool=true, exit_bad_for_actions::Bool=true, max_depth::Int=16, verbose::Bool=true)
@@ -237,17 +193,19 @@ function simple_shield(ctx::SimpleContext{D}, act_needs_safe_flow::Bool, verbose
         computed[id] = true
         verbose && id % 100_000 == 0 && println("$id of $n cells : $(Dates.format(now(), "HH:MM:SS"))")
     end
-    choices = allowed_choices(choice_type(n_acts), flow, acts, computed, dead, act_needs_safe_flow, !ctx.exit_bad_for_flow, !ctx.exit_bad_for_actions)
-    allowed = reshape(choices, shape)
+    allowed = reshape(allowed_choices(choice_type(n_acts), flow, acts, computed, dead, act_needs_safe_flow, !ctx.exit_bad_for_flow, !ctx.exit_bad_for_actions), shape)
     verbose && println("$n cells, dead: $(count(dead))")
+    return grid, noop_allowed!(allowed, ctx), nothing, (; ctx)
+end
 
-    # Where no location of the cell can take an action, it does nothing: it is allowed exactly where waiting is.
-    for k in cells
-        c, layer = split(k)
+# An action no location can take does nothing: allowed where waiting is.
+function noop_allowed!(allowed::Array{T}, ctx::SimpleContext{D}) where {T,D}
+    for k in CartesianIndices(allowed)
+        c, layer = CartesianIndex(ntuple(i -> k[i], D)), k[D+1]
         (isodd(allowed[k]) && !isempty(starting(ctx, c, layer))) || continue
-        for ai in 1:n_acts
-            can_act(ctx, c, layer, ai) || (allowed[k] |= one(eltype(allowed)) << ai)
+        for ai in eachindex(ctx.action_ids)
+            can_act(ctx, c, layer, ai) || (allowed[k] |= one(T) << ai)
         end
     end
-    return grid, allowed, nothing, (; ctx)
+    return allowed
 end

@@ -63,8 +63,8 @@ digest(a) = bytes2hex(sha1(reinterpret(UInt8, vec(a))))[1:12]
         run(online) = ReACTed_reachable_cell_modal(sys, p, 1.0, 0.25, 1.0; online, act_needs_safe_flow=false, verbose=false)[2]
         allowed = run(false)
         @test size(allowed) == (50, 30, 28, 1)
-        @test count(==(0), allowed) == 20362
-        @test digest(allowed) == "fb1279fa54ed"
+        @test count(==(0), allowed) == 18992
+        @test digest(allowed) == "d43b7403bc19"
         # Online the shield only skips cells that cannot become unsafe, so it gives the same result.
         @test run(true) == allowed
     end

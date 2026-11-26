@@ -9,7 +9,7 @@ struct SimpleLocation{D}
     guards::Vector{Halfspaces}
     rate::Vector{Float64} # rate of each axis that only translates, NaN otherwise
     starts::BitArray{D} # cells that start a period here
-    discs::Dict{Matrix{Float64},CellDiscretization{D}} # whole-period discretization per shape
+    discs::Vector{Dict{Tuple{Matrix{Float64},Float64},Union{Nothing,CellDiscretization{D}}}} # per depth, per (shape, δ⁺); nothing: seen once
 end
 
 struct SimpleContext{D,S}
@@ -50,7 +50,8 @@ function SimpleContext(system::ModalHybridSystem, p::Float64, g::Float64, δ⁻,
         region = loc.region === nothing ? nothing : getHalfSpaceProjections(loc.region)
         starts = BitArray(loc.starts && box_overlaps_region(region, cell_low(grid, c), cell_low(grid, c) .+ g) for c in CartesianIndices(cellshape(grid)))
         rate = [iszero(view(loc.A, i, :)) && iszero(view(genmat(loc.U), i, :)) ? LazySets.center(loc.U)[i] : NaN for i in 1:D]
-        SimpleLocation(dyn, loc.layer, Halfspaces[getHalfSpaceProjections(e.guard) for e in loc.edges], rate, starts, Dict{Matrix{Float64},CellDiscretization{D}}())
+        SimpleLocation(dyn, loc.layer, Halfspaces[getHalfSpaceProjections(e.guard) for e in loc.edges], rate, starts,
+            [Dict{Tuple{Matrix{Float64},Float64},Union{Nothing,CellDiscretization{D}}}() for _ in 0:max_depth])
     end
     layers = [[li for (li, loc) in enumerate(locations) if loc.layer == layer] for layer in 1:maximum(loc.layer for loc in locations)]
 
@@ -75,12 +76,12 @@ starting(ctx::SimpleContext, c::CartesianIndex, layer::Int) = filter(li -> ctx.l
 can_act(ctx::SimpleContext, c::CartesianIndex, layer::Int, ai::Int) = any(li -> ctx.may_act[li][ai][c], starting(ctx, c, layer))
 flowed(dyn::Dynamics, X, k::Int) = minkowski_sum(linear_map(dyn.Φ[k+1], X), dyn.V[k+1])
 
-# Cached per shape at depth 0 only: discretize_cell! overwrites its result, which the caller reads after the jumps.
+# Built on a shape's second use; one cache per depth, as discretize_cell! overwrites what a caller still reads.
 function discretize(ctx::SimpleContext, li::Int, X, depth::Int, δ⁺::Float64)
-    loc, dyn = ctx.locations[li], ctx.locations[li].dynamics
-    depth > 0 && return newReACTDiscretizePlus(X, ctx.δ⁻, δ⁺, dyn.A, dyn.P2A_abs, dyn.step_Φ, dyn.step_input, ctx.alg, ctx.maxOrder, ctx.reduceOrder)
-    G = genmat(X)
-    cd = get!(() -> period_discretization(dyn, ctx.system.locations[li].U, G, ctx.δ⁻, δ⁺), loc.discs, G)
+    dyn, cache, key = ctx.locations[li].dynamics, ctx.locations[li].discs[depth+1], (genmat(X), δ⁺)
+    cd = get(cache, key, false)
+    cd === false && (cache[key] = nothing; return newReACTDiscretizePlus(X, ctx.δ⁻, δ⁺, dyn.A, dyn.P2A_abs, dyn.step_Φ, dyn.step_input, ctx.alg, ctx.maxOrder, ctx.reduceOrder))
+    cd === nothing && (cd = cache[key] = period_discretization(dyn, ctx.system.locations[li].U, key[1], ctx.δ⁻, δ⁺))
     return discretize_cell!(cd, LazySets.center(X))
 end
 

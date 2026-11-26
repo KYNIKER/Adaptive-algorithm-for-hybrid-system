@@ -20,7 +20,7 @@
 # with a different set of allowed choices. Those lie on the boundary of the safe region, where a finer partition can
 # separate safe states from unsafe ones; a leaf deep inside a dead or fully allowed region gains nothing from it.
 
-# Splits of a level-l cell: f[i] finest cells per axis
+# refinement factor per level. Has to account for degenerate dimensions that should not be split. This gives a constraint on how small state spaces can be compared to the granularity used. 
 level_factor(L::Int, l::Int, numCells) = ntuple(i -> numCells[i] == 1 ? 1 : 2^(L - l), length(numCells))
 
 # Returns grid, allowed, lost, info on the finest grid like every shield (see choice_bits in flat.jl), with info.ctx the
@@ -28,19 +28,18 @@ level_factor(L::Int, l::Int, numCells) = ntuple(i -> numCells[i] == 1 ? 1 : 2^(L
 # the leaf covering each finest cell. It runs at most max_rounds
 # refinement rounds. The options are those of ReACTed_reachable_cell_modal.
 function ReACTed_reachable_cell_modal_adaptive(system::ModalHybridSystem, p, max_granularity, L::Int, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5;
-                                               online::Bool=false, act_needs_safe_flow::Bool=true, exit_bad_for_flow::Bool=true, exit_bad_for_actions::Bool=true, max_rounds::Int=typemax(Int), sweep_factor=5, max_depth::Int=16, verbose::Bool=true)
+    online::Bool=false, act_needs_safe_flow::Bool=true, exit_bad_for_flow::Bool=true, exit_bad_for_actions::Bool=true, max_rounds::Int=typemax(Int), sweep_factor=5, max_depth::Int=16, verbose::Bool=true)
     timer = PhaseTimer()
     # The modal context on the finest grid. A leaf whose cells are all fast uses a cover, whatever the sweep blocks are.
     ctx = ModalContext(system, p, Float64(max_granularity) / 2^L, δ⁻, δ⁺, alg, maxOrder, reduceOrder, sweep_factor, max_depth; exit_bad_for_flow, exit_bad_for_actions)
     lap!(timer, "Setup")
-    return _ReACTed_reachable_cell_modal_adaptive(ctx, L, online, act_needs_safe_flow, max_rounds, verbose, timer)
+    return _ReACTed_reachable_cell_modal_adaptive(ctx, choice_type(length(ctx.action_ids)), L, online, act_needs_safe_flow, max_rounds, verbose, timer)
 end
 
-function _ReACTed_reachable_cell_modal_adaptive(ctx::ModalContext{D,N}, L::Int, online::Bool, act_needs_safe_flow::Bool, max_rounds::Int, verbose::Bool, timer::PhaseTimer) where {D,N}
+function _ReACTed_reachable_cell_modal_adaptive(ctx::ModalContext{D,N}, ::Type{T}, L::Int, online::Bool, act_needs_safe_flow::Bool, max_rounds::Int, verbose::Bool, timer::PhaseTimer) where {D,N,T}
     grid = ctx.grid
-    nc = Tuple(grid.numCells)
+    nc = cellshape(grid)
     n_acts = length(ctx.action_ids)
-    T = choice_type(n_acts)
     fshape = (cellshape(grid)..., ctx.n_layers)
     fids = LinearIndices(fshape)
     unsafe = falses(fshape)
@@ -58,7 +57,10 @@ function _ReACTed_reachable_cell_modal_adaptive(ctx::ModalContext{D,N}, L::Int, 
     box(id) = box_cells(cell[id], level_factor(L, level[id], nc), nc)
 
     function add_leaf!(l, c, layer, par)
-        push!(level, l); push!(cell, c); push!(layer_of, layer); push!(parent, par)
+        push!(level, l)
+        push!(cell, c)
+        push!(layer_of, layer)
+        push!(parent, par)
         id = Int32(length(level))
         b = box(id)
         mask = UInt64(0)
@@ -78,15 +80,13 @@ function _ReACTed_reachable_cell_modal_adaptive(ctx::ModalContext{D,N}, L::Int, 
         return id
     end
 
-    # Blocks of level-0 leaves (see ForwardBlocks), about sweep_factor finest cells per axis
     f0 = level_factor(L, 0, nc)
     blocks = ForwardBlocks(ctx, ntuple(i -> f0[i] * max(1, round(Int, ctx.sweep[i] / f0[i])), D), fids, online)
     lap!(timer, "Blocks")
-    # A leaf's successors lie within its parent's, and a level-0 leaf's within its block's (see successors_within)
     function compute_leaf!(id)
         layer, par = layer_of[id], parent[id]
         outer = par != 0 ? (flow_succ[par], act_succ[par], [enabled[ai][par] for ai in 1:n_acts]) :
-                (bid = block_id(blocks, first(box(id)), layer); (blocks.flow[bid], blocks.acts[bid], blocks.enabled[bid]))
+                (bid=block_id(blocks, first(box(id)), layer); (blocks.flow[bid], blocks.acts[bid], blocks.enabled[bid]))
         flow_succ[id], act_succ[id] = successors_within(ctx, layer, box(id), fids, outer...)
         computed[id] = true
     end
@@ -99,9 +99,13 @@ function _ReACTed_reachable_cell_modal_adaptive(ctx::ModalContext{D,N}, L::Int, 
     s = FlatShieldState(n_acts, act_needs_safe_flow)
     function grow_store!(n)
         while length(store.flow_none) < n
-            push!(store.flow_none, false); push!(store.flow_start, 1); push!(store.flow_len, 0)
+            push!(store.flow_none, false)
+            push!(store.flow_start, 1)
+            push!(store.flow_len, 0)
             for ai in 1:n_acts
-                push!(store.act_enabled[ai], false); push!(store.act_start[ai], 1); push!(store.act_len[ai], 0)
+                push!(store.act_enabled[ai], false)
+                push!(store.act_start[ai], 1)
+                push!(store.act_len[ai], 0)
             end
         end
     end
@@ -144,7 +148,6 @@ function _ReACTed_reachable_cell_modal_adaptive(ctx::ModalContext{D,N}, L::Int, 
             (computed[lid] || constraint[lid] || !starts[lid]) || push!(pending, lid)
         end
     end
-    # Queues the blocks that reach a finest cell of leaf id
     function queue_reaching!(id)
         layer = layer_of[id]
         for x in box(id)
@@ -157,7 +160,6 @@ function _ReACTed_reachable_cell_modal_adaptive(ctx::ModalContext{D,N}, L::Int, 
 
     # Maps the leaves remap, then runs the shield from scratch over the active leaves. Online it then computes, until
     # nothing changes, the leaves of the blocks that reach a leaf whose choices changed (and of bad blocks).
-    # Returns what each leaf allows and lost, and how many leaves it computed.
     function shield(remap)
         local n_leaves = length(level)
         grow_store!(n_leaves)
@@ -211,10 +213,8 @@ function _ReACTed_reachable_cell_modal_adaptive(ctx::ModalContext{D,N}, L::Int, 
         return new_bits, new_lost, n_online
     end
     mapped(id) = active[id] && computed[id] && !constraint[id]
-    # Everything a leaf could allow: waiting and every action it can take
     everything(id) = reduce(|, (T(1) << ai for ai in 1:n_acts if enabled[ai][id]); init=one(T))
 
-    # Level 0: every leaf
     for layer in 1:ctx.n_layers, c in CartesianIndices(ntuple(i -> cld(nc[i], level_factor(L, 0, nc)[i]), D))
         add_leaf!(0, c, layer, Int32(0))
     end
@@ -233,8 +233,6 @@ function _ReACTed_reachable_cell_modal_adaptive(ctx::ModalContext{D,N}, L::Int, 
 
     rounds = 0
     neighbourhood = CartesianIndices(ntuple(_ -> -1:1, D))
-    # A leaf on the boundary of the safe region that can still be split: it allows less than everything and borders a
-    # leaf that allows something else.
     function on_boundary(id, bits)
         (active[id] && level[id] < L && starts[id] && bits[id] != everything(id)) || return false
         b, layer = box(id), layer_of[id]
@@ -245,7 +243,6 @@ function _ReACTed_reachable_cell_modal_adaptive(ctx::ModalContext{D,N}, L::Int, 
         end
         return false
     end
-    # The active leaves next to leaf id (sharing a face or corner)
     function neighbours!(out, id)
         b, layer = box(id), layer_of[id]
         for x in b, off in neighbourhood
@@ -306,7 +303,7 @@ function _ReACTed_reachable_cell_modal_adaptive(ctx::ModalContext{D,N}, L::Int, 
     allowed, lost_f = finest_choices(ctx, leaf_of, bits, lost, unsafe)
     levels = [count(id -> active[id] && level[id] == l, eachindex(level)) for l in 0:L]
     verbose && report(timer, "Refinement rounds: $rounds, leaves computed: $n_computed, active per level $levels, dead finest cells: $(count(==(0), allowed))")
-    leaf_level = Int8[level[id] for id in leaf_of] # per finest cell, the level of the leaf covering it
+    leaf_level = Int8[level[id] for id in leaf_of]
     return grid, allowed, lost_f, (; ctx, levels, leaf_level)
 end
 

@@ -125,6 +125,43 @@ digest(a) = bytes2hex(sha1(reinterpret(UInt8, vec(a))))[1:12]
         @test vec(allowed[1, :, 1]) == [0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x01, 0x00, 0x00]
     end
 
+    @testset "modal: clock axes at cell borders" begin
+        # One axis x on [0, 8] with cells of 1 (cell c is [c-1, c), as a floor lookup sees it) and a period of 1. Each x has
+        # a constant rate, so it is a clock: its successors are filtered by its exact interval. Successors are
+        # (cell, layer); location 2 is layer 2.
+        BE = ReACTShields.ReachabilityAnalysis.Exponentiation.BaseExp
+        ge(b) = HPolyhedron([LazySets.HalfSpace([-1.0], -b)])
+        rate(r) = Zonotope([r], zeros(1, 1))
+        none = HPolyhedron{Float64,Vector{Float64}}[]
+        space = Hyperrectangle([4.0], [4.0])
+        two(r1, guard, M, j, r2) = ModalHybridSystem(space, none, [ModalLocation(1, nothing, zeros(1, 1), rate(r1), [Edge(2, guard, M, j)], ModalAction[]),
+            ModalLocation(2, nothing, zeros(1, 1), rate(r2), Edge[], ModalAction[])])
+        function succ(sys, c; act=0)
+            ctx = ReACTShields.ModalContext(sys, 1.0, 1.0, 0.25, 0.5, BE, 5, 5, 1, 16; exit_bad_for_flow=false, exit_bad_for_actions=false)
+            r = ReACTShields.box_successors(ctx, 1, CartesianIndices((c:c,)))
+            return Set(Tuple(k) for k in (act == 0 ? r.flow : r.acts[act]))
+        end
+        # x' = 1, x >= 3 resets x to 0. All of [3, 4) is inside the guard at the start, so it jumps at once and ends at
+        # exactly x = 1, in [1, 2). From [2, 3) the states jump later and end below 1.
+        reset = two(1.0, ge(3.0), zeros(1, 1), [0.0], 1.0)
+        @test (2, 2) in succ(reset, 4)
+        @test succ(reset, 3) == Set([(1, 2), (4, 1)])
+        # x' = 0, x >= 3 jumps to location 2. The border state 3 is not in [2, 3), so that cell never jumps.
+        still = two(0.0, ge(3.0), ones(1, 1), [0.0], 0.0)
+        @test succ(still, 3) == Set([(3, 1)])
+        @test succ(still, 4) == Set([(4, 2)])
+        # x' = 1, x >= 6 wraps x back by 6. A cell moves by exactly one cell, with no drift into its neighbours; the state
+        # that reaches 6 at the end of the period jumps at the start of the next.
+        wrap = ModalHybridSystem(space, none, [ModalLocation(1, nothing, zeros(1, 1), rate(1.0), [Edge(1, ge(6.0), ones(1, 1), [-6.0])], ModalAction[])])
+        @test succ(wrap, 5) == Set([(6, 1)])
+        @test succ(wrap, 6) == Set([(1, 1), (7, 1)])
+        # x' = 1, an action flips x to 4 - x. [1, 2) becomes (2, 3] and ends in (3, 4]: the state from x = 1 ends at 4, in
+        # [4, 5). A flip takes the closed end of the cell to the upper end, so the axis is not tracked after it.
+        flip = ModalHybridSystem(space, none, [ModalLocation(1, nothing, zeros(1, 1), rate(1.0), Edge[], [ModalAction(Action(1, nothing, -ones(1, 1), [4.0]), 1)])])
+        @test (4, 1) in succ(flip, 2; act=1)
+        @test (5, 1) in succ(flip, 2; act=1)
+    end
+
     @testset "modal: an action outside its guard does nothing" begin
         # x' = 1, y' = 0 on [0, 10] × [0, 1]. x >= 9 is unsafe. Action 1 resets x to 0 and has the guard x >= 5.
         statespace = Hyperrectangle([5.0, 0.5], [5.0, 0.5])

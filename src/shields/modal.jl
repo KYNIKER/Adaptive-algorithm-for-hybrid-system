@@ -4,7 +4,7 @@ A location has its own dynamics and belongs to a layer of the grid, and can be r
   - one location, one layer, edges to itself        : a system without discrete modes (see ModalHybridSystem(::EuclideanHybridSystem))
   - one layer per location                          : discrete modes
   - several locations in a layer, different regions : dynamics that switch across the state, with edges between the regions
-A cell of the grid is CartesianIndex(continuous cell..., layer), and its linear index is its id in the FlatShieldState of flat.jl, as for the other shields.
+A cell of the grid is CartesianIndex(continuous cell..., layer), and its linear index is its id in the FlatShieldState of flat.jl.
 
 One decision period of a cell is computed by modal_reach!:
   - If its flowpipe over [0, p] touches no guard and no unsafe set, the end point of the period is the whole answer. The check uses the adaptive time steps δ⁻..δ⁺. Nothing is assumed about how the state moves between the end points.
@@ -13,19 +13,17 @@ Safety along the flowpipe comes from the unsafe sets. Leaving the state space is
 
 Clock axes: an axis whose row in A is zero and with no input generator (a clock, or anything else with a constant rate) only translates in that location. Two things keep such an axis exact, since otherwise time would drift by a cell per period:
   - Cells are half-open on it. A translated cell that merely touches a neighbouring cell at its border does not count as reaching it.
-  - Its interval at the end of the period is tracked exactly through jumps that keep it rigid (same rate on both sides, jump only translates it) or reset it (see clock_after_jump). The successors are filtered by that interval, so the bloat of the flowpipe pieces does not reach this axis.
+  - Its interval at the end of the period is tracked exactly through jumps that keep it rigid (same rate on both sides, jump only translates it) or reset it (see clock_after_jump and clock_kept). Any other jump, by a guard or an action, stops the tracking. The successors are filtered by that interval, so the bloat of the flowpipe pieces does not reach this axis.
 =#
 
-# Action taken in a location, landing in location `target`. Several ModalActions with the same action id in one location
-# (and the same guard) are one choice with several outcomes, which the shield all takes as successors.
+# Several ModalActions with the same action id in one location, and the same guard, are one choice with several outcomes, which the shield all takes as successors.
 struct ModalAction
     action::Action
     target::Int
 end
 
-# A location with starts = false is only entered by actions and edges: no cell starts a period in it, but what it reaches
-# at the end of the period lands in its layer. So a layer can be a decision point that every period starts from, with
-# the outcome of each choice in locations of their own (see loadCruiseControlModal_t).
+# A location with starts = false is only entered by actions and edges. So a layer can be a decision point that every period starts from, 
+# with the outcome of each choice in locations of their own.
 struct ModalLocation
     layer::Int
     region::Union{HPolyhedron,Nothing} # part of the continuous state this location covers, nothing = all of it
@@ -50,25 +48,23 @@ function ModalHybridSystem(system::EuclideanHybridSystem)
     return ModalHybridSystem(system.statespace, system.globalConstraints, [location])
 end
 
-# What a location precomputes for a box shape G (its generators), each part made on first use: the discretization of a box
-# of that shape over a whole period (see CellDiscretization), and its covers (see shape_covers!).
+# wrapper for both discretized generators and cover for a set centered at the origin
 mutable struct ShapeData{D}
     G::Matrix{Float64}
     disc::Union{Nothing,CellDiscretization{D}}
     covers::Union{Nothing,Tuple{ConstantZonotopeCover{D},Vector{ConstantZonotopeCover{D}},Vector{ConstantZonotopeCover{D}}}}
 end
 
-# Everything location-specific. Polyhedra are kept as the (directions, bounds) of getHalfSpaceProjections.
 struct LocationData{D}
     dynamics::Dynamics # shared between locations with the same (A, U)
-    shapes::Vector{ShapeData{D}} # what is precomputed per shape of a box (a cell, a jumped cell, a block, a leaf)
+    shapes::Vector{ShapeData{D}}
     layer::Int
     starts::Bool
     region::Union{Tuple{Vector{Vector{Float64}},Vector{Float64}},Nothing}
     guards::Vector{Tuple{Vector{Vector{Float64}},Vector{Float64}}}
     fast::BitArray{D}
     clock_rate::Vector{Float64} # rate of each axis that only translates in this location, NaN for the others
-    bordered::Vector{Bool} # per face of the state space: a guard of the location borders it (see leaves_statespace)
+    bordered::Vector{Bool} # per face of the state space: a guard of the location borders it
     # Per bordered face a ⋅ x <= b: column k + 1 of the matrix is Φ[k+1]' a, and entry k + 1 of the vector b - ρ(a, V[k+1]) + MODAL_TOL
     bordered_dirs::Vector{Matrix{Float64}}
     bordered_limits::Vector{Vector{Float64}}
@@ -100,20 +96,19 @@ struct ModalContext{D,N,S}
     may_act::Vector{Vector{BitArray{D}}} # per location, per position in action_ids: some state of the cell is inside the action's guard
     must_act::Vector{Vector{BitArray{D}}} # same, but every state of the cell is inside it
     n_layers::Int
-    identity_matrix::Matrix{Float64}
     center::Vector{Float64}
     max_depth::Int
     covers::CoverCache{D}
     layer_starts::Vector{Vector{Int}} # per layer, the locations cells start a period in
     start_mask::Array{UInt64,N} # per (cell..., layer), bit j set if the cell starts in layer_starts[layer][j]
     sweep::Vector{Int} # cells per block and dimension
-    exit_bad_for_flow::Bool # leaving the state space makes waiting bad
-    exit_bad_for_actions::Bool # leaving the state space makes an action bad
+    exit_bad_for_flow::Bool
+    exit_bad_for_actions::Bool
 end
 
 const MODAL_TOL = 1e-9
 
-# The locations a cell starts a period in, as a set bit per location of its layer: iterating it allocates nothing.
+# The locations a cell starts a period in, as a set bit per location of its layer.
 struct LocationSet
     ids::Vector{Int}
     mask::UInt64
@@ -142,19 +137,37 @@ end
 #   the jump translates it, and the rate is the same on both sides : the time of the jump does not matter, so it just translates. A guard on this axis alone also limits it: the states that jumped were inside the guard, and then flowed for the time left.
 #   otherwise                   : not tracked any more
 # Returns nothing if no state of the half-open cell can have taken the jump, such as a cell whose end only touches the guard at its excluded upper border.
-function clock_after_jump(lo::Vector{Float64}, hi::Vector{Float64}, guard, M::Matrix{Float64}, j::Vector{Float64}, source::Vector{Float64}, target::Vector{Float64}, D′::Int, W′::Int, δ⁻::Float64)
+# The upper end of a reset, or of a guard's limit, is the image of the most time left. A state jumping in the first piece
+# (at_start) can be inside the guard from the start and have exactly that time left, from anywhere in the cell, so the
+# upper end is reached. It is then moved up by closed_margin, which keeps the cell above it. In a later piece the states
+# with exactly that time left jump at its start, which the piece before also covers. With a negative rate the upper end
+# is the least time left, which a state can have exactly, so it is moved up always.
+closed_margin(g::Float64) = 2MODAL_TOL * max(1.0, g)
+
+# Whether some state of X is inside the guard, with X half-open on the tracked clock axes (those where lo is not NaN).
+function inside_at_start(X, guard, lo::Vector{Float64})
+    l, h = low(X), high(X)
+    for i in eachindex(lo)
+        isnan(lo[i]) || (h[i] = max(l[i], h[i] - 10MODAL_TOL * max(1.0, abs(h[i]))))
+    end
+    # A halfspace the box lies beyond decides it exactly. Otherwise isdisjoint decides, which counts touching as meeting.
+    any(((a, b),) -> sum(a[i] * (a[i] > 0 ? l[i] : h[i]) for i in eachindex(a)) > b + MODAL_TOL, zip(guard...)) && return false
+    return !isdisjoint(Hyperrectangle(low=l, high=h), HPolyhedron([LazySets.HalfSpace(a, b) for (a, b) in zip(guard...)]))
+end
+function clock_after_jump(lo::Vector{Float64}, hi::Vector{Float64}, guard, M::Matrix{Float64}, j::Vector{Float64}, source::Vector{Float64}, target::Vector{Float64}, D′::Int, W′::Int, δ⁻::Float64, at_start::Bool, g::Float64)
     lo′ = fill(NaN, length(lo))
     hi′ = fill(NaN, length(lo))
     for i in eachindex(lo)
         isnan(target[i]) && continue
         least, most = minmax(target[i] * D′ * δ⁻, target[i] * (D′ + W′) * δ⁻)
+        margin = at_start || target[i] < 0 ? closed_margin(g) : 0.0
         if all(iszero, view(M, i, :))
-            lo′[i], hi′[i] = j[i] + least, j[i] + most
-        elseif !isnan(lo[i]) && source[i] == target[i] && M[i, i] == 1.0 && count(!iszero, view(M, i, :)) == 1
+            lo′[i], hi′[i] = j[i] + least, j[i] + most + margin
+        elseif !isnan(lo[i]) && source[i] == target[i] && clock_kept(M, i)
             l, h = lo[i], hi[i]
             for (a, b) in zip(guard...)
                 if a[i] != 0.0 && count(!iszero, a) == 1
-                    a[i] > 0 ? (h = min(h, b / a[i] + most)) : (l = max(l, b / a[i] + least))
+                    a[i] > 0 ? (h = min(h, b / a[i] + most + margin)) : (l = max(l, b / a[i] + least))
                 end
             end
             if l > h + MODAL_TOL || (hi[i] > lo[i] + MODAL_TOL && l >= hi[i] - MODAL_TOL)
@@ -166,14 +179,12 @@ function clock_after_jump(lo::Vector{Float64}, hi::Vector{Float64}, guard, M::Ma
     return lo′, hi′
 end
 
-# True if the set at the shortest or longest remaining time leaves the state space. These sets are flowed without jumps,
-# so states that jumped appear in them as if they had not:
-#   - a face a ⋅ x <= b that a guard of the location borders (the guard has the halfspace -a ⋅ x <= -b, such as the wrap
-#     at t = 20) is skipped: beyond it the set holds the states that jumped, flowed on as if they had not, which can leave
-#     the guard. Crossing such a face is checked at every step of the flow instead (see modal_reach!), up to the time the
-#     states jump.
-#   - beyond any other face, a part inside a guard has jumped too; any other part has left.
-# Tracked clock axes use their exact interval: X may have been clipped to a guard, and that clip is not exact, so after a jump it can sit slightly outside on such an axis without any state being there.
+# Whether a jump with matrix M keeps the upper end of a cell open on axis i: it resets the axis or only translates it.
+# Any other jump, such as a flip, can take the closed lower end of the cell to the upper end, so the axis is no longer
+# tracked after it.
+clock_kept(M::AbstractMatrix, i::Int) = all(iszero, view(M, i, :)) || (M[i, i] == 1.0 && count(!iszero, view(M, i, :)) == 1)
+
+
 function leaves_statespace(ctx::ModalContext, loc::LocationData, X, D::Int, total::Int, lo::Vector{Float64}, hi::Vector{Float64})
     dyn = loc.dynamics
     for (n, k) in enumerate((D, total))
@@ -184,7 +195,7 @@ function leaves_statespace(ctx::ModalContext, loc::LocationData, X, D::Int, tota
             axis = findfirst(!iszero, a)
             tracked = !isnan(lo[axis])
             value = tracked ? (a[axis] > 0 ? a[axis] * hi[axis] : a[axis] * lo[axis]) : ρ(a, final)
-            value > b + MODAL_TOL || continue
+            value > b + (tracked && a[axis] > 0 ? 2closed_margin(ctx.grid.granularity) : MODAL_TOL) || continue # a tracked upper end may be closed_margin up
             beyond = clip_to_polyhedron(final, ([-a], [-b]))
             if beyond === nothing
                 tracked && return true # the interval is exact, the set is not
@@ -218,7 +229,6 @@ function piece_beyond_bordered(loc::LocationData, k::Int, Z)
     return false
 end
 
-# True if part of the set lies beyond a state-space face that a guard of the location borders, outside every guard.
 function leaves_through_bordered(ctx::ModalContext, loc::LocationData, set)
     for (f, (a, b)) in enumerate(zip(ctx.statespace...))
         loc.bordered[f] || continue
@@ -233,13 +243,13 @@ end
 # halfspace -a ⋅ x <= -b (it borders the face) holds there by construction, and is skipped: the clip is not exact on it.
 inside_a_guard(loc::LocationData, beyond, a, b) =
     any(guard -> all(i -> (isapprox(guard[1][i], -a; atol=MODAL_TOL) && isapprox(guard[2][i], -b; atol=MODAL_TOL)) ||
-                          ρ(guard[1][i], beyond) <= guard[2][i], eachindex(guard[1])), loc.guards)
+        ρ(guard[1][i], beyond) <= guard[2][i], eachindex(guard[1])), loc.guards)
 
 # Appends to `out` what X reaches, covering it at the end of the period. X starts with between D and D + W steps of δ⁻ left, depending on the state, so W > 0 after a jump. lo and hi are its exact intervals at the end of the period on the clock axes.
 # Returns false if the transition is bad: it touches an unsafe set, or leaves the state space when exit_bad is true.
 
 function modal_reach!(out::Vector{EndSet}, ctx::ModalContext, li::Int, X, D::Int, W::Int, exit_bad::Bool, lo::Vector{Float64}, hi::Vector{Float64}, depth::Int=0)
-    depth > ctx.max_depth && return false # jumping again and again: assume the worst
+    depth > ctx.max_depth && return false # jumping again and again
     total = D + W
     if total == 0
         push!(out, EndSet(li, X, lo, hi))
@@ -248,21 +258,15 @@ function modal_reach!(out::Vector{EndSet}, ctx::ModalContext, li::Int, X, D::Int
     loc = ctx.locations[li]
     dyn = loc.dynamics
     δ⁺ = min(ctx.δ⁺, ctx.δ⁻ * 2^floor(Int, log2(total))) # no step longer than the time left
-    # A whole cell, or a cell just after an action, flowing a whole period uses the precomputed discretization of its
-    # shape. Only at depth 0: the shared one is overwritten per call, and this call still reads it after the nested calls
-    # return.
+    # A whole cell, or a cell just after an action, flowing a whole period uses the precomputed discretization of its shape.
     cd = depth == 0 && total == ctx.steps ? shape_discretization!(ctx, li, genmat(X)) : nothing
     disc = cd === nothing ? newReACTDiscretizePlus(X, ctx.δ⁻, δ⁺, dyn.A, dyn.P2A_abs, dyn.step_Φ, dyn.step_input, ctx.alg, ctx.maxOrder, ctx.reduceOrder) :
            discretize_cell!(cd, LazySets.center(X))
-    k0 = first_touch(dyn, disc, Iterators.flatten((loc.guards, ctx.unsafe)), total, ctx.δ⁻, δ⁺, ctx.identity_matrix)
-    check_bordered = exit_bad && !isempty(loc.bordered_dirs) # then every piece is tested against those faces
+    k0 = first_touch(dyn, disc, Iterators.flatten((loc.guards, ctx.unsafe)), total, ctx.δ⁻, δ⁺)
+    check_bordered = exit_bad && !isempty(loc.bordered_dirs)
 
     # Pieces from the first touch on, and the pieces that end the period when the time left varies.
-    for k in (check_bordered ? 0 : min(k0, W == 0 ? total : D)):total-1
-        # Beyond a face that a guard borders, the states at the end of this piece must be in a guard: there they jump (or
-        # have jumped). Anything else has left the state space through that face. That is tested on the set at the end of
-        # the piece, which is exact where the piece is bloated (a set that starts on the face, after a reset onto it,
-        # would appear to leave), and only where the piece itself reaches beyond the face.
+    for k in (check_bordered ? 0 : min(k0, W==0 ? total : D)):(total-1)
         if check_bordered && piece_beyond_bordered(loc, k, disc[ctx.δ⁻])
             leaves_through_bordered(ctx, loc, minkowski_sum(linear_map(dyn.Φ[k+2], X), dyn.V[k+2])) && return false
         end
@@ -278,7 +282,9 @@ function modal_reach!(out::Vector{EndSet}, ctx::ModalContext, li::Int, X, D::Int
                 # A state in this piece has spent between k and k + 1 steps here, and had between D and D + W left at the start.
                 D′ = max(D - k - 1, 0)
                 W′ = total - k - D′
-                clocks = clock_after_jump(lo, hi, guard, e.jumpMatrix, e.jumpVector, loc.clock_rate, ctx.locations[e.targetLoc].clock_rate, D′, W′, ctx.δ⁻)
+                # After a jump (depth > 0) X is not a cell, so any state of it may be inside the guard at the start.
+                at_start = k == 0 && (depth > 0 || inside_at_start(X, guard, lo))
+                clocks = clock_after_jump(lo, hi, guard, e.jumpMatrix, e.jumpVector, loc.clock_rate, ctx.locations[e.targetLoc].clock_rate, D′, W′, ctx.δ⁻, at_start, ctx.grid.granularity)
                 clocks === nothing && continue
                 jumped = jump_set(clipped, e.jumpMatrix, e.jumpVector, ctx.maxOrder, ctx.reduceOrder)
                 modal_reach!(out, ctx, e.targetLoc, jumped, D′, W′, exit_bad, clocks..., depth + 1) || return false
@@ -308,12 +314,12 @@ function box_overlaps_region(region, lo, hi)
 end
 
 function ModalContext(system::ModalHybridSystem, p, granularity::Float64, δ⁻::Float64, δ⁺::Float64, alg, maxOrder::Int, reduceOrder::Int, sweep_factor, max_depth::Int;
-                      exit_bad_for_flow::Bool=true, exit_bad_for_actions::Bool=true)
+    exit_bad_for_flow::Bool=true, exit_bad_for_actions::Bool=true)
     grid = Grid(system.statespace, granularity)
     return _ModalContext(grid, Val(ndims(grid.deadCells) + 1), system, Float64(p), δ⁻, δ⁺, alg, maxOrder, reduceOrder, sweep_factor, max_depth, exit_bad_for_flow, exit_bad_for_actions)
 end
 
-# Function barrier on Grid{D}. N = D + 1 is the dimension of the cell index, (continuous cell..., layer).
+
 function _ModalContext(grid::Grid{D}, ::Val{N}, system, p::Float64, δ⁻, δ⁺, alg, maxOrder, reduceOrder, sweep_factor, max_depth, exit_bad_for_flow, exit_bad_for_actions) where {D,N}
     steps = round(Int, p / δ⁻)
     isapprox(steps * δ⁻, p; atol=MODAL_TOL) || throw(ArgumentError("The period $p must be a multiple of δ⁻ = $δ⁻"))
@@ -325,12 +331,10 @@ function _ModalContext(grid::Grid{D}, ::Val{N}, system, p::Float64, δ⁻, δ⁺
     unsafe = [getHalfSpaceProjections(H) for H in system.unsafe]
 
     g = grid.granularity
-    # On an axis with a single cell (the state space is at most a cell wide there, see Grid) the cell is the state space:
-    # a point for a constant, and as wide as the state space otherwise.
+    # On an axis with a single cell, the state space is at most a cell wide, the cell is the state space: a point for a constant, and as wide as the state space otherwise.
     cell_half = [n == 1 ? (h - l) / 2 : g / 2 for (n, l, h) in zip(grid.numCells, LazySets.low(system.statespace), LazySets.high(system.statespace))]
     cell_generators = Matrix{Float64}(genmat(remove_zero_generators(Zonotope(zeros(D), diagm(cell_half)))))
     action_ids = sort!(unique(a.action.id for loc in system.locations for a in loc.actions))
-    identity_matrix = Matrix{Float64}(I, D, D)
 
     sweep = sweep_factor isa Integer ? [min(sweep_factor, n) for n in grid.numCells] : [min(s, n) for (s, n) in zip(sweep_factor, grid.numCells)]
     G_big = Matrix{Float64}(genmat(remove_zero_generators(Zonotope(zeros(D), diagm(map((h, n, k) -> n == 1 ? h : g * (k / 2), cell_half, grid.numCells, sweep))))))
@@ -350,8 +354,7 @@ function _ModalContext(grid::Grid{D}, ::Val{N}, system, p::Float64, δ⁻, δ⁺
         guards = [getHalfSpaceProjections(e.guard) for e in loc.edges]
         targets = exit_bad_for_flow ? exits_and(guards) : vcat(guards, unsafe)
         region = loc.region === nothing ? nothing : getHalfSpaceProjections(loc.region)
-        # Coarse sweep: a whole block is fast if its flowpipe touches nothing over the period.
-        # Cells start a period in the location, or land in it with an action at the start of one.
+
         entered_at_start = loc.starts || any(a.target == length(locations) + 1 for l in system.locations for a in l.actions)
         bordered = [bordered_by(guards, a, b; atol=MODAL_TOL) for (a, b) in zip(statespace...)]
         bordered_dirs = [reduce(hcat, [transpose(dyn.Φ[k+1]) * statespace[1][f] for k in 0:steps]) for f in eachindex(bordered) if bordered[f]]
@@ -362,7 +365,7 @@ function _ModalContext(grid::Grid{D}, ::Val{N}, system, p::Float64, δ⁻, δ⁺
             entered_at_start || break
             center = block_center(bidx)
             box_overlaps_region(region, center .- g .* (sweep ./ 2), center .+ g .* (sweep ./ 2)) || continue
-            if first_touch(dyn, discretize_cell!(big, center), targets, steps, δ⁻, cell_δ⁺, identity_matrix) == steps
+            if first_touch(dyn, discretize_cell!(big, center), targets, steps, δ⁻, cell_δ⁺) == steps
                 fast[block_ranges(bidx)...] .= true
             end
         end
@@ -384,7 +387,7 @@ function _ModalContext(grid::Grid{D}, ::Val{N}, system, p::Float64, δ⁻, δ⁺
     layer_starts = [[li for (li, loc) in enumerate(locations) if loc.layer == layer && loc.starts] for layer in 1:n_layers]
     start_mask = start_masks(grid, locations, layer_starts)
 
-    return ModalContext{D,N,typeof(system)}(system, grid, steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder, locations, unsafe, statespace, cell_generators, cell_half, action_ids, may_act, must_act, n_layers, identity_matrix, zeros(D), max_depth, CoverCache{D}(), layer_starts, start_mask, sweep, exit_bad_for_flow, exit_bad_for_actions)
+    return ModalContext{D,N,typeof(system)}(system, grid, steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder, locations, unsafe, statespace, cell_generators, cell_half, action_ids, may_act, must_act, n_layers, zeros(D), max_depth, CoverCache{D}(), layer_starts, start_mask, sweep, exit_bad_for_flow, exit_bad_for_actions)
 end
 
 # Per (cell..., layer), bit j set if the cell overlaps the region of location layer_starts[layer][j].
@@ -396,7 +399,7 @@ function start_masks(grid::Grid{D}, locations::Vector{LocationData{D}}, layer_st
     for layer in 1:n_layers
         ids = layer_starts[layer]
         length(ids) <= 64 || throw(ArgumentError("layer $layer has $(length(ids)) locations that cells start in; at most 64 are supported"))
-        if all(li -> locations[li].region === nothing, ids) # every cell starts in all of them
+        if all(li -> locations[li].region === nothing, ids)
             selectdim(start_mask, D + 1, layer) .= isempty(ids) ? UInt64(0) : typemax(UInt64) >> (64 - length(ids))
             continue
         end
@@ -416,10 +419,8 @@ function start_masks(grid::Grid{D}, locations::Vector{LocationData{D}}, layer_st
     return start_mask
 end
 
-# The locations a cell of the layer starts a period in, in increasing order.
 cell_locations(ctx::ModalContext{D}, layer::Int, c::CartesianIndex{D}) where D = LocationSet(ctx.layer_starts[layer], ctx.start_mask[c, layer])
 
-# True if some location the cell starts in can take the action at position ai there.
 function can_act(ctx::ModalContext{D}, layer::Int, c::CartesianIndex{D}, ai::Int) where D
     for li in cell_locations(ctx, layer, c)
         ctx.may_act[li][ai][c] && return true
@@ -438,7 +439,6 @@ function append_touching!(res::Vector{CartesianIndex{N}}, ctx::ModalContext{D,N}
                 c[i] = grid.lower[i] + 10 * MODAL_TOL
             end
         end
-        # Only the cells in the exact intervals of the clock axes are tested against the set
         for cell in touching_cells(grid, Zonotope(c, G), ctx.covers, clock_cell_bounds(grid, e.lo, e.hi)...)
             push!(res, CartesianIndex(cell, ctx.locations[e.location].layer))
         end
@@ -446,16 +446,12 @@ function append_touching!(res::Vector{CartesianIndex{N}}, ctx::ModalContext{D,N}
     return res
 end
 
-# The box of cells that overlap the exact intervals [lo, hi] on the clock axes (all cells on the other axes), as the
-# keep_lo and keep_hi of cells_in_cover. Cells are half-open on these axes: a point on a cell border
-# belongs to the cell above it.
 function clock_cell_bounds(grid::Grid{D}, lo::Vector{Float64}, hi::Vector{Float64}) where D
     keep_lo = ntuple(i -> isnan(lo[i]) ? 1 : floor(Int, (lo[i] - grid.lower[i]) / grid.granularity + MODAL_TOL) + 1, D)
     keep_hi = ntuple(i -> isnan(lo[i]) ? grid.numCells[i] : max(ceil(Int, (hi[i] - grid.lower[i]) / grid.granularity - MODAL_TOL), keep_lo[i]), D)
     return keep_lo, keep_hi
 end
 
-# True if the cover translated to c lies in the grid and only meets cells that are fast in location loc.
 function lands_in_fast_cells(ctx::ModalContext{D}, cov::ConstantZonotopeCover{D}, loc::LocationData{D}, c::AbstractVector{Float64}) where D
     grid = ctx.grid
     for i in 1:D
@@ -465,7 +461,6 @@ function lands_in_fast_cells(ctx::ModalContext{D}, cov::ConstantZonotopeCover{D}
     return !isempty(cells) && all(cell -> loc.fast[cell], cells)
 end
 
-# The cells of the layer whose centre lies in the cover translated to ctx.center, within the exact clock intervals.
 function append_cover!(res::Vector{CartesianIndex{N}}, ctx::ModalContext{D,N}, cov::ConstantZonotopeCover{D}, layer::Int, lo::Vector{Float64}, hi::Vector{Float64}) where {D,N}
     for cell in cells_in_cover(ctx.grid, cov, ctx.center, clock_cell_bounds(ctx.grid, lo, hi)...)
         push!(res, CartesianIndex(cell, layer))
@@ -473,8 +468,7 @@ function append_cover!(res::Vector{CartesianIndex{N}}, ctx::ModalContext{D,N}, c
     return res
 end
 
-# The offset in cells of a jump that maps every cell onto another cell (identity matrix, jump vector a whole number of
-# cells on every axis), or nothing.
+
 function cell_shift(M::Matrix{Float64}, j::Vector{Float64}, grid::Grid{D}) where D
     for k in 1:D, i in 1:D
         M[i, k] == (i == k ? 1.0 : 0.0) || return nothing
@@ -484,18 +478,16 @@ function cell_shift(M::Matrix{Float64}, j::Vector{Float64}, grid::Grid{D}) where
     return CartesianIndex(ntuple(i -> round(Int, shift[i]), D))
 end
 
-# Sorts v and drops repeated entries, without hashing.
 function sorted_unique!(v::Vector)
     sort!(v)
     j = 0
     for i in eachindex(v)
-        (j == 0 || v[i] != v[j]) && (j += 1; v[j] = v[i])
+        (j == 0 || v[i] != v[j]) && (j += 1; v[j]=v[i])
     end
     return resize!(v, j)
 end
 
-# Where an action does nothing, it is allowed exactly when waiting is. An action does nothing in a cell when, in every
-# location covering it, the location does not offer the action or the cell is outside its guard.
+
 function noop_choices!(allowed::Array{T,N}, ctx::ModalContext{D,N}) where {T,D,N}
     for k in CartesianIndices(allowed)
         isodd(allowed[k]) || continue
@@ -509,23 +501,9 @@ function noop_choices!(allowed::Array{T,N}, ctx::ModalContext{D,N}) where {T,D,N
     return allowed
 end
 
-# ---------------------------------------------------------------------------------------------------------------------
-# Online: blocks reached forward
-#
-# Online the shield computes only the cells whose choices can differ from "everything allowed", and gives the same result
-# as offline. A cell can only lose a choice if its own computation is bad (it touches an unsafe set, leaves the state
-# space where that is bad, or jumps too often) or if one of its successors becomes bad. Instead of searching backwards for
-# the cells that can reach a cell, every block of cells is computed once forward, as one set (ForwardBlocks), and a cell
-# keeps only the successors its block reaches too (successors_within): so what a cell reaches lies in what its block
-# reaches. The cells to compute are then those of the blocks whose own computation is bad, and, whenever a cell becomes
-# bad, those of the blocks that reach it. Only forward reachability is used, through guards, jumps and actions, as for the
-# cells themselves. The adaptive shield (modal_adaptive.jl) uses the same blocks for its coarsest leaves.
-
-# The box of cells with box index b, for boxes of `size` cells per axis (the last box on an axis may be smaller).
 box_cells(b::CartesianIndex{D}, size::NTuple{D,Int}, numCells) where D =
-    CartesianIndices(ntuple(i -> ((b[i]-1)*size[i]+1):min(b[i] * size[i], numCells[i]), D))
+    CartesianIndices(ntuple(i -> ((b[i]-1)*size[i]+1):min(b[i]*size[i], numCells[i]), D))
 
-# The precomputed data of shape G in location li, added (without its parts) if it has none
 function shape_data!(ctx::ModalContext{D}, li::Int, G::Matrix{Float64}) where D
     loc = ctx.locations[li]
     for sd in loc.shapes # a few shapes per location: a cell, jumped cells, the blocks, the leaves
@@ -634,8 +612,8 @@ function box_successors(ctx::ModalContext{D,N}, layer::Int, cells::CartesianIndi
     acts = Vector{Union{Nothing,Vector{CartesianIndex{N}}}}(nothing, n_acts) # a list once enabled; nothing for bad
     also_flows = zeros(Bool, n_acts)
     for li in locs, ai in 1:n_acts
-        any(c -> ctx.may_act[li][ai][c], cells) || (also_flows[ai] = true; continue)
-        enabled[ai] || (enabled[ai] = true; acts[ai] = CartesianIndex{N}[])
+        any(c -> ctx.may_act[li][ai][c], cells) || (also_flows[ai]=true; continue)
+        enabled[ai] || (enabled[ai]=true; acts[ai]=CartesianIndex{N}[])
         all(c -> ctx.must_act[li][ai][c], cells) || (also_flows[ai] = true)
         acts[ai] === nothing && continue
         loc = ctx.locations[li]
@@ -644,6 +622,9 @@ function box_successors(ctx::ModalContext{D,N}, layer::Int, cells::CartesianIndi
             jumped = jump_set(Z, a.action.jumpMatrix, a.action.jumpVector, ctx.maxOrder, ctx.reduceOrder)
             target = ctx.locations[a.target]
             lo, hi = clock_end(target.clock_rate, jumped, ctx.steps, ctx.δ⁻)
+            for i in eachindex(lo)
+                clock_kept(a.action.jumpMatrix, i) || (lo[i] = hi[i] = NaN)
+            end
             covers = shape_covers!(ctx, li, G)
             # Fast cells may leave the state space when leaving is allowed for the flow: then only if it is for actions too.
             fast_ok = ctx.exit_bad_for_flow || !ctx.exit_bad_for_actions
@@ -659,7 +640,7 @@ function box_successors(ctx::ModalContext{D,N}, layer::Int, cells::CartesianIndi
                 append_cover!(acts[ai], ctx, shape_covers!(ctx, a.target, G)[1], target.layer, lo, hi)
             else
                 empty!(out)
-                modal_reach!(out, ctx, a.target, jumped, ctx.steps, 0, ctx.exit_bad_for_actions, lo, hi) ? append_touching!(acts[ai], ctx, out) : (acts[ai] = nothing; break)
+                modal_reach!(out, ctx, a.target, jumped, ctx.steps, 0, ctx.exit_bad_for_actions, lo, hi) ? append_touching!(acts[ai], ctx, out) : (acts[ai]=nothing; break)
             end
         end
     end
@@ -675,7 +656,6 @@ function box_successors(ctx::ModalContext{D,N}, layer::Int, cells::CartesianIndi
     return BoxSuccessors{N}(flow, collect(enabled), acts)
 end
 
-# What one box reaches, per choice, as sorted ids of cells (fids: (cell..., layer) -> id), nothing where it is bad.
 to_ids(fids, cs) = sorted_unique!(Int32[fids[v] for v in cs])
 
 # A list of a box restricted to the list of an enclosing box (outer): outer's is a sound over-approximation of all the box
@@ -725,7 +705,7 @@ function ForwardBlocks(ctx::ModalContext{D,N}, size::NTuple{D,Int}, fids, online
         acts[bid] = Union{Nothing,Vector{Int32}}[r.enabled[ai] && r.acts[ai] !== nothing ? to_ids(fids, r.acts[ai]) : nothing for ai in eachindex(r.acts)]
         enabled[bid] = r.enabled
         bad[bid] = r.flow === nothing || any(ai -> r.enabled[ai] && r.acts[ai] === nothing, eachindex(r.enabled))
-        if online # everything the block reaches
+        if online
             reached = flow[bid] === nothing ? Int32[] : copy(flow[bid])
             foreach(a -> a === nothing || append!(reached, a), acts[bid])
             append!(succ_pool, sorted_unique!(reached))
@@ -736,7 +716,6 @@ function ForwardBlocks(ctx::ModalContext{D,N}, size::NTuple{D,Int}, fids, online
     return ForwardBlocks{D,N}(size, shape, flow, acts, enabled, bad, rev_off, rev_pool)
 end
 
-# The id of the block holding cell c of the layer, the cells and layer of block bid, and (online) the blocks reaching cell id v
 block_id(B::ForwardBlocks{D}, c::CartesianIndex{D}, layer::Int) where D = LinearIndices(B.shape)[CartesianIndex(ntuple(i -> cld(c[i], B.size[i]), D)..., layer)]
 function block_cells(B::ForwardBlocks{D,N}, bid, numCells) where {D,N}
     k = CartesianIndices(B.shape)[bid]
@@ -757,7 +736,7 @@ function reverse_csr(succ_off::Vector{Int}, succ_pool::Vector{Int32}, n::Int)
     end
     rev_pool = Vector{Int32}(undef, length(succ_pool))
     pos = rev_off[1:n]
-    for b in 1:length(succ_off)-1, i in succ_off[b]:(succ_off[b+1]-1)
+    for b in 1:(length(succ_off)-1), i in succ_off[b]:(succ_off[b+1]-1)
         v = succ_pool[i]
         rev_pool[pos[v]] = b
         pos[v] += 1
@@ -779,8 +758,8 @@ end
 # Trying an action outside its guard or in a location that does not offer it does nothing, so there it is allowed exactly when waiting is (see box_successors).
 # A cell is enabled for an action when some location covering it can take the action there. info.ctx is the context.
 function ReACTed_reachable_cell_modal(system::ModalHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64, alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5;
-                                      online::Bool=false, act_needs_safe_flow::Bool=true, exit_bad_for_flow::Bool=true, exit_bad_for_actions::Bool=true,
-                                      sweep_factor=5, max_depth::Int=16, verbose::Bool=true)
+    online::Bool=false, act_needs_safe_flow::Bool=true, exit_bad_for_flow::Bool=true, exit_bad_for_actions::Bool=true,
+    sweep_factor=5, max_depth::Int=16, verbose::Bool=true)
     timer = PhaseTimer()
     ctx = ModalContext(system, p, Float64(granularity), δ⁻, δ⁺, alg, maxOrder, reduceOrder, sweep_factor, max_depth; exit_bad_for_flow, exit_bad_for_actions)
     return _ReACTed_reachable_cell_modal(ctx, online, act_needs_safe_flow, verbose, timer)
@@ -791,11 +770,10 @@ function _ReACTed_reachable_cell_modal(ctx::ModalContext{D,N}, online::Bool, act
     shape = (cellshape(grid)..., ctx.n_layers)
     verbose && println("$(prod(shape)) cells, shape $shape")
     n_acts = length(ctx.action_ids)
-    # The shield works on ids: the linear index of (continuous cell..., layer). See flat.jl.
     n = prod(shape)
     n < typemax(Int32) || throw(ArgumentError("$n cells do not fit in Int32 ids"))
-    cells = CartesianIndices(shape) # id -> cell
-    ids = LinearIndices(shape) # cell -> id
+    cells = CartesianIndices(shape)
+    ids = LinearIndices(shape)
     store = SuccessorStore(n, [falses(n) for _ in 1:n_acts])
     store.flow_empty_ok = !ctx.exit_bad_for_flow
     store.act_empty_ok = !ctx.exit_bad_for_actions
@@ -813,7 +791,6 @@ function _ReACTed_reachable_cell_modal(ctx::ModalContext{D,N}, online::Bool, act
     end
     lap!(timer, "Setup")
 
-    # Every block once forward (see ForwardBlocks)
     blocks = ForwardBlocks(ctx, Tuple(ctx.sweep), ids, online)
     lap!(timer, "Blocks")
 
@@ -825,7 +802,7 @@ function _ReACTed_reachable_cell_modal(ctx::ModalContext{D,N}, online::Bool, act
         bcells, layer = block_cells(blocks, bid, grid.numCells)
         for c in bcells
             k = CartesianIndex(c, layer)
-            queued[k] || (queued[k] = true; push!(out, k))
+            queued[k] || (queued[k]=true; push!(out, k))
         end
     end
     function queue_blocks_reaching!(out, ks)

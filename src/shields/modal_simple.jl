@@ -1,15 +1,15 @@
 #=
 The modal shield of modal.jl, reduced to its method. Every axis is treated alike. Every cell of every layer is computed
-once, then the bad events are pushed backwards (flat.jl). Uses the system types and some helpers of modal.jl.
+once, then the bad events are pushed backwards (flat.jl). Uses the system types and bounds of modal_shared.jl.
 
 Cells are half-open, [l, l + g) per axis, as for a floor lookup of the state. A set reaches the cells it touches
-(touching_cells), within the bounds that are known to hold for its states at the end of the period (Bounds). These
+(touching_cells), within the bounds that are known to hold for its states at the end of the period (Bounds, modal_shared.jl). These
 bounds are exact where they are tracked, so a cell that only touches their open end is dropped: otherwise a set that
 moves by whole cells would also reach a neighbour every period. They are also what the exit check uses, as the sets
 after a jump are bloated.
   - Flow and actions: the end state of x₀ in the cell is T x₀ + c, exactly, on the axes where the input is constant.
     The interval of axis i is then exact, with an open upper end when it needs some x₀ at the open end of the cell.
-    An open end is moved down by OPEN_MARGIN, so all bounds are closed.
+    An open end is moved down by open_margin (modal_shared.jl), so all bounds are closed.
   - A guard jumps at a time that depends on the state. An axis keeps its bounds when its end value does not depend on
     that time (see jumped_bounds), and loses them otherwise.
 
@@ -23,14 +23,7 @@ guard has jumped. So a state that leaves and comes back within the period is not
 =#
 
 const DenseZonotope = Zonotope{Float64,Vector{Float64},Matrix{Float64}}
-const Halfspaces = Tuple{Vector{Vector{Float64}},Vector{Float64}}
-const Affine = Tuple{Matrix{Float64},Vector{Float64}} # x = T x₀ + c, for x₀ in the start cell
-
-const Bounds = Tuple{Vector{Float64},Vector{Float64}} # per axis, every state is in [lo, hi] at the end of the period
 const PeriodEnd = Tuple{Int,DenseZonotope,Bounds} # location, set, bounds of its states
-
-# How far an open end is moved down: more than the MODAL_TOL with which bounds are compared, in cells and absolutely.
-open_margin(g::Float64) = 4MODAL_TOL * max(1.0, g)
 
 struct SimpleLocation{D}
     dynamics::Dynamics
@@ -111,56 +104,6 @@ can_act(ctx::SimpleContext, c::CartesianIndex, layer::Int, ai::Int) = any(li -> 
 
 flowed(dyn::Dynamics, X, k::Int) = minkowski_sum(linear_map(dyn.Φ[k+1], X), dyn.V[k+1])
 
-# The bounds of the cell Z mapped by x = T x₀ + c and flowed for a whole period. The upper end of an axis is open when
-# some x₀ⱼ with Tᵢⱼ > 0 is at the open end of the cell, which an axis of one cell has not. An input that varies on an
-# axis leaves it untracked: [-Inf, Inf].
-function end_bounds(ctx::SimpleContext, dyn::Dynamics, (T, c)::Affine, Z)
-    Φ, V = dyn.Φ[ctx.steps+1], dyn.V[ctx.steps+1]
-    T′, c′ = Φ * T, Φ * c + LazySets.center(V)
-    l, u = low(Z)', high(Z)'
-    lo = c′ + vec(sum(min.(T′ .* l, T′ .* u); dims=2))
-    hi = c′ + vec(sum(max.(T′ .* l, T′ .* u); dims=2))
-    for i in axes(T′, 1)
-        any(j -> T′[i, j] > 0 && ctx.grid.numCells[j] > 1, axes(T′, 2)) && (hi[i] -= open_margin(ctx.grid.granularity))
-        iszero(view(genmat(V), i, :)) || ((lo[i], hi[i]) = (-Inf, Inf))
-    end
-    return lo, hi
-end
-
-# The bounds after a jump x := M x + j through the guard, from a location with rates `from` to one with rates `to`, for
-# states with between D′ and D′ + W′ steps left. The time of the jump depends on the state, so only these axes keep
-# bounds:
-#   - translated at the same rate on both sides: it ends where it would have without the jump, plus j. A halfspace of the
-#     guard on this axis alone also limits it, as the states were inside the guard and then moved for the time left.
-#   - reset to j: it ends at j plus its rate times the time left, which a state can have exactly, so its end is closed.
-# Returns nothing if no state of the bounds can take the jump.
-function jumped_bounds((lo, hi)::Bounds, guard::Halfspaces, M::Matrix{Float64}, j::Vector{Float64}, from::Vector{Float64}, to::Vector{Float64}, D′::Int, W′::Int, δ⁻::Float64)
-    lo′, hi′ = fill(-Inf, length(j)), fill(Inf, length(j))
-    for i in eachindex(j)
-        isnan(to[i]) && continue
-        least, most = minmax(to[i] * D′ * δ⁻, to[i] * (D′ + W′) * δ⁻)
-        if iszero(view(M, i, :))
-            lo′[i], hi′[i] = j[i] + least, j[i] + most
-        elseif from[i] == to[i] && M[i, i] == 1 && count(!iszero, view(M, i, :)) == 1
-            l, h = lo[i], hi[i]
-            for (a, c) in zip(guard...)
-                (a[i] != 0 && count(!iszero, a) == 1) || continue
-                a[i] > 0 ? (h = min(h, c / a[i] + most)) : (l = max(l, c / a[i] + least))
-            end
-            l > h + MODAL_TOL && return nothing
-            lo′[i], hi′[i] = l + j[i], h + j[i]
-        end
-    end
-    return lo′, hi′
-end
-
-# Per axis, the cells the bounds allow, as keep_lo, keep_hi of touching_cells: none for bounds below the grid.
-function cell_bounds(grid::Grid{D}, (lo, hi)::Bounds) where D
-    index(x, i) = floor(Int, clamp((x - grid.lower[i]) / grid.granularity + MODAL_TOL, -1, grid.numCells[i])) + 1
-    keep_lo = ntuple(i -> index(lo[i], i), D)
-    return keep_lo, ntuple(i -> max(index(hi[i], i), keep_lo[i]), D)
-end
-
 # ReACT's discretization of X, from the one of its shape when X flows a whole period. Only outside a jump: that one is
 # overwritten by every call, and the caller still reads it after the jumps return.
 function discretize(ctx::SimpleContext, li::Int, X, depth::Int, δ⁺::Float64)
@@ -195,7 +138,7 @@ function reach!(out::Vector{PeriodEnd}, ctx::SimpleContext, li::Int, X, D::Int, 
                 clipped === nothing && continue
                 # A state of the piece has spent between k and k + 1 steps here.
                 D′, W′ = max(D - k - 1, 0), total - k - max(D - k - 1, 0)
-                b = jumped_bounds(bounds, guard, e.jumpMatrix, e.jumpVector, loc.rate, ctx.locations[e.targetLoc].rate, D′, W′, ctx.δ⁻)
+                b = jumped_bounds(bounds, guard, e.jumpMatrix, e.jumpVector, loc.rate, ctx.locations[e.targetLoc].rate, D′, W′, ctx.δ⁻, k == 0, ctx.grid.granularity)
                 b === nothing && continue
                 jumped = jump_set(clipped, e.jumpMatrix, e.jumpVector, ctx.maxOrder, ctx.reduceOrder)
                 reach!(out, ctx, e.targetLoc, jumped, D′, W′, exit_bad, b, depth + 1) || return false
@@ -260,7 +203,8 @@ function cell_successors(ctx::SimpleContext, c::CartesianIndex, locs::Vector{Int
 end
 
 # Shield for a ModalHybridSystem, like ReACTed_reachable_cell_modal without its optimizations and clock axes, and offline
-# only. Returns grid, allowed, lost, info as every shield (see choice_bits in flat.jl); info.ctx is the context.
+# only. Returns grid, allowed, lost, info as every shield (see choice_bits in flat.jl), but lost is nothing: only the
+# allowed choices are computed. info.ctx is the context.
 function ReACTed_reachable_cell_modal_simple(system::ModalHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64,
     alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5;
     act_needs_safe_flow::Bool=true, exit_bad_for_flow::Bool=true, exit_bad_for_actions::Bool=true, max_depth::Int=16, verbose::Bool=true)
@@ -273,36 +217,30 @@ function simple_shield(ctx::SimpleContext{D}, act_needs_safe_flow::Bool, verbose
     shape = (cellshape(grid)..., length(ctx.layers))
     cells, ids = CartesianIndices(shape), LinearIndices(shape)
     n, n_acts = length(ids), length(ctx.action_ids)
-    store = SuccessorStore(n, [falses(n) for _ in 1:n_acts])
-    store.flow_empty_ok = !ctx.exit_bad_for_flow
-    store.act_empty_ok = !ctx.exit_bad_for_actions
-    s = reset!(FlatShieldState(n_acts, act_needs_safe_flow), n)
     split(k) = CartesianIndex(ntuple(i -> k[i], D)), k[D+1]
-    as_ids(succ) = succ === nothing ? Int32[] : Int32[ids[k] for k in succ]
+    as_ids(succ) = succ === nothing ? nothing : Int32[ids[k] for k in succ]
 
+    computed, dead = falses(n), falses(n)
+    flow = Vector{Union{Nothing,Vector{Int32}}}(nothing, n)
+    acts = [Vector{Union{Nothing,Vector{Int32}}}(nothing, n) for _ in 1:n_acts]
     for H in ctx.system.unsafe, c in touching_cells(grid, H), layer in eachindex(ctx.layers)
-        seed_constraint!(s, Int32(ids[c, layer]))
-        store.flow_none[ids[c, layer]] = true
+        dead[ids[c, layer]] = true
     end
     for k in cells
-        id = Int32(ids[k])
+        id = ids[k]
         c, layer = split(k)
         locs = starting(ctx, c, layer)
-        (s.computed[id] || isempty(locs)) && continue
-        waiting, acts = cell_successors(ctx, c, locs)
-        store.flow_none[id] = waiting === nothing
-        set_successors!(store, 0, id, as_ids(waiting))
-        for ai in 1:n_acts
-            store.act_enabled[ai][id] = acts[ai] !== nothing
-            set_successors!(store, ai, id, as_ids(acts[ai]))
-        end
-        register_successors!(store, s, id)
+        (dead[id] || isempty(locs)) && continue
+        waiting, act_succ = cell_successors(ctx, c, locs)
+        flow[id] = as_ids(waiting)
+        foreach(ai -> acts[ai][id] = as_ids(act_succ[ai]), 1:n_acts)
+        computed[id] = true
         verbose && id % 100_000 == 0 && println("$id of $n cells : $(Dates.format(now(), "HH:MM:SS"))")
     end
-    propagate_bad!(s)
-    verbose && println("$n cells, dead: $(count(s.dead))")
+    choices = allowed_choices(choice_type(n_acts), flow, acts, computed, dead, act_needs_safe_flow, !ctx.exit_bad_for_flow, !ctx.exit_bad_for_actions)
+    allowed = reshape(choices, shape)
+    verbose && println("$n cells, dead: $(count(dead))")
 
-    allowed, lost = cell_choices(shape, n_acts, s, (ai, k) -> can_act(ctx, split(cells[k])..., ai), store_acted(store))
     # Where no location of the cell can take an action, it does nothing: it is allowed exactly where waiting is.
     for k in cells
         c, layer = split(k)
@@ -311,5 +249,5 @@ function simple_shield(ctx::SimpleContext{D}, act_needs_safe_flow::Bool, verbose
             can_act(ctx, c, layer, ai) || (allowed[k] |= one(eltype(allowed)) << ai)
         end
     end
-    return grid, allowed, lost, (; ctx)
+    return grid, allowed, nothing, (; ctx)
 end

@@ -239,6 +239,95 @@ function propagate_bad!(s::FlatShieldState)
     end
 end
 
+# The inverse of the lists succ_off/succ_pool (list b holds succ_pool[succ_off[b]:succ_off[b+1]-1]) over the ids 1:n:
+# for id v, the lists holding it are rev_pool[rev_off[v]:rev_off[v+1]-1], in increasing order.
+function reverse_csr(succ_off::Vector{Int}, succ_pool::Vector{Int32}, n::Int)
+    rev_off = zeros(Int, n + 1)
+    for v in succ_pool
+        rev_off[v+1] += 1
+    end
+    rev_off[1] = 1
+    for v in 1:n
+        rev_off[v+1] += rev_off[v]
+    end
+    rev_pool = Vector{Int32}(undef, length(succ_pool))
+    pos = rev_off[1:n]
+    for b in 1:(length(succ_off)-1), i in succ_off[b]:(succ_off[b+1]-1)
+        v = succ_pool[i]
+        rev_pool[pos[v]] = b
+        pos[v] += 1
+    end
+    return rev_off, rev_pool
+end
+
+# Lists as one pool: list b holds pool[off[b]:off[b+1]-1], nothing for an empty one.
+function to_csr(lists)
+    off, pool = ones(Int, length(lists) + 1), Int32[]
+    for (b, list) in enumerate(lists)
+        list === nothing || append!(pool, list)
+        off[b+1] = length(pool) + 1
+    end
+    return off, pool
+end
+
+# The allowed choices of a shield that computes every id once, as the bits of choice_bits: a lean FlatShieldState that
+# keeps only what they need. flow[id] holds the successors of waiting and acts[ai][id] those of action ai, nothing where
+# the choice is bad (for an action, or not enabled), for the computed ids. dead holds the ids dead from the start, and
+# is updated. A choice without successors is safe only where flow_empty_ok or act_empty_ok says so. An id never computed
+# allows waiting. Bad events are pushed backwards along the predecessors, each edge at most once per kind.
+function allowed_choices(::Type{T}, flow::Vector{Union{Nothing,Vector{Int32}}}, acts::Vector{Vector{Union{Nothing,Vector{Int32}}}},
+    computed::BitVector, dead::BitVector, act_needs_safe_flow::Bool, flow_empty_ok::Bool, act_empty_ok::Bool) where T
+    n, n_acts = length(flow), length(acts)
+    flow_off, flow_pred = reverse_csr(to_csr(flow)..., n)
+    act_off, act_pred = reverse_csr(to_csr(collect(Iterators.flatten(acts)))..., n) # list (ai - 1) n + k is action ai of k
+
+    flow_bad = copy(dead)
+    for k in findall(computed)
+        succ = flow[k]
+        flow_bad[k] = succ === nothing || (isempty(succ) && !flow_empty_ok) || any(v -> dead[v], succ)
+    end
+    ok = falses(n_acts * n)
+    n_ok = zeros(Int, n)
+    for ai in 1:n_acts, k in findall(computed)
+        succ = acts[ai][k]
+        safe = succ !== nothing && (!isempty(succ) || act_empty_ok) && !any(v -> dead[v] || (act_needs_safe_flow && flow_bad[v]), succ)
+        safe && (ok[(ai-1)*n+k] = true; n_ok[k] += 1)
+    end
+
+    dead_queue, bad_queue = findall(dead), findall(flow_bad)
+    die!(k) = computed[k] && !dead[k] && flow_bad[k] && n_ok[k] == 0 && (dead[k] = true; push!(dead_queue, k))
+    foreach(die!, 1:n)
+    function unsafe!(b) # action edge b leads to a bad id
+        ok[b] || return
+        ok[b] = false
+        k = (b - 1) % n + 1
+        n_ok[k] -= 1
+        die!(k)
+    end
+    while !isempty(dead_queue) || !isempty(bad_queue)
+        if !isempty(dead_queue)
+            v = pop!(dead_queue)
+            for k in view(flow_pred, flow_off[v]:flow_off[v+1]-1)
+                flow_bad[k] || (flow_bad[k] = true; push!(bad_queue, k); die!(k))
+            end
+            foreach(unsafe!, view(act_pred, act_off[v]:act_off[v+1]-1))
+        else
+            v = pop!(bad_queue)
+            act_needs_safe_flow && foreach(unsafe!, view(act_pred, act_off[v]:act_off[v+1]-1))
+        end
+    end
+
+    allowed = zeros(T, n)
+    for k in 1:n
+        dead[k] && continue
+        allowed[k] = computed[k] && flow_bad[k] ? zero(T) : one(T)
+        for ai in 1:n_acts
+            ok[(ai-1)*n+k] && (allowed[k] |= one(T) << ai)
+        end
+    end
+    return allowed
+end
+
 # ---------------------------------------------------------------------------------------------------------------------
 # Results. Every shield returns grid, allowed, lost, info: allowed and lost hold the choice bits of each cell (see
 # choice_bits), grid.deadCells is where nothing is allowed, and info is a NamedTuple of what only that shield has.

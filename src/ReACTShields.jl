@@ -6,6 +6,7 @@ Shield synthesis for hybrid systems on a grid, built on the ReACT reachability a
 Shields (each returns `grid, allowed, lost, info`, see `choice_bits` in shields/flat.jl):
   - `ReACTed_reachable_cell_modal`            : several locations and discrete modes (shields/modal.jl), offline or online
   - `ReACTed_reachable_cell_modal_adaptive`   : the same, multi-resolution (shields/modal_adaptive.jl)
+  - `ReACTed_reachable_cell_modal_simple`     : the same method without optimizations or clock axes (shields/modal_simple.jl)
 A system without discrete modes (an `EuclideanHybridSystem`, such as the bouncing ball) runs through them as
 `ModalHybridSystem(system)`.
 
@@ -32,13 +33,14 @@ include("shields/propagate.jl")
 include("shields/flat.jl")
 include("shields/modal.jl")
 include("shields/modal_adaptive.jl")
+include("shields/modal_simple.jl")
 
 include("../models/bouncingBall.jl")
 include("../models/oilpump.jl")
 include("../models/cruise.jl")
 include("../models/DC_converter.jl")
 
-export ReACTed_reachable_cell_modal, ReACTed_reachable_cell_modal_adaptive
+export ReACTed_reachable_cell_modal, ReACTed_reachable_cell_modal_adaptive, ReACTed_reachable_cell_modal_simple
 export Grid, Edge, Action, EuclideanHybridSystem, ModalHybridSystem, ModalLocation, ModalAction
 export loadBouncingBallShielded, loadBouncingBallShieldedWithInput, loadBouncingBallNoEdges
 export loadOilPumpModal, plot_oil_pump, OILPUMP_OFF_FREE, OILPUMP_OFF_LOCKED, OILPUMP_ON_FREE, OILPUMP_ON_LOCKED, OILPUMP_PIECES

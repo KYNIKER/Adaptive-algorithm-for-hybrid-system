@@ -162,6 +162,14 @@ digest(a) = bytes2hex(sha1(reinterpret(UInt8, vec(a))))[1:12]
         @test (5, 1) in succ(flip, 2; act=1)
     end
 
+    @testset "modal simple: the ball as modal" begin
+        # The ball has no axis that modal treats as a clock where it matters, so without them the shield is the same.
+        sys = ModalHybridSystem(loadBouncingBallShieldedWithInput()[1])
+        args = (sys, 0.1, 0.03, 0.001, 0.032)
+        kw = (; exit_bad_for_flow=false, exit_bad_for_actions=false, verbose=false)
+        @test ReACTed_reachable_cell_modal_simple(args...; kw...)[2] == ReACTed_reachable_cell_modal(args...; kw...)[2]
+    end
+
     @testset "modal: an action outside its guard does nothing" begin
         # x' = 1, y' = 0 on [0, 10] × [0, 1]. x >= 9 is unsafe. Action 1 resets x to 0 and has the guard x >= 5.
         statespace = Hyperrectangle([5.0, 0.5], [5.0, 0.5])

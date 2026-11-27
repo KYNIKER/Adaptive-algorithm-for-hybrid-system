@@ -49,7 +49,7 @@ end
 function first_touch(dyn::Dynamics, disc, sets, steps::Int, δ⁻::Float64, δ⁺::Float64)
     k0 = steps
     for (vectors, bounds) in sets
-        time, flag = ReACT_guards(δ⁻, δ⁺, [0.0, steps * δ⁻], zeros(4), copy(vectors), bounds, dyn.step_Φt, disc, dyn.step_input)
+        time, flag = ReACT_guards(δ⁻, δ⁺, steps * δ⁻, map(copy, vectors), bounds, dyn.step_Φt, disc, dyn.step_input) # dirs are moved in place
         if flag != 0
             k0 = min(k0, round(Int, time / δ⁻))
         end

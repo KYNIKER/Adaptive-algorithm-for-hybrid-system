@@ -41,9 +41,8 @@ open_margin(g::Float64) = 4MODAL_TOL * max(1.0, g) # exceeds the MODAL_TOL of co
 
 # Bounds of T Z + c; the upper end is open where some Tᵢⱼ > 0 meets the open end of a multi-cell axis.
 function affine_bounds(grid::Grid, T::Matrix{Float64}, c::Vector{Float64}, Z)
-    l, u = low(Z)', high(Z)'
-    lo = c + vec(sum(min.(T .* l, T .* u); dims=2))
-    hi = c + vec(sum(max.(T .* l, T .* u); dims=2))
+    mid, rad = T * LazySets.center(Z) + c, abs.(T) * vec(sum(abs, genmat(Z); dims=2)) # Z is a box: T m + c ± |T| r
+    lo, hi = mid - rad, mid + rad
     for i in axes(T, 1)
         any(j -> T[i, j] > 0 && grid.numCells[j] > 1, axes(T, 2)) && (hi[i] -= open_margin(grid.granularity))
     end

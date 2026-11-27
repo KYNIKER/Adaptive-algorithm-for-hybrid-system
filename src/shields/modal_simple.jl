@@ -1,6 +1,7 @@
 # modal.jl reduced to its method: all axes alike, every cell computed once, bad events pushed back (flat.jl).
 # Successors are the touching_cells of each end set, within its Bounds (modal_shared.jl).
 
+const EndMap = Tuple{Matrix{Float64},Vector{Float64},Vector{Float64}} # T′, lo, hi: a cell centered at m ends in [T′ m + lo, T′ m + hi]
 const PeriodEnd = Tuple{Int,Zonotope{Float64,Vector{Float64},Matrix{Float64}},Bounds} # location, set, bounds
 
 struct SimpleLocation{D}
@@ -9,6 +10,8 @@ struct SimpleLocation{D}
     guards::Vector{Halfspaces}
     rate::Vector{Float64} # rate of each axis that only translates, NaN otherwise
     starts::BitArray{D} # cells that start a period here
+    still::EndMap # waiting
+    act_ends::Vector{EndMap} # per entry of the location's actions
     discs::Vector{Dict{Tuple{Matrix{Float64},Float64},Union{Nothing,CellDiscretization{D}}}} # per depth, per (shape, δ⁺); nothing: seen once
 end
 
@@ -27,7 +30,6 @@ struct SimpleContext{D,S}
     unsafe::Vector{Halfspaces}
     statespace::Halfspaces
     cell::Matrix{Float64} # generators of a cell
-    still::Affine # the identity map
     action_ids::Vector{Int}
     may_act::Vector{Vector{BitArray{D}}} # [location][action]: some state of the cell is in the guard
     must_act::Vector{Vector{BitArray{D}}} # [location][action]: every state of the cell is in the guard
@@ -46,12 +48,14 @@ function SimpleContext(system::ModalHybridSystem, p::Float64, g::Float64, δ⁻,
     cell = Matrix{Float64}(genmat(remove_zero_generators(Zonotope(zeros(D), diagm(half)))))
 
     shared = Dict{Tuple{Matrix{Float64},Vector{Float64},Matrix{Float64}},Dynamics}()
-    locations = map(system.locations) do loc
-        dyn = get!(() -> Dynamics(loc.A, loc.U, steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder), shared, (loc.A, LazySets.center(loc.U), genmat(loc.U)))
+    dyns = [get!(() -> Dynamics(loc.A, loc.U, steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder), shared, (loc.A, LazySets.center(loc.U), genmat(loc.U))) for loc in system.locations]
+    end_map(dyn, (T, c)) = (dyn.Φ[steps+1] * T, end_bounds((; grid, steps), dyn, (T, c), Zonotope(zeros(D), cell))...) # linear in the cell's center
+    locations = map(zip(system.locations, dyns)) do (loc, dyn)
         region = loc.region === nothing ? nothing : getHalfSpaceProjections(loc.region)
         starts = BitArray(loc.starts && box_overlaps_region(region, cell_low(grid, c), cell_low(grid, c) .+ g) for c in CartesianIndices(cellshape(grid)))
         rate = [iszero(view(loc.A, i, :)) && iszero(view(genmat(loc.U), i, :)) ? LazySets.center(loc.U)[i] : NaN for i in 1:D]
-        SimpleLocation(dyn, loc.layer, Halfspaces[getHalfSpaceProjections(e.guard) for e in loc.edges], rate, starts,
+        act_ends = EndMap[end_map(dyns[a.target], (Matrix{Float64}(a.action.jumpMatrix), Vector{Float64}(a.action.jumpVector))) for a in loc.actions]
+        SimpleLocation(dyn, loc.layer, Halfspaces[getHalfSpaceProjections(e.guard) for e in loc.edges], rate, starts, end_map(dyn, (Matrix{Float64}(I, D, D), zeros(D))), act_ends,
             [Dict{Tuple{Matrix{Float64},Float64},Union{Nothing,CellDiscretization{D}}}() for _ in 0:max_depth])
     end
     layers = [[li for (li, loc) in enumerate(locations) if loc.layer == layer] for layer in 1:maximum(loc.layer for loc in locations)]
@@ -68,7 +72,7 @@ function SimpleContext(system::ModalHybridSystem, p::Float64, g::Float64, δ⁻,
 
     statespace = getHalfSpaceProjections(hyperrectangle_to_HPolyhedron(system.statespace))
     unsafe = Halfspaces[getHalfSpaceProjections(H) for H in system.unsafe]
-    return SimpleContext(system, grid, steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder, max_depth, locations, layers, unsafe, statespace, cell, (Matrix{Float64}(I, D, D), zeros(D)),
+    return SimpleContext(system, grid, steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder, max_depth, locations, layers, unsafe, statespace, cell,
         action_ids, may_act, must_act, CoverCache{D}(), exit_bad_for_flow, exit_bad_for_actions)
 end
 
@@ -140,11 +144,12 @@ function leaves(ctx::SimpleContext, loc::SimpleLocation, set, (lo, hi)::Bounds)
     return false
 end
 
-# Sorted ids of the cells reached by the transitions (location, set, exit_bad, affine map of Z), or nothing if one is bad.
-function reached(ctx::SimpleContext, transitions, Z)
+# Sorted ids of the cells reached by the transitions (location, set, exit_bad, end map) from the cell centered at m, or nothing if one is bad.
+function reached(ctx::SimpleContext, transitions, m::Vector{Float64})
     out = PeriodEnd[]
-    for (li, X, exit_bad, affine) in transitions
-        reach!(out, ctx, li, X, ctx.steps, 0, exit_bad, end_bounds(ctx, ctx.locations[li].dynamics, affine, Z)) || return nothing
+    for (li, X, exit_bad, (T, lo, hi)) in transitions
+        t = T * m
+        reach!(out, ctx, li, X, ctx.steps, 0, exit_bad, (t + lo, t + hi)) || return nothing
     end
     ids, succ = LinearIndices((cellshape(ctx.grid)..., length(ctx.layers))), Int32[]
     for (li, X, b) in out, c in touching_cells(ctx.grid, X, ctx.covers, cell_bounds(ctx.grid, b)...)
@@ -156,14 +161,13 @@ end
 # Successors of waiting and per action (nothing: disabled or bad); where an action is not taken, the state just waits.
 function cell_successors(ctx::SimpleContext, c::CartesianIndex, locs::Vector{Int})
     Z = Zonotope(cell_low(ctx.grid, c) .+ ctx.grid.granularity / 2, ctx.cell)
-    waiting = reached(ctx, ((li, Z, ctx.exit_bad_for_flow, ctx.still) for li in locs), Z)
+    waiting = reached(ctx, ((li, Z, ctx.exit_bad_for_flow, ctx.locations[li].still) for li in locs), Z.center)
     acts = map(eachindex(ctx.action_ids)) do ai
         taking = filter(li -> ctx.may_act[li][ai][c], locs)
         isempty(taking) && return nothing
-        outcomes = ((a.target, jump_set(Z, a.action.jumpMatrix, a.action.jumpVector, ctx.maxOrder, ctx.reduceOrder), ctx.exit_bad_for_actions,
-                     (a.action.jumpMatrix, a.action.jumpVector))
-                    for li in taking for a in ctx.system.locations[li].actions if a.action.id == ctx.action_ids[ai])
-        succ = reached(ctx, outcomes, Z)
+        outcomes = ((a.target, jump_set(Z, a.action.jumpMatrix, a.action.jumpVector, ctx.maxOrder, ctx.reduceOrder), ctx.exit_bad_for_actions, ctx.locations[li].act_ends[k])
+                    for li in taking for (k, a) in enumerate(ctx.system.locations[li].actions) if a.action.id == ctx.action_ids[ai])
+        succ = reached(ctx, outcomes, Z.center)
         all(li -> ctx.must_act[li][ai][c], locs) && return succ
         return succ === nothing || waiting === nothing ? nothing : unique!(sort!(vcat(succ, waiting)))
     end

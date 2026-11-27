@@ -324,15 +324,13 @@ const MAX_CACHED_COVERS = 100_000
 function touching_cells(grid::Grid{N}, set::Zonotope{Float64,Vector{Float64},Matrix{Float64}}, covers::CoverCache{N},
     keep_lo::NTuple{N,Int}=ntuple(_ -> 1, N), keep_hi::NTuple{N,Int}=cellshape(grid)) where N
     G = genmat(set)
-    nonzero = [j for j in axes(G, 2) if any(!iszero, view(G, :, j))]
-    if cover_facet_pairs(length(nonzero) + N, N) > MAX_COVER_FACET_PAIRS
-        return touching_cells_lp(grid, set)
-    end
-    bloated = hcat(G[:, nonzero], Matrix((grid.granularity / 2) * I, N, N))
-    cov = get(covers, bloated, nothing)
+    cov = get(covers, G, nothing) # keyed by G itself: the cover is a function of G, so no key is built per call
     if cov === nothing
+        nonzero = [j for j in axes(G, 2) if any(!iszero, view(G, :, j))]
+        cover_facet_pairs(length(nonzero) + N, N) > MAX_COVER_FACET_PAIRS && return touching_cells_lp(grid, set)
         length(covers) >= MAX_CACHED_COVERS && empty!(covers)
-        cov = covers[bloated] = ConstantZonotopeCover(bloated, ntuple(i -> sum(abs, view(G, i, :)), N), Val(N))
+        bloated = hcat(G[:, nonzero], Matrix((grid.granularity / 2) * I, N, N))
+        cov = covers[copy(G)] = ConstantZonotopeCover(bloated, ntuple(i -> sum(abs, view(G, i, :)), N), Val(N))
     end
     return cells_in_cover(grid, cov, set.center, keep_lo, keep_hi)
 end

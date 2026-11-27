@@ -27,6 +27,7 @@ struct SimpleContext{D,S}
     unsafe::Vector{Halfspaces}
     statespace::Halfspaces
     cell::Matrix{Float64} # generators of a cell
+    still::Affine # the identity map
     action_ids::Vector{Int}
     may_act::Vector{Vector{BitArray{D}}} # [location][action]: some state of the cell is in the guard
     must_act::Vector{Vector{BitArray{D}}} # [location][action]: every state of the cell is in the guard
@@ -67,7 +68,7 @@ function SimpleContext(system::ModalHybridSystem, p::Float64, g::Float64, δ⁻,
 
     statespace = getHalfSpaceProjections(hyperrectangle_to_HPolyhedron(system.statespace))
     unsafe = Halfspaces[getHalfSpaceProjections(H) for H in system.unsafe]
-    return SimpleContext(system, grid, steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder, max_depth, locations, layers, unsafe, statespace, cell,
+    return SimpleContext(system, grid, steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder, max_depth, locations, layers, unsafe, statespace, cell, (Matrix{Float64}(I, D, D), zeros(D)),
         action_ids, may_act, must_act, CoverCache{D}(), exit_bad_for_flow, exit_bad_for_actions)
 end
 
@@ -115,8 +116,13 @@ function reach!(out::Vector{PeriodEnd}, ctx::SimpleContext, li::Int, X, D::Int, 
         end
         W > 0 && k >= D && push!(out, (li, piece, bounds)) # states with k + 1 steps left end here
     end
-    exit_bad && any(k -> leaves(ctx, loc, flowed(dyn, X, k), bounds), unique((D, total))) && return false
-    W == 0 && push!(out, (li, flowed(dyn, X, total), bounds))
+    if W == 0
+        final = flowed(dyn, X, total)
+        exit_bad && leaves(ctx, loc, final, bounds) && return false
+        push!(out, (li, final, bounds))
+    elseif exit_bad
+        (leaves(ctx, loc, flowed(dyn, X, D), bounds) || leaves(ctx, loc, flowed(dyn, X, total), bounds)) && return false
+    end
     return true
 end
 
@@ -134,20 +140,23 @@ function leaves(ctx::SimpleContext, loc::SimpleLocation, set, (lo, hi)::Bounds)
     return false
 end
 
-# Cells reached by the transitions (location, set, exit_bad, affine map of Z), or nothing if one is bad.
+# Sorted ids of the cells reached by the transitions (location, set, exit_bad, affine map of Z), or nothing if one is bad.
 function reached(ctx::SimpleContext, transitions, Z)
     out = PeriodEnd[]
     for (li, X, exit_bad, affine) in transitions
         reach!(out, ctx, li, X, ctx.steps, 0, exit_bad, end_bounds(ctx, ctx.locations[li].dynamics, affine, Z)) || return nothing
     end
-    return unique!([CartesianIndex(c, ctx.locations[li].layer) for (li, X, b) in out for c in touching_cells(ctx.grid, X, ctx.covers, cell_bounds(ctx.grid, b)...)])
+    ids, succ = LinearIndices((cellshape(ctx.grid)..., length(ctx.layers))), Int32[]
+    for (li, X, b) in out, c in touching_cells(ctx.grid, X, ctx.covers, cell_bounds(ctx.grid, b)...)
+        push!(succ, ids[c, ctx.locations[li].layer])
+    end
+    return unique!(sort!(succ))
 end
 
 # Successors of waiting and per action (nothing: disabled or bad); where an action is not taken, the state just waits.
 function cell_successors(ctx::SimpleContext, c::CartesianIndex, locs::Vector{Int})
     Z = Zonotope(cell_low(ctx.grid, c) .+ ctx.grid.granularity / 2, ctx.cell)
-    D = length(c)
-    waiting = reached(ctx, ((li, Z, ctx.exit_bad_for_flow, (Matrix{Float64}(I, D, D), zeros(D))) for li in locs), Z)
+    waiting = reached(ctx, ((li, Z, ctx.exit_bad_for_flow, ctx.still) for li in locs), Z)
     acts = map(eachindex(ctx.action_ids)) do ai
         taking = filter(li -> ctx.may_act[li][ai][c], locs)
         isempty(taking) && return nothing
@@ -156,7 +165,7 @@ function cell_successors(ctx::SimpleContext, c::CartesianIndex, locs::Vector{Int
                     for li in taking for a in ctx.system.locations[li].actions if a.action.id == ctx.action_ids[ai])
         succ = reached(ctx, outcomes, Z)
         all(li -> ctx.must_act[li][ai][c], locs) && return succ
-        return succ === nothing || waiting === nothing ? nothing : unique!(vcat(succ, waiting))
+        return succ === nothing || waiting === nothing ? nothing : unique!(sort!(vcat(succ, waiting)))
     end
     return waiting, acts
 end
@@ -175,7 +184,6 @@ function simple_shield(ctx::SimpleContext{D}, act_needs_safe_flow::Bool, verbose
     cells, ids = CartesianIndices(shape), LinearIndices(shape)
     n, n_acts = length(ids), length(ctx.action_ids)
     split(k) = CartesianIndex(ntuple(i -> k[i], D)), k[D+1]
-    as_ids(succ) = succ === nothing ? nothing : Int32[ids[k] for k in succ]
 
     computed, dead = falses(n), falses(n)
     flow = Vector{Union{Nothing,Vector{Int32}}}(nothing, n)
@@ -189,8 +197,8 @@ function simple_shield(ctx::SimpleContext{D}, act_needs_safe_flow::Bool, verbose
         locs = starting(ctx, c, layer)
         (dead[id] || isempty(locs)) && continue
         waiting, act_succ = cell_successors(ctx, c, locs)
-        flow[id] = as_ids(waiting)
-        foreach(ai -> acts[ai][id] = as_ids(act_succ[ai]), 1:n_acts)
+        flow[id] = waiting
+        foreach(ai -> acts[ai][id] = act_succ[ai], 1:n_acts)
         computed[id] = true
         verbose && id % 100_000 == 0 && println("$id of $n cells : $(Dates.format(now(), "HH:MM:SS"))")
     end

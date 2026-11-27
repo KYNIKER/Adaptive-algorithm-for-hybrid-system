@@ -10,6 +10,7 @@ struct SimpleLocation{D}
     guards::Vector{Halfspaces}
     rate::Vector{Float64} # rate of each axis that only translates, NaN otherwise
     starts::BitArray{D} # cells that start a period here
+    fast::BitArray{D} # cells whose block's flowpipe over a period touches no guard and no unsafe set
     still::EndMap # waiting
     act_ends::Vector{EndMap} # per entry of the location's actions
     discs::Vector{Dict{Tuple{Matrix{Float64},Float64},Union{Nothing,CellDiscretization{D}}}} # per depth, per (shape, δ⁺); nothing: seen once
@@ -38,7 +39,7 @@ struct SimpleContext{D,S}
     exit_bad_for_actions::Bool
 end
 
-function SimpleContext(system::ModalHybridSystem, p::Float64, g::Float64, δ⁻, δ⁺, alg, maxOrder, reduceOrder, max_depth, exit_bad_for_flow, exit_bad_for_actions)
+function SimpleContext(system::ModalHybridSystem, p::Float64, g::Float64, δ⁻, δ⁺, alg, maxOrder, reduceOrder, max_depth, exit_bad_for_flow, exit_bad_for_actions, fast_block::Int)
     steps = round(Int, p / δ⁻)
     isapprox(steps * δ⁻, p; atol=MODAL_TOL) || throw(ArgumentError("The period $p must be a multiple of δ⁻ = $δ⁻"))
     isinteger(log2(δ⁺ / δ⁻)) || throw(ArgumentError("δ⁺ / δ⁻ must be a power of two"))
@@ -47,6 +48,7 @@ function SimpleContext(system::ModalHybridSystem, p::Float64, g::Float64, δ⁻,
     half = [n == 1 ? (h - l) / 2 : g / 2 for (n, l, h) in zip(grid.numCells, low(system.statespace), high(system.statespace))] # one cell: the whole axis
     cell = Matrix{Float64}(genmat(remove_zero_generators(Zonotope(zeros(D), diagm(half)))))
 
+    unsafe = Halfspaces[getHalfSpaceProjections(H) for H in system.unsafe]
     shared = Dict{Tuple{Matrix{Float64},Vector{Float64},Matrix{Float64}},Dynamics}()
     dyns = [get!(() -> Dynamics(loc.A, loc.U, steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder), shared, (loc.A, LazySets.center(loc.U), genmat(loc.U))) for loc in system.locations]
     end_map(dyn, (T, c)) = (dyn.Φ[steps+1] * T, end_bounds((; grid, steps), dyn, (T, c), Zonotope(zeros(D), cell))...) # linear in the cell's center
@@ -54,8 +56,10 @@ function SimpleContext(system::ModalHybridSystem, p::Float64, g::Float64, δ⁻,
         region = loc.region === nothing ? nothing : getHalfSpaceProjections(loc.region)
         starts = BitArray(loc.starts && box_overlaps_region(region, cell_low(grid, c), cell_low(grid, c) .+ g) for c in CartesianIndices(cellshape(grid)))
         rate = [iszero(view(loc.A, i, :)) && iszero(view(genmat(loc.U), i, :)) ? LazySets.center(loc.U)[i] : NaN for i in 1:D]
+        guards = Halfspaces[getHalfSpaceProjections(e.guard) for e in loc.edges]
+        fast = fast_cells(grid, dyn, loc.U, vcat(guards, unsafe), half, steps, δ⁻, min(δ⁺, δ⁻ * 2^floor(Int, log2(steps))), fast_block)
         act_ends = EndMap[end_map(dyns[a.target], (Matrix{Float64}(a.action.jumpMatrix), Vector{Float64}(a.action.jumpVector))) for a in loc.actions]
-        SimpleLocation(dyn, loc.layer, Halfspaces[getHalfSpaceProjections(e.guard) for e in loc.edges], rate, starts, end_map(dyn, (Matrix{Float64}(I, D, D), zeros(D))), act_ends,
+        SimpleLocation(dyn, loc.layer, guards, rate, starts, fast, end_map(dyn, (Matrix{Float64}(I, D, D), zeros(D))), act_ends,
             [Dict{Tuple{Matrix{Float64},Float64},Union{Nothing,CellDiscretization{D}}}() for _ in 0:max_depth])
     end
     layers = [[li for (li, loc) in enumerate(locations) if loc.layer == layer] for layer in 1:maximum(loc.layer for loc in locations)]
@@ -71,9 +75,37 @@ function SimpleContext(system::ModalHybridSystem, p::Float64, g::Float64, δ⁻,
     end
 
     statespace = getHalfSpaceProjections(hyperrectangle_to_HPolyhedron(system.statespace))
-    unsafe = Halfspaces[getHalfSpaceProjections(H) for H in system.unsafe]
     return SimpleContext(system, grid, steps, δ⁻, δ⁺, alg, maxOrder, reduceOrder, max_depth, locations, layers, unsafe, statespace, cell,
         action_ids, may_act, must_act, CoverCache{D}(), exit_bad_for_flow, exit_bad_for_actions)
+end
+
+# Blocks of b cells per axis whose whole-period flowpipe touches none of sets mark their cells fast; b = 0 marks none.
+function fast_cells(grid::Grid{D}, dyn::Dynamics, U, sets, half, steps, δ⁻, δ⁺, b) where D
+    fast = falses(cellshape(grid))
+    b > 0 || return fast
+    n = Tuple(grid.numCells)
+    bs = min.(b, n)
+    r = [n[i] == 1 ? half[i] : bs[i] * grid.granularity / 2 for i in 1:D]
+    cd = period_discretization(dyn, U, Matrix{Float64}(genmat(remove_zero_generators(Zonotope(zeros(D), diagm(r))))), δ⁻, δ⁺)
+    for k in CartesianIndices(fld.(n, bs))
+        first = (Tuple(k) .- 1) .* bs
+        center = grid.lower .+ first .* grid.granularity .+ r
+        first_touch(dyn, discretize_cell!(cd, center), sets, steps, δ⁻, δ⁺) == steps || continue
+        fast[CartesianIndices(ntuple(i -> first[i] .+ (1:bs[i]), D))] .= true
+    end
+    return fast
+end
+
+# Whether the closed cells covering X's box hull are all fast: then X touches nothing for a period (fast_cells).
+function in_fast(grid::Grid{D}, loc::SimpleLocation{D}, X) where D
+    c, G, g = LazySets.center(X), genmat(X), grid.granularity
+    cells = ntuple(D) do i
+        r = sum(abs, view(G, i, :))
+        f = floor(Int, (c[i] - r - grid.lower[i]) / g) + 1
+        f:max(f, ceil(Int, (c[i] + r - grid.lower[i]) / g))
+    end
+    all(i -> 1 <= first(cells[i]) && last(cells[i]) <= grid.numCells[i], 1:D) || return false
+    return all(k -> loc.fast[k], CartesianIndices(cells))
 end
 
 cell_low(grid::Grid, c::CartesianIndex) = grid.lower .+ (Tuple(c) .- 1) .* grid.granularity
@@ -97,8 +129,9 @@ function reach!(out::Vector{PeriodEnd}, ctx::SimpleContext, li::Int, X, D::Int, 
     total == 0 && (push!(out, (li, X, bounds)); return true)
     loc, dyn = ctx.locations[li], ctx.locations[li].dynamics
     δ⁺ = min(ctx.δ⁺, ctx.δ⁻ * 2^floor(Int, log2(total)))
-    disc = discretize(ctx, li, X, depth, δ⁺)
-    k0 = first_touch(dyn, disc, Iterators.flatten((loc.guards, ctx.unsafe)), total, ctx.δ⁻, δ⁺)
+    fast = W == 0 && in_fast(ctx.grid, loc, X) # nothing to touch: no pieces to walk
+    disc = fast ? nothing : discretize(ctx, li, X, depth, δ⁺)
+    k0 = fast ? total : first_touch(dyn, disc, Iterators.flatten((loc.guards, ctx.unsafe)), total, ctx.δ⁻, δ⁺)
 
     for k in min(k0, W == 0 ? total : D):(total-1)
         piece = minkowski_sum(linear_map(dyn.Φ[k+1], disc[ctx.δ⁻]), dyn.V[k+1])
@@ -177,8 +210,8 @@ end
 # Offline shield like ReACTed_reachable_cell_modal; returns grid, allowed, nothing (no lost), (; ctx).
 function ReACTed_reachable_cell_modal_simple(system::ModalHybridSystem, p, granularity, δ⁻::Float64, δ⁺::Float64,
     alg::ReachabilityAnalysis.Exponentiation.AbstractExpAlg=ReachabilityAnalysis.Exponentiation.BaseExp, maxOrder::Int=5, reduceOrder::Int=5;
-    act_needs_safe_flow::Bool=true, exit_bad_for_flow::Bool=true, exit_bad_for_actions::Bool=true, max_depth::Int=16, verbose::Bool=true)
-    ctx = SimpleContext(system, Float64(p), Float64(granularity), δ⁻, δ⁺, alg, maxOrder, reduceOrder, max_depth, exit_bad_for_flow, exit_bad_for_actions)
+    act_needs_safe_flow::Bool=true, exit_bad_for_flow::Bool=true, exit_bad_for_actions::Bool=true, max_depth::Int=16, fast_block::Int=4, verbose::Bool=true)
+    ctx = SimpleContext(system, Float64(p), Float64(granularity), δ⁻, δ⁺, alg, maxOrder, reduceOrder, max_depth, exit_bad_for_flow, exit_bad_for_actions, fast_block)
     return simple_shield(ctx, act_needs_safe_flow, verbose)
 end
 

@@ -76,7 +76,7 @@ function SimpleContext(system::ModalHybridSystem, p::Float64, g::Float64, δ⁻,
         action_ids, may_act, must_act, CoverCache{D}(), exit_bad_for_flow, exit_bad_for_actions)
 end
 
-cell_low(grid::Grid, c::CartesianIndex) = grid.lower .+ (index_vector(c) .- 1) .* grid.granularity
+cell_low(grid::Grid, c::CartesianIndex) = grid.lower .+ (Tuple(c) .- 1) .* grid.granularity
 starting(ctx::SimpleContext, c::CartesianIndex, layer::Int) = filter(li -> ctx.locations[li].starts[c], ctx.layers[layer])
 can_act(ctx::SimpleContext, c::CartesianIndex, layer::Int, ai::Int) = any(li -> ctx.may_act[li][ai][c], starting(ctx, c, layer))
 flowed(dyn::Dynamics, X, k::Int) = minkowski_sum(linear_map(dyn.Φ[k+1], X), dyn.V[k+1])

@@ -80,5 +80,5 @@ function jump_set(Z, M::Matrix{Float64}, j::Vector{Float64}, maxOrder::Int, redu
     if maxOrder > 0 && LazySets.order(res) > maxOrder
         res = reduce_order(res, reduceOrder)
     end
-    return dense_zonotope(res)
+    return res isa Zonotope{Float64,Vector{Float64},Matrix{Float64}} ? res : dense_zonotope(res) # res owns fresh arrays: no copy needed
 end
